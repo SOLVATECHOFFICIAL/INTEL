@@ -2,13 +2,32 @@ export type SectionId =
   | 'for-you'
   | 'following'
   | 'latest'
-  | 'the-unfiltered'
+  | 'anonymous'
   | 'marketplace'
   | 'trusted-circle'
   | 'opportunities'
   | 'upcoming-events';
 
-export type ActiveRoute = 'overview' | SectionId;
+export type FeedTabId = 'for-you' | 'following' | 'latest';
+
+export type SearchScopeId =
+  | 'home'
+  | 'anonymous'
+  | 'marketplace'
+  | 'trusted-circle'
+  | 'opportunities'
+  | 'upcoming-events';
+
+export type UtilityRouteId =
+  | 'notifications'
+  | 'search'
+  | 'account'
+  | 'profile'
+  | 'admin'
+  | 'login'
+  | 'register';
+
+export type ActiveRoute = SectionId | UtilityRouteId;
 
 export type ViewState = 'empty' | 'loading' | 'error';
 

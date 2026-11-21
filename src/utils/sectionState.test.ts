@@ -8,7 +8,7 @@ import {
   transitionViewState,
 } from './sectionState';
 
-test('defines all 8 required LASUED Intel placeholder sections in order', () => {
+test('defines all 8 required LASUED Intel sections with Anonymous naming', () => {
   assert.equal(PLATFORM_SECTIONS.length, 8);
   assert.deepEqual(
     PLATFORM_SECTIONS.map((s) => s.title),
@@ -16,12 +16,16 @@ test('defines all 8 required LASUED Intel placeholder sections in order', () => 
       'For You',
       'Following',
       'Latest',
-      'The Unfiltered',
+      'Anonymous',
       'Marketplace',
       'Trusted Circle',
       'Opportunities',
       'Upcoming Events',
     ]
+  );
+  assert.equal(
+    PLATFORM_SECTIONS.some((s) => s.title.toLowerCase().includes('unfiltered')),
+    false
   );
 });
 

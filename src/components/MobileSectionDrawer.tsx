@@ -1,13 +1,32 @@
 import React from 'react';
-import { ChevronRight, LayoutGrid, X } from 'lucide-react';
+import {
+  Bell,
+  ChevronRight,
+  ExternalLink,
+  LogIn,
+  LogOut,
+  Search,
+  ShieldCheck,
+  User as UserIcon,
+  UserPlus,
+  X,
+} from 'lucide-react';
 import { PLATFORM_SECTIONS } from '../config/sections';
-import { ActiveRoute } from '../types/platform';
+import { useFirebase } from '../context/firebaseContext';
+import { signOutCurrentUser } from '../services/auth';
+import { ActiveRoute, SearchScopeId } from '../types/platform';
+import { canAccessAdminDashboard } from '../utils/authValidation';
+import { getSearchScopeFromRoute } from '../utils/urlRouting';
 import { SectionIcon } from './SectionIcon';
 
 interface MobileSectionDrawerProps {
   isOpen: boolean;
   activeRoute: ActiveRoute;
-  onSelectRoute: (route: ActiveRoute) => void;
+  onSelectRoute: (
+    route: ActiveRoute,
+    options?: { username?: string; searchScope?: SearchScopeId }
+  ) => void;
+  onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
   onClose: () => void;
 }
 
@@ -15,14 +34,35 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
   isOpen,
   activeRoute,
   onSelectRoute,
+  onRequireAuth,
   onClose,
 }) => {
+  const { user, profile, effectiveTier, isSuspended } = useFirebase();
+
   if (!isOpen) return null;
 
-  const handlePick = (route: ActiveRoute) => {
-    onSelectRoute(route);
+  const currentSearchScope = getSearchScopeFromRoute(activeRoute);
+
+  const handlePick = (
+    route: ActiveRoute,
+    options?: { username?: string; searchScope?: SearchScopeId }
+  ) => {
+    onSelectRoute(route, options);
     onClose();
   };
+
+  const handleAuth = (authRoute: 'login' | 'register') => {
+    onRequireAuth(authRoute, activeRoute);
+    onClose();
+  };
+
+  const handleSignOut = async () => {
+    await signOutCurrentUser();
+    onSelectRoute('for-you');
+    onClose();
+  };
+
+  const showAdminLink = canAccessAdminDashboard(effectiveTier, isSuspended);
 
   return (
     <div
@@ -47,37 +87,133 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
               id="mobile-sections-title"
               className="font-display text-lg font-bold text-[#0B1A2E]"
             >
-              LASUED Intel Sections
+              LASUED Intel Menu
             </h2>
             <p className="text-xs text-slate-500">
-              Select a campus section to view its foundation state
+              {user
+                ? profile?.fullName || user.email || 'Signed in'
+                : 'Browsing as guest'}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close sections menu"
+            aria-label="Close menu"
             className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
+        {/* Account / Auth Actions */}
+        <div className="mt-3 space-y-1.5 border-b border-slate-100 pb-3">
+          {user ? (
+            <>
+              {profile?.username && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handlePick('profile', { username: profile.username })
+                  }
+                  className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                >
+                  <span className="flex items-center gap-3">
+                    <ExternalLink
+                      className="h-4 w-4 text-[#1E88E5]"
+                      aria-hidden="true"
+                    />
+                    My Public Profile (@{profile.username})
+                  </span>
+                  <ChevronRight
+                    className="h-4 w-4 text-slate-400"
+                    aria-hidden="true"
+                  />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handlePick('account')}
+                className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+              >
+                <span className="flex items-center gap-3">
+                  <UserIcon className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                  Account Settings
+                </span>
+                <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+              </button>
+
+              {showAdminLink && (
+                <button
+                  type="button"
+                  onClick={() => handlePick('admin')}
+                  className="flex min-h-[48px] w-full items-center justify-between rounded-xl bg-[#0B1A2E] px-3.5 py-2.5 text-left text-sm font-semibold text-white"
+                >
+                  <span className="flex items-center gap-3">
+                    <ShieldCheck className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                    Administrator Dashboard
+                  </span>
+                  <ChevronRight className="h-4 w-4 opacity-70" aria-hidden="true" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void handleSignOut()}
+                className="flex min-h-[48px] w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-red-700 hover:bg-red-50"
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleAuth('login')}
+                className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-[#0B1A2E]"
+              >
+                <LogIn className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAuth('register')}
+                className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-[#1E88E5] px-3 text-sm font-semibold text-white"
+              >
+                <UserPlus className="h-4 w-4" aria-hidden="true" />
+                Register
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Discovery & Secondary Sections */}
         <div className="mt-3 space-y-1">
           <button
             type="button"
-            onClick={() => handlePick('overview')}
-            className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold ${
-              activeRoute === 'overview'
-                ? 'bg-[#0B1A2E] text-white'
-                : 'text-[#0B1A2E] hover:bg-slate-50'
-            }`}
+            onClick={() =>
+              handlePick('search', { searchScope: currentSearchScope })
+            }
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <span className="flex items-center gap-3">
-              <LayoutGrid className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-              Platform Overview (All 8)
+              <Search className="h-4 w-4 text-slate-500" aria-hidden="true" />
+              Search and Discovery
             </span>
-            <ChevronRight className="h-4 w-4 opacity-60" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handlePick('notifications')}
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <span className="flex items-center gap-3">
+              <Bell className="h-4 w-4 text-slate-500" aria-hidden="true" />
+              Notifications
+            </span>
+            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
           </button>
 
           {PLATFORM_SECTIONS.map((section) => {

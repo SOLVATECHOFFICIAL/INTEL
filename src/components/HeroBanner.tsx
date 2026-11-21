@@ -67,7 +67,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
                 Campus Streams
               </p>
               <p className="mt-1 text-sm leading-relaxed text-slate-200">
-                For You · Following · Latest · The Unfiltered
+                For You · Following · Latest · Anonymous
               </p>
             </div>
             <div className="border-t border-white/10 pt-4">

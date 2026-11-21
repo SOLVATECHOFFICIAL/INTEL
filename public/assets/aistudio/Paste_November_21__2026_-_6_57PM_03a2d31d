@@ -1,0 +1,983 @@
+
+LASUED INTEL — MASTER PRODUCT SPECIFICATION AND FIREBASE BACKEND FOUNDATION
+PROMPT 2
+
+You are continuing development of an existing project called LASUED Intel.
+
+This is NOT a generic social media website, a school blog, a demo application or a simple student forum.
+
+It is a complete student information, community, discovery, marketplace and campus networking platform designed primarily for LASUED students, lecturers and the wider LASUED community.
+
+You must understand the entire product before making backend decisions.
+
+IMPORTANT:
+This prompt establishes the product architecture, Firebase integration, database structure, authentication foundation and security model.
+
+Do not attempt to implement every finished feature in this prompt. Later prompts will implement the features individually using this specification.
+
+==================================================
+PART 1 — EXISTING PROJECT PRESERVATION
+==================================================
+
+First inspect the entire existing project.
+
+Prompt 1 has already established the initial website foundation and visual design.
+
+Preserve the existing working design, components, responsive layout and file structure wherever possible.
+
+Do not unnecessarily rebuild the website.
+
+IMPORTANT ROOT FILE RULES:
+
+The following files must remain directly in the project root:
+
+- index.html
+- lasued-intel.webp
+
+The logo must always be referenced using:
+
+./lasued-intel.webp
+
+Never move either file into public, assets, images or another directory.
+
+The website must continue loading the root-level logo correctly.
+
+The logo will be replaced manually through GitHub later.
+
+Do not create another logo filename or duplicate the image.
+
+Keep the existing project compatible with its current framework and build system.
+
+Before changing files, inspect them and understand their purpose.
+
+Do not delete working files just to simplify the architecture.
+
+==================================================
+PART 2 — PRODUCT IDENTITY
+==================================================
+
+Website name: LASUED Intel
+
+Tagline:
+Your Campus. Your Information. Your Community.
+
+Brand colours:
+
+Navy: #0B1A2E
+Bright blue: #1E88E5
+White: #FFFFFF
+
+The platform must be:
+
+- Mobile-first.
+- Responsive on Android, tablets and desktops.
+- Lightweight.
+- Fast on slower Nigerian internet connections.
+- Easy to navigate.
+- Professionally designed.
+- Accessible to ordinary students.
+- Structured for future expansion.
+
+Do not turn this into a generic template.
+
+==================================================
+PART 3 — UNDERSTAND THE COMPLETE PLATFORM
+==================================================
+
+LASUED Intel contains the following main sections:
+
+1. For You
+2. Following
+3. Latest
+4. The Unfiltered
+5. Marketplace
+6. Trusted Circle
+7. Opportunities
+8. Upcoming Events
+9. Member Profiles
+10. Notifications
+11. Search and Discovery
+12. Administrator Dashboard
+
+PUBLIC ACCESS:
+
+Visitors should be able to browse public content without creating an account.
+
+An account is required for actions such as:
+
+- Following members.
+- Liking posts.
+- Commenting.
+- Replying.
+- Publishing permitted content.
+- Creating marketplace listings.
+- Saving content privately.
+- Managing personal settings.
+
+No in-app private messaging system is required.
+
+There must be no message requests or private inbox.
+
+Members can contact one another through WhatsApp when a contact number has been made public.
+
+==================================================
+PART 4 — ACCOUNT AND AUTHENTICATION ARCHITECTURE
+==================================================
+
+Use Firebase Authentication for real account identity.
+
+Prepare support for:
+
+- Email and password authentication.
+- Google Sign-In.
+- Secure sign-out.
+- Password recovery.
+- Authentication state persistence.
+- Account creation.
+- Account status checking.
+
+Do not build fake authentication.
+
+The private authentication email is used for account identity and recovery. It must not automatically become publicly visible.
+
+A member's profile information should be stored separately from authentication credentials.
+
+Member information can include:
+
+- Full name.
+- Username.
+- Unique internal member ID.
+- Profile photograph.
+- Cover photograph.
+- Biography.
+- Department.
+- Level.
+- Phone number.
+- WhatsApp number.
+- Optional public contact email.
+- Account creation date.
+- Account status.
+- Badge information.
+- Public profile settings.
+
+Phone numbers must not automatically be exposed publicly.
+
+A member must control whether their WhatsApp contact is displayed publicly.
+
+Use appropriate validation and prevent duplicate usernames.
+
+Do not store plain-text passwords in Firestore.
+
+Do not store passwords in profile documents.
+
+Do not allow users to change their own administrative roles or badges.
+
+==================================================
+PART 5 — BADGE AND ADMINISTRATIVE AUTHORITY
+==================================================
+
+This is a critical part of the platform.
+
+There are three visible badge types.
+
+A. SUPREME ADMIN
+
+Appearance:
+Purple, thick, shiny and visually distinctive.
+
+This represents the highest ordinary platform administrator authority.
+
+B. MODERATOR
+
+Appearance:
+Red badge.
+
+Moderators are appointed by Supreme Admin.
+
+Moderator powers:
+
+- Delete ordinary members' posts.
+- Delete ordinary members' anonymous posts and anonymous replies.
+- Moderate ordinary members' comments and replies.
+- Approve ordinary members' marketplace listings.
+- Perform the permitted content-management operations assigned to moderators.
+
+Moderator restrictions:
+
+- Cannot reveal anonymous identities.
+- Cannot suspend accounts.
+- Cannot grant, remove or change badges.
+- Cannot manage other administrator accounts.
+- Cannot delete or alter content belonging to Verified users.
+- Cannot delete or alter content belonging to other Moderators.
+- Cannot change the role of another user.
+- Cannot remove a Verified or Moderator badge.
+- Cannot override Supreme Admin authority.
+
+Moderator content deletions are permanent.
+
+C. VERIFIED
+
+Appearance:
+Green badge.
+
+Verified users can publish ordinary community updates.
+
+They can:
+
+- Publish updates.
+- Comment.
+- Reply.
+- Like content.
+- Participate in permitted platform activities.
+
+They cannot:
+
+- Delete other people's content.
+- Moderate other members.
+- Approve marketplace listings on behalf of administrators.
+- Grant or remove badges.
+- Manage accounts.
+
+BADGE MANAGEMENT:
+
+Only Supreme Admin can:
+
+- Grant Verified badges.
+- Remove Verified badges.
+- Grant Moderator badges.
+- Remove Moderator badges.
+- Promote a Verified user to Moderator.
+- Manage administrator accounts and permissions.
+
+A Moderator cannot manage another Moderator or Verified account.
+
+A Supreme Admin can moderate content from every account, including Moderators and Verified users.
+
+==================================================
+PART 6 — HIDDEN PLATFORM OWNER AND CUSTOMER ADMINISTRATOR
+==================================================
+
+The system must support a permanent platform owner account and a separate customer administrator account.
+
+PLATFORM OWNER:
+
+The original developer is the platform owner.
+
+The owner must:
+
+- Have the highest backend authority.
+- Be able to access the administrator dashboard.
+- Be able to perform all administrative operations.
+- Be able to grant and revoke badges.
+- Be able to manage customer administrator permissions.
+- Be protected against removal or demotion by another administrator.
+
+The owner should not appear in the ordinary public member directory or customer-facing administrator directory.
+
+The owner account must remain a real authenticated account, not a fake hidden user.
+
+CUSTOMER ADMINISTRATOR:
+
+The customer receives a Supreme Admin account.
+
+The customer can manage the platform according to Supreme Admin permissions.
+
+The customer must not be able to remove, demote or take ownership of the permanent platform owner account.
+
+The owner and customer administrator must be separate authenticated accounts.
+
+Do not invent the customer's email address.
+
+Do not create fake customer credentials.
+
+The customer's account will be added when their real email is available.
+
+SECURITY REQUIREMENT:
+
+Use trusted server-side role management.
+
+Use Firebase Admin SDK custom claims or another secure server-side role mechanism supported by the project.
+
+Never let frontend JavaScript assign administrator privileges.
+
+Never allow a user to grant themselves Supreme Admin, Moderator or Verified status.
+
+If a secure owner-bootstrap procedure requires manual action, explain exactly what is required. Never create an insecure public endpoint that allows the first person to register to become administrator.
+
+The owner's hidden directory status must not be confused with actual security. Enforce owner protection in the backend.
+
+==================================================
+PART 7 — THE UNFILTERED
+==================================================
+
+This is a separate anonymous community section.
+
+Members can publish anonymous posts.
+
+Anonymous posts publish immediately. They do not require administrator approval.
+
+All contributions must appear anonymous:
+
+- Posts.
+- Comments.
+- Replies.
+- Likes and reactions.
+- Administrator replies made inside this section.
+
+An administrator replying in The Unfiltered must also appear anonymous.
+
+ANONYMOUS PRIVACY:
+
+No public profile should display anonymous posts.
+
+Anonymous posts must not appear in:
+
+- Member profile timelines.
+- Public member activity.
+- Public member post history.
+- Public profile search results.
+
+Only Supreme Admin can reveal the real account behind an anonymous contribution.
+
+Moderators cannot reveal anonymous identities.
+
+IMPORTANT BACKEND ARCHITECTURE:
+
+Never put the real author's UID or private account identity in a publicly readable anonymous post document.
+
+Separate public anonymous content from private identity mappings.
+
+The public anonymous feed must not expose:
+
+- Author UID.
+- Author email.
+- Author phone number.
+- Real name.
+- Private profile link.
+- Any direct identifier.
+
+Private anonymous identity mappings must only be accessible through a secure server-side operation that verifies Supreme Admin authority.
+
+Moderator operations must never return private anonymous identity information.
+
+Keep private audit records when Supreme Admin reveals an identity.
+
+Do not expose those audit records to ordinary members or Moderators.
+
+ANONYMOUS FEED:
+
+- Newest posts first.
+- Use reliable server timestamps.
+- Avoid duplicate posts when refreshing.
+- Support comments and nested replies.
+- Support likes and reactions.
+- Support search and categories.
+- Support private saved posts.
+- Support shareable post links.
+
+Deleting a post must eventually delete its nested replies and associated interaction records.
+
+Do not pretend Firestore automatically cascades deletes. Design a secure server-side deletion operation for later implementation.
+
+PERMISSION CONFLICT RULE:
+
+If a Moderator is prohibited from deleting content belonging to Verified or Moderator users, that protection also applies to their anonymous contributions.
+
+The backend must enforce this even though the Moderator cannot see the anonymous author's identity.
+
+==================================================
+PART 8 — MAIN COMMUNITY FEED
+==================================================
+
+The ordinary community feed has three main views:
+
+FOR YOU:
+A recommendation feed that adapts to member interests and engagement.
+
+FOLLOWING:
+Content from accounts the member follows.
+
+LATEST:
+Newest published content first.
+
+Only the following accounts can publish ordinary community updates:
+
+- Supreme Admin.
+- Moderators.
+- Verified members.
+
+Ordinary members cannot publish ordinary feed updates.
+
+Ordinary members can interact with published updates through likes, comments and replies.
+
+Posts can support text and photographs.
+
+Do not implement video uploads in the initial version.
+
+Support appropriate editing and deletion permissions.
+
+ADMINISTRATORS should be able to pin and manage official updates.
+
+==================================================
+PART 9 — RECOMMENDATION SYSTEM
+==================================================
+
+For You should eventually use a recommendation algorithm.
+
+It can consider appropriate activity signals such as:
+
+- Followed accounts.
+- Likes.
+- Searches.
+- Categories viewed.
+- Marketplace browsing.
+- Content engagement.
+- Reading or viewing duration.
+
+The recommendation system must run in the background.
+
+Do not add a visible chatbot.
+
+Do not pretend every page refresh requires an expensive AI model call.
+
+The algorithm must:
+
+- Reduce repeated content.
+- Prioritise relevant recent content.
+- Consider followed accounts.
+- Diversify recommendations.
+- Exclude deleted and expired content.
+- Avoid inventing school announcements or opportunities.
+
+Official content must remain distinguishable from ordinary member content.
+
+==================================================
+PART 10 — MARKETPLACE
+==================================================
+
+Members can list:
+
+- Products.
+- Services.
+- Accommodation.
+
+Visitors can browse listings without an account.
+
+Members can create listings after registering.
+
+Listings can contain:
+
+- Title.
+- Description.
+- Category.
+- Price.
+- Photographs.
+- Seller information.
+- WhatsApp contact.
+- Quantity where applicable.
+- Creation timestamp.
+- Approval status.
+- Availability status.
+- Expiry timestamp.
+
+APPROVAL RULES:
+
+Ordinary members' listings require approval from Supreme Admin or Moderator.
+
+Verified, Moderator and Supreme Admin accounts can publish listings without ordinary-member approval.
+
+Do not allow double approval of an already approved listing.
+
+EXPIRY SYSTEM:
+
+Listings remain available until sold or expired.
+
+A seven-day availability countdown begins when the listing becomes active.
+
+The countdown must reduce based on actual timestamps, not a browser-only timer.
+
+The seller can press "Still Available" to reset the seven-day period.
+
+If the seller does not confirm availability within seven days, the listing should expire or disappear from active listings.
+
+For listings with quantities:
+
+- Allow sellers to update quantities.
+- Allow items to be marked sold.
+- When the available quantity reaches zero, mark the listing sold and remove it from active listings.
+
+There is no in-app payment system.
+
+There is no bank account management system.
+
+Buyers contact sellers through WhatsApp.
+
+Do not introduce payment collection or transaction processing.
+
+==================================================
+PART 11 — TRUSTED CIRCLE
+==================================================
+
+Trusted Circle contains:
+
+1. Verified account holders.
+2. Moderator account holders.
+3. Administrator-listed contact records.
+
+The administrator must be able to add lecturer and student representative contact records.
+
+These records are NOT real user accounts.
+
+They do not have:
+
+- Login credentials.
+- Member dashboards.
+- Publishing permissions.
+- Commenting permissions.
+- Liking permissions.
+- Following permissions.
+
+They are contact-directory entries only.
+
+Possible categories:
+
+- Lecturers.
+- Department representatives.
+- Faculty presidents.
+- Class representatives.
+- Departmental executives.
+- Student union representatives.
+
+An entry can contain:
+
+- Full name.
+- Role.
+- Department.
+- Faculty.
+- Photograph where available.
+- Contact number.
+- WhatsApp contact link.
+- Short description.
+
+Clearly identify these entries as administrator-listed contacts.
+
+Never falsely label an administrator-listed contact as a registered user or verified account.
+
+The administrator will add these contacts after launch.
+
+==================================================
+PART 12 — OPPORTUNITIES
+==================================================
+
+Only Supreme Admin and permitted administrators can publish opportunities.
+
+Opportunities may include:
+
+- Scholarships.
+- Internships.
+- Jobs.
+- Competitions.
+- Grants.
+- Training.
+- Educational programmes.
+
+Each opportunity can contain:
+
+- Title.
+- Organisation.
+- Description.
+- Eligibility.
+- Deadline.
+- Required documents.
+- Benefits.
+- Application instructions.
+- External application link.
+- Contact information.
+- Publication timestamp.
+- Expiry status.
+
+Members and visitors can browse opportunities.
+
+Application links must open the actual external destination.
+
+Do not invent opportunities.
+
+==================================================
+PART 13 — UPCOMING EVENTS
+==================================================
+
+Only permitted administrators can publish events.
+
+Event information can include:
+
+- Event title.
+- Description.
+- Banner.
+- Date.
+- Time.
+- Venue.
+- Online meeting link where relevant.
+- Organiser.
+- Registration link.
+- Instructions.
+
+Past events should eventually move into a Past Events section automatically.
+
+==================================================
+PART 14 — MEMBER PROFILES AND FOLLOWING
+==================================================
+
+Members have public profiles.
+
+Profiles can display:
+
+- Name.
+- Username.
+- Profile photograph.
+- Cover photograph.
+- Biography.
+- Department.
+- Level.
+- Badge.
+- Public posts.
+- Marketplace listings.
+- Followers.
+- Following.
+
+Members can follow and unfollow other members.
+
+Follower and following counts should be visible.
+
+Follower and following lists can be publicly viewed.
+
+Anonymous posts must never appear on profiles.
+
+Private contact information must remain private unless the member explicitly chooses to publish it.
+
+==================================================
+PART 15 — NOTIFICATIONS
+==================================================
+
+The platform needs a central notification system.
+
+Potential notification events:
+
+- Comments.
+- Replies.
+- Anonymous replies.
+- Likes and reactions where appropriate.
+- Marketplace approval.
+- Marketplace rejection.
+- Marketplace expiry.
+- New opportunities.
+- New events.
+- Badge changes.
+- Account changes.
+- Platform announcements.
+
+Notifications must not reveal anonymous identities.
+
+Notifications should support:
+
+- Mark as read.
+- Mark all as read.
+- Open the relevant content.
+- Delete notifications.
+- Notification history.
+- User notification preferences.
+
+There is no private messaging feature.
+
+WhatsApp reminders may be considered later as an optional feature. Do not pretend automatic WhatsApp messaging is already configured.
+
+==================================================
+PART 16 — DATABASE ARCHITECTURE
+==================================================
+
+Use Cloud Firestore for structured application data.
+
+Design a clean, scalable database structure.
+
+Prepare the architecture for collections such as:
+
+- users
+- privateUserData
+- posts
+- postComments
+- follows
+- postReactions
+- anonymousPosts
+- anonymousComments
+- anonymousIdentityMappings
+- anonymousAuditLogs
+- savedPosts
+- marketplaceListings
+- trustedContacts
+- opportunities
+- events
+- notifications
+- polls
+- platformSettings
+
+Additional collections or subcollections may be introduced where technically appropriate.
+
+Do not create unnecessary collections.
+
+Use stable document IDs.
+
+Use server timestamps for important creation and update times.
+
+Use appropriate fields for:
+
+- createdAt
+- updatedAt
+- expiresAt
+- status
+- ownerUID
+- role
+- visibility
+
+Separate private information from publicly readable information.
+
+Do not store large photographs or videos as Base64 strings in Firestore.
+
+Do not store large media files directly inside Firestore documents.
+
+For now, prepare media URL fields and a media architecture that can be connected to an appropriate storage service later.
+
+Do not enable unnecessary paid storage services without approval.
+
+No video upload functionality is required in the initial release.
+
+==================================================
+PART 17 — FIREBASE SECURITY
+==================================================
+
+This is one of the most important requirements.
+
+Use real Firebase services, not mock implementations.
+
+Set up:
+
+1. Firebase Authentication.
+2. Cloud Firestore.
+3. Firestore Security Rules.
+4. Required Firestore indexes where possible.
+5. Secure Firebase configuration.
+6. A trusted server-side administrative architecture.
+
+SECURITY RULE PRINCIPLES:
+
+Default deny.
+
+Only allow operations that are explicitly permitted.
+
+Users must not read another user's private account information.
+
+Users must not modify another user's profile.
+
+Users must not change their own roles or badges.
+
+Ordinary members must not publish ordinary community feed posts.
+
+Only permitted roles can publish ordinary feed updates.
+
+Only permitted administrators can publish opportunities and events.
+
+Marketplace approval must follow the permission hierarchy.
+
+Moderators must not alter Verified or Moderator accounts or their content.
+
+Only Supreme Admin can reveal anonymous identities.
+
+Anonymous identity mappings must never be publicly readable.
+
+No user may grant themselves administrator privileges.
+
+No public client-side operation may grant badges.
+
+Do not use rules that simply allow all authenticated users to read and write everything.
+
+Do not use broad wildcard permissions as a shortcut.
+
+Do not rely on hidden buttons as a security measure.
+
+The database itself must enforce permissions.
+
+Use server-side validation for privileged operations.
+
+Create a documented permission matrix so every role's capabilities are clear.
+
+==================================================
+PART 18 — SECURITY AND DATA PROTECTION
+==================================================
+
+Never place:
+
+- Service account private keys.
+- Admin SDK credentials.
+- Private API secrets.
+- Passwords.
+- One-time owner bootstrap secrets.
+
+inside frontend code or public GitHub files.
+
+Keep privileged operations on a trusted server-side runtime.
+
+Validate all incoming data.
+
+Prevent unauthorized role escalation.
+
+Protect private contact information.
+
+Use appropriate access controls for notifications, saved posts and private data.
+
+Create private administrative audit records for sensitive actions.
+
+Do not create a public reports system or a report button. That feature is not part of this specification.
+
+Do not introduce a banking system.
+
+Do not introduce payment processing.
+
+Do not introduce an in-app chat system.
+
+==================================================
+PART 19 — TECHNICAL ARCHITECTURE
+==================================================
+
+Use the existing project's framework and architecture.
+
+Firebase services:
+
+- Firebase Authentication.
+- Cloud Firestore.
+- Firestore Security Rules.
+
+Use Firebase Admin SDK only in a trusted server-side environment for privileged operations.
+
+Use a clean reusable Firebase client configuration.
+
+Keep backend code separate from frontend components.
+
+Keep database access logic organised.
+
+Use environment variables or secure configuration for secrets.
+
+Do not expose private credentials.
+
+Do not introduce unnecessary dependencies.
+
+Do not switch frameworks without a compelling technical reason.
+
+Do not break the existing homepage or branding.
+
+==================================================
+PART 20 — WHAT YOU MUST DO NOW
+==================================================
+
+Complete the following tasks in this prompt:
+
+TASK 1:
+Inspect the entire existing codebase and report the current structure.
+
+TASK 2:
+Understand and document the complete LASUED Intel product architecture described above.
+
+TASK 3:
+Initiate the REAL Firebase integration using Google AI Studio's supported Firebase integration.
+
+TASK 4:
+Create or connect the actual Firebase project with my approval.
+
+TASK 5:
+Provision Cloud Firestore.
+
+TASK 6:
+Enable Firebase Authentication.
+
+TASK 7:
+Generate and configure secure Firestore Security Rules based on this complete specification.
+
+TASK 8:
+Prepare the database schema and collection architecture.
+
+TASK 9:
+Prepare the trusted server-side administrative role architecture.
+
+TASK 10:
+Prepare the private anonymous identity architecture.
+
+TASK 11:
+Prepare any necessary Firestore indexes and configuration files.
+
+TASK 12:
+Create or update project documentation explaining the backend architecture.
+
+TASK 13:
+Check that the existing homepage, index.html and root-level logo reference still work.
+
+TASK 14:
+Check for compilation errors and broken imports.
+
+==================================================
+PART 21 — STRICT EXECUTION RULES
+==================================================
+
+Do not pretend Firebase is connected if it is not.
+
+Do not create a fake Firebase configuration.
+
+Do not use localStorage as a replacement for a real database.
+
+Do not use hardcoded fake accounts.
+
+Do not use mock authentication.
+
+Do not use fake database operations.
+
+Do not claim that security rules are deployed unless they really are.
+
+Do not silently choose a permanent database region.
+
+When the Firebase integration setup card appears, explain that I must approve the Firebase project and region selection.
+
+Choose a supported region suitable for users in Nigeria, but show me the available choices before making the irreversible selection.
+
+Do not enable paid billing or upgrade to a paid plan without my explicit approval.
+
+If any operation requires my manual approval, stop and explain exactly what I must click.
+
+If a requested operation cannot be completed through the available Google AI Studio integration, explain the limitation instead of pretending it succeeded.
+
+Do not delete the existing project.
+
+Do not replace working files with a new template.
+
+Do not begin implementing all the individual platform features yet.
+
+==================================================
+PART 22 — FINAL REPORT
+==================================================
+
+When finished, provide a clear report containing:
+
+1. What you inspected.
+2. Whether Firebase was actually connected.
+3. Firebase project ID.
+4. Firestore database status.
+5. Authentication status.
+6. Authentication providers enabled.
+7. Security Rules created and whether deployed.
+8. Database collections and architecture prepared.
+9. Server-side role architecture status.
+10. Anonymous identity protection status.
+11. Files created or modified.
+12. Any manual actions still required.
+13. Any unresolved security or technical limitations.
+14. Confirmation that the original homepage and logo path remain intact.
+
+Do not claim a task is complete when it is only planned.
+
+The goal is to establish a secure, real backend foundation for LASUED Intel so future prompts can implement the individual features without redesigning the entire system.

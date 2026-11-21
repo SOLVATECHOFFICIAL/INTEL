@@ -27,7 +27,7 @@ export const SectionIcon: React.FC<SectionIconProps> = ({
       return <Users className={className} aria-hidden="true" />;
     case 'latest':
       return <Clock className={className} aria-hidden="true" />;
-    case 'the-unfiltered':
+    case 'anonymous':
       return <MessageSquare className={className} aria-hidden="true" />;
     case 'marketplace':
       return <ShoppingBag className={className} aria-hidden="true" />;
