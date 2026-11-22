@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bookmark,
@@ -40,6 +40,12 @@ import {
   saveProfileMediaImage,
   type UploadProgressState,
 } from '../../services/mediaStorage';
+import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
+import {
+  getProfileSessionSnapshot,
+  hydrateProfileSnapshot,
+  saveProfileSessionSnapshot,
+} from '../../services/navigationStateCache';
 import {
   deletePostCascading,
   fetchMyAnonymousHistory,
@@ -66,6 +72,10 @@ import {
   toPublicProfileProjection,
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
+import {
+  mergeCommunityPostItems,
+  mergeOrderedRecords,
+} from '../../utils/cacheSync';
 import {
   compressImageFile,
   type CompressedImageResult,
@@ -95,6 +105,7 @@ import { ProfileMenuSheet } from '../profile/ProfileMenuSheet';
 interface MemberProfilePageProps {
   username: string | null;
   initialTab?: ProfileTab | null;
+  onTabChange?: (tab: ProfileTab) => void;
   onNavigate: (
     route: ActiveRoute,
     options?: {
@@ -103,6 +114,7 @@ interface MemberProfilePageProps {
       searchScope?: SearchScopeId;
       opportunityId?: string | null;
       eventId?: string | null;
+      listingId?: string | null;
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -128,6 +140,7 @@ function formatHistoryTimestamp(value: unknown): string {
 export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   username,
   initialTab,
+  onTabChange,
   onNavigate,
   onRequireAuth,
   onBack,
@@ -141,30 +154,67 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     refreshAccountState,
   } = useFirebase();
 
+  const viewerKey = user?.uid ?? 'guest';
   const effectiveUsername =
     username?.trim().toLowerCase() || viewerProfile?.username || null;
+  const initialSnapshot = effectiveUsername
+    ? getProfileSessionSnapshot(viewerKey, effectiveUsername)
+    : null;
 
-  const [bundle, setBundle] = useState<MemberProfileBundle | null>(null);
+  const [bundle, setBundle] = useState<MemberProfileBundle | null>(
+    () => initialSnapshot?.bundle ?? null
+  );
   const [loadState, setLoadState] = useState<
     'loading' | 'ready' | 'not_found' | 'needs_setup' | 'error'
-  >(() => (effectiveUsername ? 'loading' : 'not_found'));
+  >(() =>
+    initialSnapshot?.bundle
+      ? 'ready'
+      : effectiveUsername
+      ? 'loading'
+      : 'not_found'
+  );
   const [retryToken, setRetryToken] = useState(0);
+  const lastHandledRetryRef = useRef(0);
+  const hydratedProfileKeyRef = useRef<string | null>(
+    initialSnapshot && effectiveUsername
+      ? `${viewerKey}:${effectiveUsername}`
+      : null
+  );
 
-  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
-  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
-  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(new Set());
-  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(new Set());
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(
+    () => initialSnapshot?.likedPostIds ?? new Set()
+  );
+  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(
+    () => initialSnapshot?.savedPostIds ?? new Set()
+  );
+  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(
+    () => initialSnapshot?.likedAnonIds ?? new Set()
+  );
+  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(
+    () => initialSnapshot?.savedAnonIds ?? new Set()
+  );
   const [ownedAnonCommentIds, setOwnedAnonCommentIds] = useState<Set<string>>(
-    new Set()
+    () => initialSnapshot?.ownedAnonCommentIds ?? new Set()
   );
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>(
-    initialTab ?? 'posts'
-  );
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() => {
+    if (initialTab && initialTab !== 'followers' && initialTab !== 'following') {
+      return initialTab;
+    }
+    return initialSnapshot?.activeTab ?? 'posts';
+  });
 
   // Lazy owner-only data states
-  const [savedBundle, setSavedBundle] = useState<SavedContentBundle | null>(null);
-  const [anonHistory, setAnonHistory] = useState<AnonymousPost[] | null>(null);
+  const [savedBundle, setSavedBundle] = useState<SavedContentBundle | null>(() =>
+    user?.uid && initialSnapshot?.bundle.isOwnProfile
+      ? initialSnapshot.savedBundle
+      : null
+  );
+  const [anonHistory, setAnonHistory] = useState<AnonymousPost[] | null>(() =>
+    user?.uid && initialSnapshot?.bundle.isOwnProfile
+      ? initialSnapshot.anonHistory
+      : null
+  );
 
   // Followers / Following sheet
   const [followModalKind, setFollowModalKind] = useState<
@@ -172,20 +222,28 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   >(() =>
     initialTab === 'followers' || initialTab === 'following'
       ? initialTab
-      : null
+      : initialSnapshot?.followModalKind ?? null
   );
   const [followModalList, setFollowModalList] = useState<
     PublicProfileProjection[] | null
-  >(null);
+  >(() =>
+    initialSnapshot && initialSnapshot.followModalKind
+      ? initialSnapshot.followList
+      : null
+  );
   const [followModalCursor, setFollowModalCursor] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [followModalHasMore, setFollowModalHasMore] = useState(false);
+    useState<QueryDocumentSnapshot<DocumentData> | null>(
+      () => initialSnapshot?.followCursor ?? null
+    );
+  const [followModalHasMore, setFollowModalHasMore] = useState(
+    () => initialSnapshot?.followHasMore ?? false
+  );
   const [followModalLoadingMore, setFollowModalLoadingMore] = useState(false);
   const [followModalError, setFollowModalError] = useState<string | null>(null);
 
   // Modals & sheets
   const [detailTarget, setDetailTarget] = useState<DetailModalTarget | null>(
-    null
+    () => initialSnapshot?.detailTarget ?? null
   );
   const [editingOrdinaryPost, setEditingOrdinaryPost] =
     useState<CommunityPost | null>(null);
@@ -225,54 +283,134 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   const [actionError, setActionError] = useState<string | null>(null);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
 
-  // Fetch main profile bundle + viewer interaction flags
+  // Persist profile session snapshot per viewer
   useEffect(() => {
-    if (!effectiveUsername) {
-      return;
-    }
+    if (loadState !== 'ready' || !bundle || !effectiveUsername) return;
+    const allowOwnerPrivate = Boolean(user?.uid && bundle.isOwnProfile);
+    saveProfileSessionSnapshot({
+      viewerKey,
+      username: bundle.resolvedUsername || effectiveUsername,
+      bundle,
+      activeTab,
+      likedPostIds,
+      savedPostIds,
+      likedAnonIds,
+      savedAnonIds,
+      ownedAnonCommentIds,
+      savedBundle: allowOwnerPrivate ? savedBundle : null,
+      anonHistory: allowOwnerPrivate ? anonHistory : null,
+      detailTarget,
+      followModalKind,
+      followList: followModalList ?? [],
+      followCursor: followModalCursor,
+      followHasMore: followModalHasMore,
+      cachedAt: Date.now(),
+    });
+  }, [
+    viewerKey,
+    user?.uid,
+    effectiveUsername,
+    loadState,
+    bundle,
+    activeTab,
+    likedPostIds,
+    savedPostIds,
+    likedAnonIds,
+    savedAnonIds,
+    ownedAnonCommentIds,
+    savedBundle,
+    anonHistory,
+    detailTarget,
+    followModalKind,
+    followModalList,
+    followModalCursor,
+    followModalHasMore,
+  ]);
 
-    let active = true;
+  const syncProfileFromNetwork = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      if (!effectiveUsername) return;
+      const profileCacheKey = `${viewerKey}:${effectiveUsername}`;
+      const viewerUid = user?.uid ?? null;
 
-    Promise.all([
-      fetchMemberProfileBundleByUsername(effectiveUsername, user?.uid ?? null),
-      user?.uid
-        ? fetchViewerLikedPostIds('posts', user.uid).catch(
-            () => new Set<string>()
-          )
-        : Promise.resolve(new Set<string>()),
-      user?.uid
-        ? fetchViewerSavedPostIds('posts', user.uid).catch(
-            () => new Set<string>()
-          )
-        : Promise.resolve(new Set<string>()),
-      user?.uid
-        ? fetchViewerLikedPostIds('anonymousPosts', user.uid).catch(
-            () => new Set<string>()
-          )
-        : Promise.resolve(new Set<string>()),
-      user?.uid
-        ? fetchViewerSavedPostIds('anonymousPosts', user.uid).catch(
-            () => new Set<string>()
-          )
-        : Promise.resolve(new Set<string>()),
-      user?.uid
-        ? fetchOwnedAnonymousEntries(user.uid).catch(() => ({
-            postIds: new Set<string>(),
-            commentIds: new Set<string>(),
-          }))
-        : Promise.resolve({
-            postIds: new Set<string>(),
-            commentIds: new Set<string>(),
-          }),
-    ])
-      .then(([result, likedIds, savedIds, likedAnons, savedAnons, ownedAnon]) => {
-        if (!active) return;
+      try {
+        const [
+          result,
+          likedIds,
+          savedIds,
+          likedAnons,
+          savedAnons,
+          ownedAnon,
+        ] = await Promise.all([
+          fetchMemberProfileBundleByUsername(effectiveUsername, viewerUid),
+          viewerUid
+            ? fetchViewerLikedPostIds('posts', viewerUid).catch(
+                () => new Set<string>()
+              )
+            : Promise.resolve(new Set<string>()),
+          viewerUid
+            ? fetchViewerSavedPostIds('posts', viewerUid).catch(
+                () => new Set<string>()
+              )
+            : Promise.resolve(new Set<string>()),
+          viewerUid
+            ? fetchViewerLikedPostIds('anonymousPosts', viewerUid).catch(
+                () => new Set<string>()
+              )
+            : Promise.resolve(new Set<string>()),
+          viewerUid
+            ? fetchViewerSavedPostIds('anonymousPosts', viewerUid).catch(
+                () => new Set<string>()
+              )
+            : Promise.resolve(new Set<string>()),
+          viewerUid
+            ? fetchOwnedAnonymousEntries(viewerUid).catch(() => ({
+                postIds: new Set<string>(),
+                commentIds: new Set<string>(),
+              }))
+            : Promise.resolve({
+                postIds: new Set<string>(),
+                commentIds: new Set<string>(),
+              }),
+        ]);
+
+        if (isCancelled?.()) return;
         if (!result) {
-          setBundle(null);
-          setLoadState('not_found');
+          if (mode === 'initial') {
+            setBundle(null);
+            setLoadState('not_found');
+          }
           return;
         }
-        setBundle(result);
+
+        hydratedProfileKeyRef.current = profileCacheKey;
+        setBundle((prev) => {
+          if (
+            !prev ||
+            mode === 'initial' ||
+            prev.profile.username !== result.profile.username
+          ) {
+            return result;
+          }
+          return {
+            ...result,
+            posts: mergeOrderedRecords({
+              existing: prev.posts,
+              incoming: result.posts,
+              preferIncomingOrder: true,
+              preserveTail: false,
+            }),
+            likedPosts: mergeCommunityPostItems({
+              existing: prev.likedPosts,
+              incoming: result.likedPosts,
+              preferIncomingOrder: true,
+              preserveTail: false,
+            }),
+          };
+        });
         setLikedPostIds(likedIds);
         setSavedPostIds(savedIds);
         setLikedAnonIds(likedAnons);
@@ -280,8 +418,10 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         setOwnedAnonCommentIds(ownedAnon.commentIds);
 
         // Enforce strict owner-only boundary on private tabs
-        if (!result.isOwnProfile && (activeTab === 'saved' || activeTab === 'anonymous')) {
-          setActiveTab('posts');
+        if (!result.isOwnProfile) {
+          setActiveTab((curr) =>
+            curr === 'saved' || curr === 'anonymous' ? 'posts' : curr
+          );
         }
         setLoadState('ready');
 
@@ -293,17 +433,142 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         if (leadIds.length > 0) {
           prefetchMediaImages(leadIds);
         }
-      })
-      .catch(() => {
-        if (!active) return;
-        setLoadState('error');
-      });
+      } catch {
+        if (isCancelled?.()) return;
+        if (mode === 'initial') {
+          setBundle((curr) => {
+            if (!curr) {
+              setLoadState('error');
+            }
+            return curr;
+          });
+        }
+      }
+    },
+    [effectiveUsername, user?.uid, viewerKey]
+  );
+
+  // Fetch main profile bundle + viewer interaction flags with IDB fast hydration
+  useEffect(() => {
+    if (!effectiveUsername) {
+      return;
+    }
+
+    const retryRequested = retryToken !== lastHandledRetryRef.current;
+    if (retryRequested) {
+      lastHandledRetryRef.current = retryToken;
+    }
+
+    const profileCacheKey = `${viewerKey}:${effectiveUsername}`;
+    const existingSnapshot = !retryRequested
+      ? getProfileSessionSnapshot(viewerKey, effectiveUsername)
+      : null;
+
+    let active = true;
+
+    if (existingSnapshot && authReady) {
+      let timer: number | null = null;
+      if (hydratedProfileKeyRef.current !== profileCacheKey) {
+        hydratedProfileKeyRef.current = profileCacheKey;
+        const allowOwnerPrivate = Boolean(
+          user?.uid && existingSnapshot.bundle.isOwnProfile
+        );
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          setBundle(existingSnapshot.bundle);
+          setLikedPostIds(existingSnapshot.likedPostIds);
+          setSavedPostIds(existingSnapshot.savedPostIds);
+          setLikedAnonIds(existingSnapshot.likedAnonIds);
+          setSavedAnonIds(existingSnapshot.savedAnonIds);
+          setOwnedAnonCommentIds(existingSnapshot.ownedAnonCommentIds);
+          setSavedBundle(allowOwnerPrivate ? existingSnapshot.savedBundle : null);
+          setAnonHistory(allowOwnerPrivate ? existingSnapshot.anonHistory : null);
+          setDetailTarget(existingSnapshot.detailTarget);
+          setLoadState('ready');
+        }, 0);
+      }
+
+      const leadIds = [
+        existingSnapshot.bundle.profile.coverImageId,
+        existingSnapshot.bundle.profile.photoImageId,
+        ...existingSnapshot.bundle.posts
+          .slice(0, 6)
+          .map((p) => p.mediaItems?.[0]?.imageId),
+      ].filter((id): id is string => Boolean(id));
+      if (leadIds.length > 0) {
+        prefetchMediaImages(leadIds);
+      }
+
+      if (Date.now() - existingSnapshot.cachedAt > 15_000) {
+        void syncProfileFromNetwork('background', () => !active);
+      }
+
+      return () => {
+        active = false;
+        if (timer !== null) window.clearTimeout(timer);
+      };
+    }
+
+    let networkSettled = false;
+
+    if (!retryRequested) {
+      void hydrateProfileSnapshot(viewerKey, effectiveUsername)
+        .then((persisted) => {
+          if (!active || networkSettled || !persisted?.bundle) return;
+          const allowOwnerPrivate = Boolean(
+            user?.uid && persisted.bundle.isOwnProfile
+          );
+          hydratedProfileKeyRef.current = profileCacheKey;
+          setBundle(persisted.bundle);
+          setLikedPostIds(persisted.likedPostIds);
+          setSavedPostIds(persisted.savedPostIds);
+          setLikedAnonIds(persisted.likedAnonIds);
+          setSavedAnonIds(persisted.savedAnonIds);
+          setOwnedAnonCommentIds(persisted.ownedAnonCommentIds);
+          setSavedBundle(allowOwnerPrivate ? persisted.savedBundle : null);
+          setAnonHistory(allowOwnerPrivate ? persisted.anonHistory : null);
+          setLoadState('ready');
+
+          const leadIds = [
+            persisted.bundle.profile.coverImageId,
+            persisted.bundle.profile.photoImageId,
+            ...persisted.bundle.posts
+              .slice(0, 6)
+              .map((p) => p.mediaItems?.[0]?.imageId),
+          ].filter((id): id is string => Boolean(id));
+          if (leadIds.length > 0) {
+            prefetchMediaImages(leadIds);
+          }
+        })
+        .catch(() => undefined);
+    }
+
+    void syncProfileFromNetwork('initial', () => !active).finally(() => {
+      networkSettled = true;
+    });
 
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveUsername, user?.uid, authReady, viewerProfile?.username, retryToken]);
+  }, [
+    effectiveUsername,
+    viewerKey,
+    user?.uid,
+    authReady,
+    viewerProfile?.username,
+    retryToken,
+    syncProfileFromNetwork,
+  ]);
+
+  useActiveBackgroundRefresh({
+    enabled:
+      authReady &&
+      loadState === 'ready' &&
+      Boolean(effectiveUsername) &&
+      Boolean(bundle),
+    onRefresh: () => syncProfileFromNetwork('background'),
+    baseIntervalMs: 5000,
+  });
 
   const resolvedLoadState: typeof loadState = !effectiveUsername
     ? !authReady
@@ -402,9 +667,34 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   const followModalTargetUsername = bundle?.resolvedUsername ?? null;
 
+  const lastInitialTabRef = useRef(initialTab);
+  useEffect(() => {
+    if (lastInitialTabRef.current === initialTab) return;
+    lastInitialTabRef.current = initialTab;
+    const timer = window.setTimeout(() => {
+      if (initialTab === 'followers' || initialTab === 'following') {
+        setFollowModalList(null);
+        setFollowModalCursor(null);
+        setFollowModalHasMore(false);
+        setFollowModalError(null);
+        setFollowModalKind(initialTab);
+      } else if (initialTab) {
+        if (bundle && !bundle.isOwnProfile && (initialTab === 'saved' || initialTab === 'anonymous')) {
+          setActiveTab('posts');
+        } else {
+          setActiveTab(initialTab);
+        }
+        setFollowModalKind(null);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialTab, bundle]);
+
   // Load Followers / Following modal list when opened
   useEffect(() => {
-    if (!followModalKind || !followModalTargetUsername) return;
+    if (!followModalKind || !followModalTargetUsername || followModalList !== null) {
+      return;
+    }
     let active = true;
     fetchFollowDirectoryPage({
       username: followModalTargetUsername,
@@ -431,7 +721,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     return () => {
       active = false;
     };
-  }, [followModalKind, followModalTargetUsername]);
+  }, [followModalKind, followModalTargetUsername, followModalList]);
 
   const openFollowModal = (kind: 'followers' | 'following') => {
     setFollowModalList(null);
@@ -499,6 +789,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     }
     setActiveTab(tab);
     setActionError(null);
+    onTabChange?.(tab);
   };
 
   const handleShareProfile = async () => {
@@ -1753,7 +2044,9 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                           </div>
                           <button
                             type="button"
-                            onClick={() => onNavigate('marketplace')}
+                            onClick={() =>
+                              onNavigate('marketplace', { listingId: item.id })
+                            }
                             className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
                           >
                             View
@@ -2317,11 +2610,9 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 isSaved={savedPostIds.has(detailTarget.post.id)}
                 defaultCommentsOpen
                 onNavigateProfile={(uname) => {
-                  setDetailTarget(null);
                   onNavigate('profile', { username: uname });
                 }}
                 onRequireAuth={(authRoute, returnTo) => {
-                  setDetailTarget(null);
                   onRequireAuth(authRoute, returnTo);
                 }}
                 returnRoute="profile"
@@ -2366,7 +2657,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 isOwnedAnonymous={bundle.isOwnProfile}
                 ownedAnonymousCommentIds={ownedAnonCommentIds}
                 onRequireAuth={(authRoute, returnTo) => {
-                  setDetailTarget(null);
                   onRequireAuth(authRoute, returnTo);
                 }}
                 returnRoute="profile"

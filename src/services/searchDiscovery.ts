@@ -42,7 +42,22 @@ import {
   type SearchableCommunityPostItem,
 } from '../utils/contextualSearch';
 import { isCampusEventPublished } from '../utils/events';
+import {
+  BoundedLruMap,
+  deserializeRecordMap,
+  perfMetrics,
+  sanitizeAnonymousPostsForCache,
+  serializeRecordMap,
+  SingleFlightRegistry,
+  stripFirestoreCursor,
+} from '../utils/cacheSync';
+import { registerSearchCacheInvalidator } from './cacheInvalidation';
 import { fetchMarketplaceSellersMap } from './governance';
+import {
+  purgePersistentContentByPrefix,
+  readPersistentContent,
+  writePersistentContent,
+} from './persistentCache';
 import {
   fetchOwnedAnonymousEntries,
   fetchViewerLikedPostIds,
@@ -124,10 +139,31 @@ export function createEmptySearchBundle(
 }
 
 const bundleCache = new Map<string, SearchDiscoveryBundle>();
-const authorProjectionCache = new Map<string, PublicProfileProjection | null>();
+const authorProjectionCache = new BoundedLruMap<
+  string,
+  PublicProfileProjection | null
+>(250);
+const searchSingleFlight = new SingleFlightRegistry();
+const SEARCH_SEED_IDB_KEY = 'search:seed:v1';
+const makeSearchBundleIdbKey = (normalizedQuery: string) =>
+  `search:bundle:v1:${normalizedQuery.trim().toLowerCase()}`;
 
 function getBundleCacheKey(rawQuery: string): string {
   return normalizeSearchInput(rawQuery).toLowerCase();
+}
+
+function serializeSearchSlice<T>(
+  slice: SearchSliceState<T>
+): SearchSliceState<T> {
+  return {
+    items: slice.items.slice(0, 30),
+    cursor: stripFirestoreCursor(
+      slice.cursor as unknown as { mode: string } | null
+    ) as QueryDocumentSnapshot<DocumentData> | null,
+    hasMore: false,
+    loaded: slice.loaded,
+    error: slice.error,
+  };
 }
 
 export function getCachedSearchBundle(
@@ -137,9 +173,9 @@ export function getCachedSearchBundle(
   if (!key) return null;
   const hit = bundleCache.get(key) ?? null;
   if (hit) {
-    // Refresh LRU order
     bundleCache.delete(key);
     bundleCache.set(key, hit);
+    perfMetrics.recordHit('search_ram');
   }
   return hit;
 }
@@ -150,7 +186,8 @@ export function setCachedSearchBundle(bundle: SearchDiscoveryBundle): void {
   if (bundleCache.has(key)) {
     bundleCache.delete(key);
   }
-  bundleCache.set(key, { ...bundle, updatedAt: Date.now() });
+  const stamped = { ...bundle, updatedAt: Date.now() };
+  bundleCache.set(key, stamped);
   while (bundleCache.size > MAX_CACHE_ENTRIES) {
     const oldestKey = bundleCache.keys().next().value;
     if (oldestKey) {
@@ -159,10 +196,91 @@ export function setCachedSearchBundle(bundle: SearchDiscoveryBundle): void {
       break;
     }
   }
+
+  const serializable = {
+    normalizedQuery: stamped.normalizedQuery,
+    posts: serializeSearchSlice(stamped.posts),
+    people: serializeSearchSlice(stamped.people),
+    anonymous: serializeSearchSlice({
+      ...stamped.anonymous,
+      items: sanitizeAnonymousPostsForCache(stamped.anonymous.items),
+    }),
+    marketplace: serializeSearchSlice(stamped.marketplace),
+    marketplaceSellers: serializeRecordMap(stamped.marketplaceSellers),
+    events: serializeSearchSlice(stamped.events),
+    opportunities: serializeSearchSlice(stamped.opportunities),
+    trustedCircle: serializeSearchSlice(stamped.trustedCircle),
+    updatedAt: stamped.updatedAt,
+  };
+
+  void writePersistentContent(makeSearchBundleIdbKey(key), serializable, {
+    viewerKey: 'public',
+    scope: 'public',
+  });
+}
+
+export async function hydrateCachedSearchBundle(
+  rawQuery: string
+): Promise<SearchDiscoveryBundle | null> {
+  const key = getBundleCacheKey(rawQuery);
+  if (!key) return null;
+  const ramHit = getCachedSearchBundle(key);
+  if (ramHit) return ramHit;
+
+  const stored = await readPersistentContent<{
+    normalizedQuery: string;
+    posts: SearchSliceState<SearchableCommunityPostItem>;
+    people: SearchSliceState<PublicProfileProjection>;
+    anonymous: SearchSliceState<AnonymousPost>;
+    marketplace: SearchSliceState<MarketplaceListing>;
+    marketplaceSellers: Array<[string, PublicProfileProjection]>;
+    events: SearchSliceState<CampusEvent>;
+    opportunities: SearchSliceState<Opportunity>;
+    trustedCircle: SearchSliceState<TrustedContact>;
+    updatedAt: number;
+  }>(makeSearchBundleIdbKey(key), { maxAgeMs: 30 * 60 * 1000 });
+
+  if (!stored) return null;
+
+  const hydrated: SearchDiscoveryBundle = {
+    normalizedQuery: stored.normalizedQuery,
+    posts: { ...(stored.posts ?? createEmptySlice()), cursor: null },
+    people: { ...(stored.people ?? createEmptySlice()), cursor: null },
+    anonymous: {
+      ...(stored.anonymous ?? createEmptySlice()),
+      items: sanitizeAnonymousPostsForCache(stored.anonymous?.items ?? []),
+      cursor: null,
+    },
+    marketplace: { ...(stored.marketplace ?? createEmptySlice()), cursor: null },
+    marketplaceSellers: deserializeRecordMap(stored.marketplaceSellers),
+    events: { ...(stored.events ?? createEmptySlice()), cursor: null },
+    opportunities: {
+      ...(stored.opportunities ?? createEmptySlice()),
+      cursor: null,
+    },
+    trustedCircle: {
+      ...(stored.trustedCircle ?? createEmptySlice()),
+      cursor: null,
+    },
+    updatedAt: stored.updatedAt,
+  };
+  bundleCache.set(key, hydrated);
+  return hydrated;
 }
 
 export function clearSearchBundleCache(): void {
   bundleCache.clear();
+}
+
+export function clearSearchAuthorCache(): void {
+  authorProjectionCache.clear();
+}
+
+export function patchSearchAuthorCache(
+  uid: string,
+  profile: PublicProfileProjection
+): void {
+  authorProjectionCache.set(uid, profile);
 }
 
 export function getRequiredCollectionsForScope(
@@ -513,66 +631,72 @@ export async function executeScopedSearchDiscovery(input: {
   forceRefresh?: boolean;
 }): Promise<SearchDiscoveryBundle> {
   const normalized = normalizeSearchInput(input.rawQuery);
-  const bundle =
-    (!input.forceRefresh && getCachedSearchBundle(normalized)) ||
-    createEmptySearchBundle(normalized);
+  const flightKey = `search:${getBundleCacheKey(normalized)}:${input.scope}:${
+    input.forceRefresh ? 'refresh' : 'swr'
+  }`;
 
-  const requiredCollections = getRequiredCollectionsForScope(input.scope);
-  const missingCollections = requiredCollections.filter((key) => {
-    if (input.forceRefresh) return true;
-    return !bundle[key].loaded || bundle[key].error;
-  });
+  return searchSingleFlight.run(flightKey, async () => {
+    const bundle =
+      (!input.forceRefresh && getCachedSearchBundle(normalized)) ||
+      createEmptySearchBundle(normalized);
 
-  if (missingCollections.length === 0) {
-    return bundle;
-  }
+    const requiredCollections = getRequiredCollectionsForScope(input.scope);
+    const missingCollections = requiredCollections.filter((key) => {
+      if (input.forceRefresh) return true;
+      return !bundle[key].loaded || bundle[key].error;
+    });
 
-  const nextBundle: SearchDiscoveryBundle = {
-    ...bundle,
-    marketplaceSellers: new Map(bundle.marketplaceSellers),
-  };
+    if (missingCollections.length === 0) {
+      return bundle;
+    }
 
-  await Promise.all(
-    missingCollections.map(async (key) => {
-      try {
-        if (key === 'people') {
-          nextBundle.people = await fetchPeopleBatch(normalized, null);
-        } else if (key === 'posts') {
-          nextBundle.posts = await fetchPostsBatch(normalized, null);
-        } else if (key === 'anonymous') {
-          nextBundle.anonymous = await fetchAnonymousBatch(normalized, null);
-        } else if (key === 'marketplace') {
-          const { slice, sellers } = await fetchMarketplaceBatch(
-            normalized,
-            null
-          );
-          nextBundle.marketplace = slice;
-          sellers.forEach((v, k) => nextBundle.marketplaceSellers.set(k, v));
-        } else if (key === 'events') {
-          nextBundle.events = await fetchEventsBatch(normalized, null);
-        } else if (key === 'opportunities') {
-          nextBundle.opportunities = await fetchOpportunitiesBatch(
-            normalized,
-            null
-          );
-        } else if (key === 'trustedCircle') {
-          nextBundle.trustedCircle = await fetchTrustedCircleBatch(
-            normalized,
-            null
-          );
+    const nextBundle: SearchDiscoveryBundle = {
+      ...bundle,
+      marketplaceSellers: new Map(bundle.marketplaceSellers),
+    };
+
+    await Promise.all(
+      missingCollections.map(async (key) => {
+        try {
+          if (key === 'people') {
+            nextBundle.people = await fetchPeopleBatch(normalized, null);
+          } else if (key === 'posts') {
+            nextBundle.posts = await fetchPostsBatch(normalized, null);
+          } else if (key === 'anonymous') {
+            nextBundle.anonymous = await fetchAnonymousBatch(normalized, null);
+          } else if (key === 'marketplace') {
+            const { slice, sellers } = await fetchMarketplaceBatch(
+              normalized,
+              null
+            );
+            nextBundle.marketplace = slice;
+            sellers.forEach((v, k) => nextBundle.marketplaceSellers.set(k, v));
+          } else if (key === 'events') {
+            nextBundle.events = await fetchEventsBatch(normalized, null);
+          } else if (key === 'opportunities') {
+            nextBundle.opportunities = await fetchOpportunitiesBatch(
+              normalized,
+              null
+            );
+          } else if (key === 'trustedCircle') {
+            nextBundle.trustedCircle = await fetchTrustedCircleBatch(
+              normalized,
+              null
+            );
+          }
+        } catch {
+          nextBundle[key] = {
+            ...nextBundle[key],
+            loaded: true,
+            error: true,
+          } as never;
         }
-      } catch {
-        nextBundle[key] = {
-          ...nextBundle[key],
-          loaded: true,
-          error: true,
-        } as never;
-      }
-    })
-  );
+      })
+    );
 
-  setCachedSearchBundle(nextBundle);
-  return nextBundle;
+    setCachedSearchBundle(nextBundle);
+    return nextBundle;
+  });
 }
 
 /**
@@ -785,6 +909,23 @@ export interface SearchSuggestionSeed {
 let cachedSuggestionSeed: SearchSuggestionSeed | null = null;
 const SUGGESTION_SEED_TTL_MS = 5 * 60 * 1000;
 
+export async function hydrateSearchSuggestionSeed(): Promise<SearchSuggestionSeed | null> {
+  if (
+    cachedSuggestionSeed &&
+    Date.now() - cachedSuggestionSeed.fetchedAt < SUGGESTION_SEED_TTL_MS
+  ) {
+    return cachedSuggestionSeed;
+  }
+  const stored = await readPersistentContent<SearchSuggestionSeed>(
+    SEARCH_SEED_IDB_KEY,
+    { maxAgeMs: 60 * 60 * 1000 }
+  );
+  if (stored) {
+    cachedSuggestionSeed = stored;
+  }
+  return stored;
+}
+
 export async function fetchSearchSuggestionSeed(): Promise<SearchSuggestionSeed> {
   if (
     cachedSuggestionSeed &&
@@ -793,106 +934,133 @@ export async function fetchSearchSuggestionSeed(): Promise<SearchSuggestionSeed>
     return cachedSuggestionSeed;
   }
 
-  const [usersResult, postsResult, eventsResult, oppsResult, mktResult] =
-    await Promise.allSettled([
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.users),
-          where('isHiddenFromDirectory', '==', false),
-          limit(30)
-        )
-      ),
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.posts),
-          where('status', '==', 'published'),
-          orderBy('createdAt', 'desc'),
-          limit(12)
-        )
-      ),
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.events),
-          where('published', '==', true),
-          limit(10)
-        )
-      ),
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.opportunities),
-          where('status', '==', 'active'),
-          limit(10)
-        )
-      ),
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.marketplaceListings),
-          where('status', '==', 'active'),
-          limit(10)
-        )
-      ),
-    ]);
+  return searchSingleFlight.run('search:seed', async () => {
+    const [usersResult, postsResult, eventsResult, oppsResult, mktResult] =
+      await Promise.allSettled([
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.users),
+            where('isHiddenFromDirectory', '==', false),
+            limit(30)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.posts),
+            where('status', '==', 'published'),
+            orderBy('createdAt', 'desc'),
+            limit(12)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.events),
+            where('published', '==', true),
+            limit(10)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.opportunities),
+            where('status', '==', 'active'),
+            limit(10)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.marketplaceListings),
+            where('status', '==', 'active'),
+            limit(10)
+          )
+        ),
+      ]);
 
-  const members: PublicProfileProjection[] = [];
-  if (usersResult.status === 'fulfilled') {
-    for (const d of usersResult.value.docs) {
-      const profile = d.data() as PublicUserProfile;
-      if (!profile.isHiddenFromDirectory && profile.accountStatus === 'active') {
-        const proj = toPublicProfileProjection(profile);
-        members.push(proj);
-        authorProjectionCache.set(profile.uid, proj);
+    const members: PublicProfileProjection[] = [];
+    if (usersResult.status === 'fulfilled') {
+      for (const d of usersResult.value.docs) {
+        const profile = d.data() as PublicUserProfile;
+        if (
+          !profile.isHiddenFromDirectory &&
+          profile.accountStatus === 'active'
+        ) {
+          const proj = toPublicProfileProjection(profile);
+          members.push(proj);
+          authorProjectionCache.set(profile.uid, proj);
+        }
       }
     }
-  }
 
-  const dynamicTerms: SearchSuggestionSeed['dynamicTerms'] = [];
-  const seenTerms = new Set<string>();
-  const addTerm = (
-    term: string | undefined,
-    subtitle: string,
-    targetScope: SearchScopeId
-  ) => {
-    const clean = term?.trim();
-    if (!clean || clean.length < 3 || clean.length > 64) return;
-    const lower = clean.toLowerCase();
-    if (seenTerms.has(lower)) return;
-    seenTerms.add(lower);
-    dynamicTerms.push({ term: clean, subtitle, targetScope });
-  };
+    const dynamicTerms: SearchSuggestionSeed['dynamicTerms'] = [];
+    const seenTerms = new Set<string>();
+    const addTerm = (
+      term: string | undefined,
+      subtitle: string,
+      targetScope: SearchScopeId
+    ) => {
+      const clean = term?.trim();
+      if (!clean || clean.length < 3 || clean.length > 64) return;
+      const lower = clean.toLowerCase();
+      if (seenTerms.has(lower)) return;
+      seenTerms.add(lower);
+      dynamicTerms.push({ term: clean, subtitle, targetScope });
+    };
 
-  if (postsResult.status === 'fulfilled') {
-    for (const d of postsResult.value.docs) {
-      const p = d.data() as CommunityPost;
-      addTerm(p.title, `Post · ${p.category}`, 'posts');
-    }
-  }
-  if (eventsResult.status === 'fulfilled') {
-    for (const d of eventsResult.value.docs) {
-      const ev = d.data() as CampusEvent;
-      if (isCampusEventPublished(ev) && ev.status !== 'cancelled') {
-        addTerm(ev.title, `Event · ${ev.venue}`, 'upcoming-events');
+    if (postsResult.status === 'fulfilled') {
+      for (const d of postsResult.value.docs) {
+        const p = d.data() as CommunityPost;
+        addTerm(p.title, `Post · ${p.category}`, 'posts');
       }
     }
-  }
-  if (oppsResult.status === 'fulfilled') {
-    for (const d of oppsResult.value.docs) {
-      const opp = d.data() as Opportunity;
-      addTerm(opp.title, `Opportunity · ${opp.organisation}`, 'opportunities');
-    }
-  }
-  if (mktResult.status === 'fulfilled') {
-    for (const d of mktResult.value.docs) {
-      const m = d.data() as MarketplaceListing;
-      if (m.approvalStatus === 'approved') {
-        addTerm(m.title, `Marketplace · ${m.category}`, 'marketplace');
+    if (eventsResult.status === 'fulfilled') {
+      for (const d of eventsResult.value.docs) {
+        const ev = d.data() as CampusEvent;
+        if (isCampusEventPublished(ev) && ev.status !== 'cancelled') {
+          addTerm(ev.title, `Event · ${ev.venue}`, 'upcoming-events');
+        }
       }
     }
-  }
+    if (oppsResult.status === 'fulfilled') {
+      for (const d of oppsResult.value.docs) {
+        const opp = d.data() as Opportunity;
+        addTerm(
+          opp.title,
+          `Opportunity · ${opp.organisation}`,
+          'opportunities'
+        );
+      }
+    }
+    if (mktResult.status === 'fulfilled') {
+      for (const d of mktResult.value.docs) {
+        const m = d.data() as MarketplaceListing;
+        if (m.approvalStatus === 'approved') {
+          addTerm(m.title, `Marketplace · ${m.category}`, 'marketplace');
+        }
+      }
+    }
 
-  cachedSuggestionSeed = {
-    members,
-    dynamicTerms,
-    fetchedAt: Date.now(),
-  };
-  return cachedSuggestionSeed;
+    cachedSuggestionSeed = {
+      members,
+      dynamicTerms,
+      fetchedAt: Date.now(),
+    };
+    void writePersistentContent(SEARCH_SEED_IDB_KEY, cachedSuggestionSeed, {
+      viewerKey: 'public',
+      scope: 'public',
+    });
+    return cachedSuggestionSeed;
+  });
 }
+
+registerSearchCacheInvalidator({
+  invalidate: () => {
+    bundleCache.clear();
+    cachedSuggestionSeed = null;
+    void purgePersistentContentByPrefix('search:');
+  },
+  clearAuthorCache: () => {
+    authorProjectionCache.clear();
+  },
+  patchAuthor: (uid, profile) => {
+    authorProjectionCache.set(uid, profile);
+  },
+});

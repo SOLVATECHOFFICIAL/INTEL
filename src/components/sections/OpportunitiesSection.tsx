@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -19,7 +19,16 @@ import {
   X,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
-import { fetchPublishedOpportunities } from '../../services/adminDashboard';
+import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
+import {
+  fetchOpportunityById,
+  fetchPublishedOpportunities,
+} from '../../services/adminDashboard';
+import {
+  getOpportunitiesSessionSnapshot,
+  hydrateOpportunitiesSnapshot,
+  saveOpportunitiesSessionSnapshot,
+} from '../../services/navigationStateCache';
 import {
   fetchViewerSavedPostIds,
   toggleSavedPost,
@@ -39,6 +48,7 @@ import {
   type OpportunityDeadlineFilter,
   type OpportunityStatusFilter,
 } from '../../utils/opportunities';
+import { mergeOrderedRecords } from '../../utils/cacheSync';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { OpportunityCard } from './opportunities/OpportunityCard';
 
@@ -56,30 +66,51 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
   onRequireAuth,
 }) => {
   const { user, isSuspended } = useFirebase();
+  const viewerUid = user?.uid ?? null;
+  const viewerKey = viewerUid ?? 'guest';
+  const initialCache = getOpportunitiesSessionSnapshot(viewerKey);
 
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [opportunities, setOpportunities] = useState<Opportunity[]>(
+    () => initialCache?.opportunities ?? []
+  );
+  const [savedIds, setSavedIds] = useState<Set<string>>(
+    () => initialCache?.savedIds ?? new Set()
+  );
+  const [loading, setLoading] = useState(() => !initialCache);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  const [activeTab, setActiveTab] = useState<OpportunitiesTab>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<OpportunitiesTab>(
+    () => initialCache?.activeTab ?? 'all'
+  );
+  const [searchQuery, setSearchQuery] = useState(
+    () => initialCache?.searchQuery ?? ''
+  );
   const [categoryFilter, setCategoryFilter] = useState<
     'all' | OpportunityCategory
-  >('all');
-  const [statusFilter, setStatusFilter] =
-    useState<OpportunityStatusFilter>('all');
+  >(() => initialCache?.categoryFilter ?? 'all');
+  const [statusFilter, setStatusFilter] = useState<OpportunityStatusFilter>(
+    () => initialCache?.statusFilter ?? 'all'
+  );
   const [deadlineFilter, setDeadlineFilter] =
-    useState<OpportunityDeadlineFilter>('all');
-  const [organisationFilter, setOrganisationFilter] = useState('all');
+    useState<OpportunityDeadlineFilter>(
+      () => initialCache?.deadlineFilter ?? 'all'
+    );
+  const [organisationFilter, setOrganisationFilter] = useState(
+    () => initialCache?.organisationFilter ?? 'all'
+  );
 
   const [localSelectedId, setLocalSelectedId] = useState<string | null>(
     selectedOpportunityId
   );
+  const [directLookupResult, setDirectLookupResult] = useState<{
+    targetId: string;
+    opportunity: Opportunity | null;
+  } | null>(() => initialCache?.directLookupResult ?? null);
   const [guestPromptOpen, setGuestPromptOpen] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const lastHandledReloadRef = useRef(0);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -88,30 +119,110 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
     return () => window.clearInterval(interval);
   }, []);
 
+  const opportunitiesRef = useRef(opportunities);
+  const viewerUidRef = useRef(viewerUid);
+  useEffect(() => {
+    opportunitiesRef.current = opportunities;
+    viewerUidRef.current = viewerUid;
+  }, [opportunities, viewerUid]);
+
+  const syncOpportunitiesFromNetwork = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      if (
+        mode === 'background' &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine === false
+      ) {
+        return;
+      }
+
+      const uid = viewerUidRef.current;
+      const savedPromise = uid
+        ? fetchViewerSavedPostIds('opportunities', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
+
+      const [items, viewerSaved] = await Promise.all([
+        fetchPublishedOpportunities(),
+        savedPromise,
+      ]);
+
+      if (isCancelled?.()) return;
+
+      setOpportunities((prev) =>
+        mode === 'background' && prev.length > 0
+          ? mergeOrderedRecords({
+              existing: prev,
+              incoming: items,
+              preferIncomingOrder: false,
+              preserveTail: false,
+            })
+          : items
+      );
+      setSavedIds(viewerSaved);
+      setErrorMessage(null);
+      setLoading(false);
+    },
+    []
+  );
+
   useEffect(() => {
     let active = true;
+    let networkSettled = false;
 
-    const savedPromise = user?.uid
-      ? fetchViewerSavedPostIds('opportunities', user.uid).catch(
-          () => new Set<string>()
-        )
-      : Promise.resolve(new Set<string>());
+    const cached = getOpportunitiesSessionSnapshot(viewerKey);
+    if (cached && reloadNonce === lastHandledReloadRef.current) {
+      if (Date.now() - cached.cachedAt > 15_000) {
+        void syncOpportunitiesFromNetwork('background', () => !active).catch(
+          () => undefined
+        );
+      }
+      return () => {
+        active = false;
+      };
+    }
+    lastHandledReloadRef.current = reloadNonce;
 
-    Promise.all([fetchPublishedOpportunities(), savedPromise])
-      .then(([items, viewerSaved]) => {
-        if (!active) return;
-        setOpportunities(items);
-        setSavedIds(viewerSaved);
-        setErrorMessage(null);
-      })
+    const run = async () => {
+      if (reloadNonce === 0) {
+        const persisted = await hydrateOpportunitiesSnapshot(viewerKey);
+        if (active && !networkSettled && persisted) {
+          setOpportunities(persisted.opportunities);
+          setSavedIds(persisted.savedIds);
+          setActiveTab(persisted.activeTab);
+          setSearchQuery(persisted.searchQuery);
+          setCategoryFilter(persisted.categoryFilter);
+          setStatusFilter(persisted.statusFilter);
+          setDeadlineFilter(persisted.deadlineFilter);
+          setOrganisationFilter(persisted.organisationFilter);
+          setLoading(false);
+
+          await syncOpportunitiesFromNetwork('background', () => !active).catch(
+            () => undefined
+          );
+          return;
+        }
+      }
+
+      await syncOpportunitiesFromNetwork('initial', () => !active);
+      networkSettled = true;
+    };
+
+    void run()
       .catch((error) => {
         if (!active) return;
-        setErrorMessage(
-          formatFirestoreOrAppError(
-            error,
-            'Unable to load campus opportunities right now.'
-          )
-        );
+        if (opportunitiesRef.current.length === 0) {
+          setErrorMessage(
+            formatFirestoreOrAppError(
+              error,
+              'Unable to load campus opportunities right now.'
+            )
+          );
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -120,11 +231,79 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
     return () => {
       active = false;
     };
-  }, [user?.uid, reloadNonce]);
+  }, [viewerKey, viewerUid, reloadNonce, syncOpportunitiesFromNetwork]);
+
+  useActiveBackgroundRefresh({
+    enabled: !loading,
+    onRefresh: () => syncOpportunitiesFromNetwork('background'),
+    baseIntervalMs: 5000,
+  });
 
   const effectiveSelectedId = onSelectOpportunity
     ? selectedOpportunityId
     : localSelectedId;
+
+  const needsDirectLookup = Boolean(
+    effectiveSelectedId &&
+      !loading &&
+      !opportunities.some((item) => item.id === effectiveSelectedId)
+  );
+  const directLookupLoading =
+    needsDirectLookup &&
+    directLookupResult?.targetId !== effectiveSelectedId;
+
+  useEffect(() => {
+    if (!needsDirectLookup || !effectiveSelectedId) return;
+    const targetId = effectiveSelectedId;
+    let active = true;
+    fetchOpportunityById(targetId)
+      .then((found) => {
+        if (!active) return;
+        setDirectLookupResult({ targetId, opportunity: found });
+        if (found) {
+          setOpportunities((prev) =>
+            prev.some((o) => o.id === found.id) ? prev : [...prev, found]
+          );
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDirectLookupResult({ targetId, opportunity: null });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [needsDirectLookup, effectiveSelectedId]);
+
+  useEffect(() => {
+    if (loading) return;
+    saveOpportunitiesSessionSnapshot({
+      viewerKey,
+      opportunities,
+      savedIds,
+      activeTab,
+      searchQuery,
+      categoryFilter,
+      statusFilter,
+      deadlineFilter,
+      organisationFilter,
+      directLookupResult,
+      cachedAt: Date.now(),
+    });
+  }, [
+    loading,
+    viewerKey,
+    opportunities,
+    savedIds,
+    activeTab,
+    searchQuery,
+    categoryFilter,
+    statusFilter,
+    deadlineFilter,
+    organisationFilter,
+    directLookupResult,
+  ]);
 
   const openDetails = (oppId: string | null) => {
     if (onSelectOpportunity) {
@@ -136,10 +315,15 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
 
   const selectedOpportunity = useMemo(() => {
     if (!effectiveSelectedId) return null;
+    const directMatched =
+      directLookupResult?.targetId === effectiveSelectedId
+        ? directLookupResult.opportunity
+        : null;
     return (
-      opportunities.find((item) => item.id === effectiveSelectedId) ?? null
+      opportunities.find((item) => item.id === effectiveSelectedId) ??
+      directMatched
     );
-  }, [opportunities, effectiveSelectedId]);
+  }, [opportunities, effectiveSelectedId, directLookupResult]);
 
   const availableOrganisations = useMemo(
     () => extractUniqueOrganisations(opportunities),
@@ -286,6 +470,18 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
 
   // Dedicated Opportunity Details View (replaces cramped modal)
   if (effectiveSelectedId) {
+    if (directLookupLoading) {
+      return (
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+          <Loader2
+            className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
+            aria-hidden="true"
+          />
+          Opening opportunity...
+        </div>
+      );
+    }
+
     if (!selectedOpportunity) {
       return (
         <div className="space-y-4">

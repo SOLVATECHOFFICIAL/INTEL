@@ -10,6 +10,11 @@ import {
 import { useFirebase } from '../../context/firebaseContext';
 import { togglePostCommentReaction } from '../../services/events';
 import {
+  clearPersistentDraft,
+  loadPersistentDraft,
+  savePersistentDraft,
+} from '../../services/persistentCache';
+import {
   addMarketplaceListingComment,
   deleteMarketplaceListingComment,
   editMarketplaceListingComment,
@@ -77,6 +82,7 @@ export const MarketplaceListingComments: React.FC<
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const viewerUid = user?.uid ?? null;
+  const viewerKey = viewerUid ?? 'guest';
   const isAdminOrOwner =
     effectiveTier === 'supreme_admin' || effectiveTier === 'owner';
 
@@ -137,6 +143,61 @@ export const MarketplaceListingComments: React.FC<
     };
   }, [listingId, viewerUid]);
 
+  // Persistent draft load & autosave for listing comment & active reply
+  useEffect(() => {
+    let active = true;
+    void loadPersistentDraft<string>(viewerKey, `mkt_comment:${listingId}`)
+      .then((draft) => {
+        if (!active || !draft) return;
+        setNewCommentBody((curr) => (curr.trim() ? curr : draft));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, listingId]);
+
+  useEffect(() => {
+    if (!newCommentBody.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(
+        viewerKey,
+        `mkt_comment:${listingId}`,
+        newCommentBody
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, listingId, newCommentBody]);
+
+  useEffect(() => {
+    if (!replyingToId) return;
+    let active = true;
+    void loadPersistentDraft<string>(
+      viewerKey,
+      `mkt_reply:${listingId}:${replyingToId}`
+    )
+      .then((draft) => {
+        if (!active || !draft) return;
+        setReplyBody((curr) => (curr.trim() ? curr : draft));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, listingId, replyingToId]);
+
+  useEffect(() => {
+    if (!replyingToId || !replyBody.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(
+        viewerKey,
+        `mkt_reply:${listingId}:${replyingToId}`,
+        replyBody
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, listingId, replyingToId, replyBody]);
+
   useEffect(() => {
     if (loading || !highlightCommentId) return;
     const raf = window.requestAnimationFrame(() => {
@@ -178,6 +239,12 @@ export const MarketplaceListingComments: React.FC<
     const trimmed = rawText.trim();
     if (!trimmed) return;
     if (parentCommentId && isOptimisticTempId(parentCommentId)) {
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErrorMessage(
+        'You are offline. Your comment draft is saved safely — reconnect to post.'
+      );
       return;
     }
 
@@ -225,6 +292,14 @@ export const MarketplaceListingComments: React.FC<
           )
         );
         onCommentsCountChange(res.commentsCount);
+        if (parentCommentId) {
+          void clearPersistentDraft(
+            viewerKey,
+            `mkt_reply:${listingId}:${parentCommentId}`
+          );
+        } else {
+          void clearPersistentDraft(viewerKey, `mkt_comment:${listingId}`);
+        }
       })
       .catch((error) => {
         setComments((prev) => prev.filter((item) => item.comment.id !== tempId));
@@ -352,6 +427,10 @@ export const MarketplaceListingComments: React.FC<
   const handleSaveEdit = (commentId: string) => {
     const trimmed = editingBody.trim();
     if (!trimmed || actionBusyId || isOptimisticTempId(commentId)) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErrorMessage('You are offline. Reconnect to save your comment edit.');
+      return;
+    }
 
     const prevComments = comments;
     setComments((prev) =>

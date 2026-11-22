@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSearchForRoute, parseLocationSearch } from './urlRouting';
+import {
+  buildSearchForRoute,
+  isProtectedRouteOrTab,
+  parseLocationSearch,
+} from './urlRouting';
 
 test('parseLocationSearch extracts deep-link postId, commentId, listingId, eventId, and opportunityId', () => {
   const postParsed = parseLocationSearch(
@@ -52,6 +56,16 @@ test('buildSearchForRoute preserves root path for plain home and serializes deep
   );
 
   assert.equal(
+    buildSearchForRoute('marketplace', { marketplaceTab: 'updates' }),
+    '/?view=marketplace&mktTab=updates'
+  );
+
+  assert.equal(
+    buildSearchForRoute('account', { accountSection: 'privacy' }),
+    '/?view=account&section=privacy'
+  );
+
+  assert.equal(
     buildSearchForRoute('search', {
       searchScope: 'marketplace',
       searchQuery: 'calculator',
@@ -60,7 +74,7 @@ test('buildSearchForRoute preserves root path for plain home and serializes deep
   );
 });
 
-test('parseLocationSearch extracts search scope and q query safely', () => {
+test('parseLocationSearch extracts search scope, q, mktTab, and section safely', () => {
   const searchParsed = parseLocationSearch(
     '?view=search&scope=opportunities&q=stem+scholarship'
   );
@@ -71,4 +85,27 @@ test('parseLocationSearch extracts search scope and q query safely', () => {
   const defaultScopeParsed = parseLocationSearch('?view=search');
   assert.equal(defaultScopeParsed.searchScope, 'all');
   assert.equal(defaultScopeParsed.searchQuery, null);
+
+  const mktUpdates = parseLocationSearch('?view=marketplace&mktTab=updates');
+  assert.equal(mktUpdates.marketplaceTab, 'updates');
+
+  const accountPrivacy = parseLocationSearch('?view=account&section=privacy');
+  assert.equal(accountPrivacy.accountSection, 'privacy');
+
+  assert.equal(isProtectedRouteOrTab({ route: 'account' }), true);
+  assert.equal(
+    isProtectedRouteOrTab({ route: 'profile', profileTab: 'saved' }),
+    true
+  );
+  assert.equal(
+    isProtectedRouteOrTab({ route: 'marketplace', marketplaceTab: 'updates' }),
+    false
+  );
+  assert.equal(
+    isProtectedRouteOrTab({
+      route: 'marketplace',
+      marketplaceTab: 'my_listings',
+    }),
+    true
+  );
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -10,11 +10,18 @@ import {
   X,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
+import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
 import {
   fetchCampusEventById,
   fetchPublishedCampusEvents,
   toggleEventReaction,
 } from '../../services/events';
+import { prefetchMediaImages } from '../../services/mediaStorage';
+import {
+  getEventsSessionSnapshot,
+  hydrateEventsSnapshot,
+  saveEventsSessionSnapshot,
+} from '../../services/navigationStateCache';
 import {
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
@@ -31,6 +38,8 @@ import {
   type EventStatusFilter,
 } from '../../utils/events';
 import { computeOptimisticReactionToggle } from '../../utils/optimisticInteractions';
+import { mergeOrderedRecords } from '../../utils/cacheSync';
+import { isDataSaverConnection } from '../../utils/mediaCache';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { EventCard } from './events/EventCard';
 import { EventDetailsView } from './events/EventDetailsView';
@@ -43,8 +52,6 @@ interface EventsSectionProps {
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
 }
 
-type EventsTab = 'all' | 'saved';
-
 export const EventsSection: React.FC<EventsSectionProps> = ({
   selectedEventId = null,
   selectedCommentId = null,
@@ -54,23 +61,41 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
 }) => {
   const { user, isSuspended } = useFirebase();
   const viewerUid = user?.uid ?? null;
+  const viewerKey = viewerUid ?? 'guest';
+  const initialCache = getEventsSessionSnapshot(viewerKey);
 
-  const [events, setEvents] = useState<CampusEvent[]>([]);
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [events, setEvents] = useState<CampusEvent[]>(
+    () => initialCache?.events ?? []
+  );
+  const [likedIds, setLikedIds] = useState<Set<string>>(
+    () => initialCache?.likedIds ?? new Set()
+  );
+  const [savedIds, setSavedIds] = useState<Set<string>>(
+    () => initialCache?.savedIds ?? new Set()
+  );
+  const [loading, setLoading] = useState(() => !initialCache);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  const [activeTab, setActiveTab] = useState<EventsTab>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<'all' | EventCategory>(
-    'all'
+  const [activeTab, setActiveTab] = useState<'all' | 'saved'>(
+    () => initialCache?.activeTab ?? 'all'
   );
-  const [statusFilter, setStatusFilter] = useState<EventStatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState(
+    () => initialCache?.searchQuery ?? ''
+  );
+  const [categoryFilter, setCategoryFilter] = useState<'all' | EventCategory>(
+    () => initialCache?.categoryFilter ?? 'all'
+  );
+  const [statusFilter, setStatusFilter] = useState<EventStatusFilter>(
+    () => initialCache?.statusFilter ?? 'all'
+  );
   const [dateWindowFilter, setDateWindowFilter] =
-    useState<EventDateWindowFilter>('all');
-  const [venueFilter, setVenueFilter] = useState('all');
+    useState<EventDateWindowFilter>(
+      () => initialCache?.dateWindowFilter ?? 'all'
+    );
+  const [venueFilter, setVenueFilter] = useState(
+    () => initialCache?.venueFilter ?? 'all'
+  );
 
   const [localSelectedId, setLocalSelectedId] = useState<string | null>(
     selectedEventId
@@ -78,7 +103,10 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
   const [directLookupResult, setDirectLookupResult] = useState<{
     targetId: string;
     event: CampusEvent | null;
-  } | null>(null);
+  } | null>(() => initialCache?.directLookupResult ?? null);
+  const [lightboxByEventId, setLightboxByEventId] = useState<
+    Record<string, number | null>
+  >(() => initialCache?.lightboxByEventId ?? {});
 
   const [focusCommentsOnOpen, setFocusCommentsOnOpen] = useState(false);
   const [guestPromptMessage, setGuestPromptMessage] = useState<string | null>(
@@ -89,6 +117,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
   // Prevent duplicate concurrent like/save toggles per event ID
   const likeInFlightRef = useRef<Set<string>>(new Set());
   const saveInFlightRef = useRef<Set<string>>(new Set());
+  const lastHandledReloadRef = useRef(0);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -97,37 +126,133 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
     return () => window.clearInterval(interval);
   }, []);
 
+  const eventsRef = useRef(events);
+  const viewerUidRef = useRef(viewerUid);
+  useEffect(() => {
+    eventsRef.current = events;
+    viewerUidRef.current = viewerUid;
+  }, [events, viewerUid]);
+
+  const prefetchEventMedia = useCallback((items: readonly CampusEvent[]) => {
+    if (isDataSaverConnection()) return;
+    const ids = items
+      .slice(0, 6)
+      .map((evt) => evt.mediaItems?.[0]?.imageId);
+    if (ids.some(Boolean)) {
+      void prefetchMediaImages(ids);
+    }
+  }, []);
+
+  const syncEventsFromNetwork = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      if (
+        mode === 'background' &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine === false
+      ) {
+        return;
+      }
+
+      const uid = viewerUidRef.current;
+      const likesPromise = uid
+        ? fetchViewerLikedPostIds('events', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
+
+      const savedPromise = uid
+        ? fetchViewerSavedPostIds('events', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
+
+      const [loadedEvents, viewerLiked, viewerSaved] = await Promise.all([
+        fetchPublishedCampusEvents(),
+        likesPromise,
+        savedPromise,
+      ]);
+
+      if (isCancelled?.()) return;
+
+      setEvents((prev) =>
+        mode === 'background' && prev.length > 0
+          ? mergeOrderedRecords({
+              existing: prev,
+              incoming: loadedEvents,
+              preferIncomingOrder: false,
+              preserveTail: false,
+            })
+          : loadedEvents
+      );
+      setLikedIds(viewerLiked);
+      setSavedIds(viewerSaved);
+      setErrorMessage(null);
+      setLoading(false);
+      prefetchEventMedia(loadedEvents);
+    },
+    [prefetchEventMedia]
+  );
+
   useEffect(() => {
     let active = true;
+    let networkSettled = false;
 
-    const likesPromise = viewerUid
-      ? fetchViewerLikedPostIds('events', viewerUid).catch(
-          () => new Set<string>()
-        )
-      : Promise.resolve(new Set<string>());
+    const cached = getEventsSessionSnapshot(viewerKey);
+    if (cached && reloadNonce === lastHandledReloadRef.current) {
+      prefetchEventMedia(cached.events);
+      if (Date.now() - cached.cachedAt > 15_000) {
+        void syncEventsFromNetwork('background', () => !active).catch(
+          () => undefined
+        );
+      }
+      return () => {
+        active = false;
+      };
+    }
+    lastHandledReloadRef.current = reloadNonce;
 
-    const savedPromise = viewerUid
-      ? fetchViewerSavedPostIds('events', viewerUid).catch(
-          () => new Set<string>()
-        )
-      : Promise.resolve(new Set<string>());
+    const run = async () => {
+      if (reloadNonce === 0) {
+        const persisted = await hydrateEventsSnapshot(viewerKey);
+        if (active && !networkSettled && persisted) {
+          setEvents(persisted.events);
+          setLikedIds(persisted.likedIds);
+          setSavedIds(persisted.savedIds);
+          setActiveTab(persisted.activeTab);
+          setSearchQuery(persisted.searchQuery);
+          setCategoryFilter(persisted.categoryFilter);
+          setStatusFilter(persisted.statusFilter);
+          setDateWindowFilter(persisted.dateWindowFilter);
+          setVenueFilter(persisted.venueFilter);
+          setLightboxByEventId(persisted.lightboxByEventId);
+          setLoading(false);
+          prefetchEventMedia(persisted.events);
 
-    Promise.all([fetchPublishedCampusEvents(), likesPromise, savedPromise])
-      .then(([loadedEvents, viewerLiked, viewerSaved]) => {
-        if (!active) return;
-        setEvents(loadedEvents);
-        setLikedIds(viewerLiked);
-        setSavedIds(viewerSaved);
-        setErrorMessage(null);
-      })
+          await syncEventsFromNetwork('background', () => !active).catch(
+            () => undefined
+          );
+          return;
+        }
+      }
+
+      await syncEventsFromNetwork('initial', () => !active);
+      networkSettled = true;
+    };
+
+    void run()
       .catch((error) => {
         if (!active) return;
-        setErrorMessage(
-          formatFirestoreOrAppError(
-            error,
-            'Unable to load campus events right now.'
-          )
-        );
+        if (eventsRef.current.length === 0) {
+          setErrorMessage(
+            formatFirestoreOrAppError(
+              error,
+              'Unable to load campus events right now.'
+            )
+          );
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -136,7 +261,46 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
     return () => {
       active = false;
     };
-  }, [viewerUid, reloadNonce]);
+  }, [viewerKey, viewerUid, reloadNonce, prefetchEventMedia, syncEventsFromNetwork]);
+
+  useActiveBackgroundRefresh({
+    enabled: !loading,
+    onRefresh: () => syncEventsFromNetwork('background'),
+    baseIntervalMs: 5000,
+  });
+
+  useEffect(() => {
+    if (loading) return;
+    saveEventsSessionSnapshot({
+      viewerKey,
+      events,
+      likedIds,
+      savedIds,
+      activeTab,
+      searchQuery,
+      categoryFilter,
+      statusFilter,
+      dateWindowFilter,
+      venueFilter,
+      directLookupResult,
+      lightboxByEventId,
+      cachedAt: Date.now(),
+    });
+  }, [
+    loading,
+    viewerKey,
+    events,
+    likedIds,
+    savedIds,
+    activeTab,
+    searchQuery,
+    categoryFilter,
+    statusFilter,
+    dateWindowFilter,
+    venueFilter,
+    directLookupResult,
+    lightboxByEventId,
+  ]);
 
   const effectiveSelectedId = onSelectEvent ? selectedEventId : localSelectedId;
   const needsDirectLookup = Boolean(
@@ -500,6 +664,13 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
         autoFocusComments={focusCommentsOnOpen}
         highlightCommentId={
           selectedEvent.id === effectiveSelectedId ? selectedCommentId : null
+        }
+        initialLightboxIndex={lightboxByEventId[selectedEvent.id] ?? null}
+        onLightboxIndexChange={(idx) =>
+          setLightboxByEventId((prev) => ({
+            ...prev,
+            [selectedEvent.id]: idx,
+          }))
         }
         guestPromptMessage={guestPromptMessage}
         errorMessage={errorMessage}

@@ -9,15 +9,22 @@ import {
   Type,
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
+import { useActiveBackgroundRefresh } from '../hooks/useActiveBackgroundRefresh';
 import {
   fetchPublicAnonymousFeedPage,
   type AnonymousFeedPageCursor,
 } from '../services/firestoreFoundation';
+import { prefetchMediaImages } from '../services/mediaStorage';
 import {
   clearAnonymousFeedSessionCache,
   getAnonymousFeedSessionSnapshot,
+  hydrateAnonymousFeedSnapshot,
   saveAnonymousFeedSessionSnapshot,
 } from '../services/personalisedFeed';
+import {
+  getAnonymousTabSnapshot,
+  saveAnonymousTabSnapshot,
+} from '../services/navigationStateCache';
 import {
   fetchMyAnonymousHistory,
   fetchOwnedAnonymousEntries,
@@ -28,11 +35,14 @@ import {
 import type { AnonymousPost, UserRole } from '../types/database';
 import {
   ActiveRoute,
+  MarketplaceTab,
   ProfileTab,
   SearchScopeId,
   SectionId,
   ViewState,
 } from '../types/platform';
+import { mergeOrderedRecords } from '../utils/cacheSync';
+import { isDataSaverConnection } from '../utils/mediaCache';
 import { getSectionById } from '../utils/sectionState';
 import { ContextualSearchBar } from './ContextualSearchBar';
 import { GuestPromptCard } from './auth/GuestPromptCard';
@@ -52,6 +62,8 @@ interface SectionWorkspaceProps {
   selectedPostId?: string | null;
   selectedCommentId?: string | null;
   selectedListingId?: string | null;
+  marketplaceTab?: MarketplaceTab;
+  onSelectMarketplaceTab?: (tab: MarketplaceTab) => void;
   sectionStates: Record<SectionId, ViewState>;
   onNavigate: (
     route: ActiveRoute,
@@ -65,6 +77,7 @@ interface SectionWorkspaceProps {
       postId?: string | null;
       commentId?: string | null;
       listingId?: string | null;
+      marketplaceTab?: MarketplaceTab;
     }
   ) => void;
   onRetry: (sectionId: SectionId) => void;
@@ -78,6 +91,8 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   selectedPostId = null,
   selectedCommentId = null,
   selectedListingId = null,
+  marketplaceTab = 'browse',
+  onSelectMarketplaceTab,
   sectionStates,
   onNavigate,
   onRetry,
@@ -108,7 +123,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   );
   const [loadingMoreAnon, setLoadingMoreAnon] = useState(false);
 
-  const [anonViewTab, setAnonViewTab] = useState<'feed' | 'mine'>('feed');
+  const [anonViewTab, setAnonViewTab] = useState<'feed' | 'mine'>(
+    () => getAnonymousTabSnapshot(viewerKey)?.anonViewTab ?? 'feed'
+  );
   const [myAnonState, setMyAnonState] = useState<{
     loadedKey: string | null;
     items: AnonymousPost[];
@@ -140,7 +157,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   }>({ open: false });
 
   const anonLoadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
-  const loadedFromCacheRef = useRef(Boolean(initialAnonCache));
+  const lastHandledAnonRetryRef = useRef(0);
 
   const activeAnonTab = user ? anonViewTab : 'feed';
   const myAnonTargetKey = user?.uid ? `${user.uid}:${retryToken}` : null;
@@ -159,66 +176,182 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
       : null;
 
   useEffect(() => {
+    if (sectionId !== 'anonymous') return;
+    saveAnonymousTabSnapshot({
+      viewerKey,
+      anonViewTab,
+      cachedAt: Date.now(),
+    });
+  }, [sectionId, viewerKey, anonViewTab]);
+
+  const anonPostsRef = useRef(anonymousPosts);
+  const viewerUidRef = useRef(user?.uid ?? null);
+  useEffect(() => {
+    anonPostsRef.current = anonymousPosts;
+    viewerUidRef.current = user?.uid ?? null;
+  }, [anonymousPosts, user?.uid]);
+
+  const prefetchAnonMedia = useCallback((posts: readonly AnonymousPost[]) => {
+    if (isDataSaverConnection()) return;
+    const ids = posts
+      .slice(0, 4)
+      .flatMap((post) => post.mediaItems?.slice(0, 2).map((m) => m.imageId) ?? []);
+    if (ids.length > 0) {
+      void prefetchMediaImages(ids);
+    }
+  }, []);
+
+  const syncAnonymousFeed = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      if (
+        mode === 'background' &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine === false
+      ) {
+        return;
+      }
+
+      const uid = viewerUidRef.current;
+      const likedPromise = uid
+        ? fetchViewerLikedPostIds('anonymousPosts', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
+
+      const savedPromise = uid
+        ? fetchViewerSavedPostIds('anonymousPosts', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
+
+      const ownedPromise = uid
+        ? fetchOwnedAnonymousEntries(uid).catch(() => ({
+            postIds: new Set<string>(),
+            commentIds: new Set<string>(),
+          }))
+        : Promise.resolve({
+            postIds: new Set<string>(),
+            commentIds: new Set<string>(),
+          });
+
+      const [page, likedIds, savedIds, owned] = await Promise.all([
+        fetchPublicAnonymousFeedPage({ pageSize: 12 }),
+        likedPromise,
+        savedPromise,
+        ownedPromise,
+      ]);
+
+      if (isCancelled?.()) return;
+
+      setAnonymousPosts((prev) =>
+        mode === 'background' && prev.length > 0
+          ? mergeOrderedRecords({
+              existing: prev,
+              incoming: page.items,
+              preferIncomingOrder: false,
+              preserveTail: true,
+            })
+          : page.items
+      );
+      setAnonCursor((prevCursor) =>
+        mode === 'background' &&
+        anonPostsRef.current.length > page.items.length &&
+        prevCursor
+          ? prevCursor
+          : page.nextCursor
+      );
+      setHasMoreAnon((prevHasMore) =>
+        mode === 'background' && anonPostsRef.current.length > page.items.length
+          ? prevHasMore
+          : page.hasMore
+      );
+      setLikedAnonIds(likedIds);
+      setSavedAnonIds(savedIds);
+      setOwnedAnonPostIds(owned.postIds);
+      setOwnedAnonCommentIds(owned.commentIds);
+      setAnonLoadState('ready');
+      prefetchAnonMedia(page.items);
+    },
+    [prefetchAnonMedia]
+  );
+
+  useEffect(() => {
     if (sectionId !== 'anonymous') {
       return;
     }
 
-    const cached = getAnonymousFeedSessionSnapshot(viewerKey);
-    if (cached && retryToken === 0 && loadedFromCacheRef.current) {
-      loadedFromCacheRef.current = false;
-      return;
-    }
-
     let active = true;
+    let networkSettled = false;
 
-    const likedPromise = user?.uid
-      ? fetchViewerLikedPostIds('anonymousPosts', user.uid).catch(
-          () => new Set<string>()
-        )
-      : Promise.resolve(new Set<string>());
+    const cached = getAnonymousFeedSessionSnapshot(viewerKey);
+    if (cached && retryToken === lastHandledAnonRetryRef.current) {
+      prefetchAnonMedia(cached.anonymousPosts);
+      if (Date.now() - cached.cachedAt > 15_000) {
+        void syncAnonymousFeed('background', () => !active).catch(
+          () => undefined
+        );
+      }
+      return () => {
+        active = false;
+      };
+    }
+    lastHandledAnonRetryRef.current = retryToken;
 
-    const savedPromise = user?.uid
-      ? fetchViewerSavedPostIds('anonymousPosts', user.uid).catch(
-          () => new Set<string>()
-        )
-      : Promise.resolve(new Set<string>());
+    const run = async () => {
+      if (retryToken === 0) {
+        const persisted = await hydrateAnonymousFeedSnapshot(viewerKey);
+        if (
+          active &&
+          !networkSettled &&
+          persisted &&
+          persisted.anonymousPosts.length > 0
+        ) {
+          setAnonymousPosts(persisted.anonymousPosts);
+          setAnonCursor(persisted.anonCursor);
+          setHasMoreAnon(persisted.hasMoreAnon);
+          setLikedAnonIds(persisted.likedAnonIds);
+          setSavedAnonIds(persisted.savedAnonIds);
+          setOwnedAnonPostIds(persisted.ownedAnonPostIds);
+          setOwnedAnonCommentIds(persisted.ownedAnonCommentIds);
+          setAnonLoadState('ready');
+          prefetchAnonMedia(persisted.anonymousPosts);
 
-    const ownedPromise = user?.uid
-      ? fetchOwnedAnonymousEntries(user.uid).catch(() => ({
-          postIds: new Set<string>(),
-          commentIds: new Set<string>(),
-        }))
-      : Promise.resolve({
-          postIds: new Set<string>(),
-          commentIds: new Set<string>(),
-        });
+          await syncAnonymousFeed('background', () => !active).catch(
+            () => undefined
+          );
+          return;
+        }
+      }
 
-    Promise.all([
-      fetchPublicAnonymousFeedPage({ pageSize: 12 }),
-      likedPromise,
-      savedPromise,
-      ownedPromise,
-    ])
-      .then(([page, likedIds, savedIds, owned]) => {
-        if (!active) return;
-        setAnonymousPosts(page.items);
-        setAnonCursor(page.nextCursor);
-        setHasMoreAnon(page.hasMore);
-        setLikedAnonIds(likedIds);
-        setSavedAnonIds(savedIds);
-        setOwnedAnonPostIds(owned.postIds);
-        setOwnedAnonCommentIds(owned.commentIds);
+      await syncAnonymousFeed('initial', () => !active);
+      networkSettled = true;
+    };
+
+    void run().catch(() => {
+      if (!active) return;
+      if (anonPostsRef.current.length > 0) {
         setAnonLoadState('ready');
-      })
-      .catch(() => {
-        if (!active) return;
+      } else {
         setAnonLoadState('error');
-      });
+      }
+    });
 
     return () => {
       active = false;
     };
-  }, [sectionId, user?.uid, viewerKey, retryToken]);
+  }, [sectionId, user?.uid, viewerKey, retryToken, prefetchAnonMedia, syncAnonymousFeed]);
+
+  useActiveBackgroundRefresh({
+    enabled:
+      sectionId === 'anonymous' &&
+      activeAnonTab === 'feed' &&
+      anonLoadState === 'ready',
+    onRefresh: () => syncAnonymousFeed('background'),
+    baseIntervalMs: 5000,
+  });
 
   useEffect(() => {
     if (sectionId !== 'anonymous' || anonLoadState !== 'ready') {
@@ -318,7 +451,6 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
   const loadAnonymous = () => {
     clearAnonymousFeedSessionCache();
-    loadedFromCacheRef.current = false;
     setAnonLoadState('loading');
     setRetryToken((prev) => prev + 1);
   };
@@ -778,8 +910,10 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
             <MarketplaceSection
               selectedListingId={selectedListingId}
               selectedCommentId={selectedCommentId}
+              initialTab={marketplaceTab}
+              onTabChange={onSelectMarketplaceTab}
               onSelectListing={(listingId) =>
-                onNavigate('marketplace', { listingId })
+                onNavigate('marketplace', { listingId, marketplaceTab })
               }
               onRequireAuth={onRequireAuth}
               onNavigateProfile={(uname) =>

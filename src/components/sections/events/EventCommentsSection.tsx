@@ -16,6 +16,11 @@ import {
   togglePostCommentReaction,
 } from '../../../services/events';
 import {
+  clearPersistentDraft,
+  loadPersistentDraft,
+  savePersistentDraft,
+} from '../../../services/persistentCache';
+import {
   fetchViewerLikedPostIds,
   type CommentWithAuthor,
 } from '../../../services/socialPosts';
@@ -76,6 +81,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const viewerUid = user?.uid ?? null;
+  const viewerKey = viewerUid ?? 'guest';
   const isAdminOrOwner =
     effectiveTier === 'supreme_admin' || effectiveTier === 'owner';
 
@@ -140,6 +146,61 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     };
   }, [eventId, viewerUid]);
 
+  // Persistent draft load & autosave for event comment & active reply
+  useEffect(() => {
+    let active = true;
+    void loadPersistentDraft<string>(viewerKey, `event_comment:${eventId}`)
+      .then((draft) => {
+        if (!active || !draft) return;
+        setNewCommentBody((curr) => (curr.trim() ? curr : draft));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, eventId]);
+
+  useEffect(() => {
+    if (!newCommentBody.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(
+        viewerKey,
+        `event_comment:${eventId}`,
+        newCommentBody
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, eventId, newCommentBody]);
+
+  useEffect(() => {
+    if (!replyingToId) return;
+    let active = true;
+    void loadPersistentDraft<string>(
+      viewerKey,
+      `event_reply:${eventId}:${replyingToId}`
+    )
+      .then((draft) => {
+        if (!active || !draft) return;
+        setReplyBody((curr) => (curr.trim() ? curr : draft));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, eventId, replyingToId]);
+
+  useEffect(() => {
+    if (!replyingToId || !replyBody.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(
+        viewerKey,
+        `event_reply:${eventId}:${replyingToId}`,
+        replyBody
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, eventId, replyingToId, replyBody]);
+
   useEffect(() => {
     if (autoFocusInput && !loading && mainInputRef.current) {
       mainInputRef.current.focus();
@@ -183,6 +244,12 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     const trimmed = rawText.trim();
     if (!trimmed) return;
     if (parentCommentId && isOptimisticTempId(parentCommentId)) {
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErrorMessage(
+        'You are offline. Your comment draft is saved safely — reconnect to post.'
+      );
       return;
     }
 
@@ -230,6 +297,14 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
           )
         );
         onCommentsCountChange(res.commentsCount);
+        if (parentCommentId) {
+          void clearPersistentDraft(
+            viewerKey,
+            `event_reply:${eventId}:${parentCommentId}`
+          );
+        } else {
+          void clearPersistentDraft(viewerKey, `event_comment:${eventId}`);
+        }
       })
       .catch((error) => {
         // Rollback optimistic comment and restore draft text for retry
@@ -358,6 +433,10 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
   const handleSaveEdit = (commentId: string) => {
     const trimmed = editingBody.trim();
     if (!trimmed || actionBusyId || isOptimisticTempId(commentId)) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErrorMessage('You are offline. Reconnect to save your comment edit.');
+      return;
+    }
 
     const prevComments = comments;
     setComments((prev) =>

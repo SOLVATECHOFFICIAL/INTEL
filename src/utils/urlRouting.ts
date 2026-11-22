@@ -1,4 +1,10 @@
-import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
+import {
+  AccountSettingsSection,
+  ActiveRoute,
+  MarketplaceTab,
+  ProfileTab,
+  SearchScopeId,
+} from '../types/platform';
 
 const VALID_ROUTES: readonly ActiveRoute[] = [
   'for-you',
@@ -40,10 +46,42 @@ const VALID_PROFILE_TABS: readonly ProfileTab[] = [
   'following',
 ];
 
+const VALID_MARKETPLACE_TABS: readonly MarketplaceTab[] = [
+  'browse',
+  'my_listings',
+  'updates',
+  'pending_approvals',
+];
+
+const VALID_ACCOUNT_SECTIONS: readonly AccountSettingsSection[] = [
+  'profile',
+  'security',
+  'privacy',
+  'management',
+];
+
 export function isValidProfileTab(value: string | null): value is ProfileTab {
   return (
     value !== null &&
     (VALID_PROFILE_TABS as readonly string[]).includes(value)
+  );
+}
+
+export function isValidMarketplaceTab(
+  value: string | null
+): value is MarketplaceTab {
+  return (
+    value !== null &&
+    (VALID_MARKETPLACE_TABS as readonly string[]).includes(value)
+  );
+}
+
+export function isValidAccountSection(
+  value: string | null
+): value is AccountSettingsSection {
+  return (
+    value !== null &&
+    (VALID_ACCOUNT_SECTIONS as readonly string[]).includes(value)
   );
 }
 
@@ -88,6 +126,8 @@ export interface ParsedRouteLocation {
   postId: string | null;
   commentId: string | null;
   listingId: string | null;
+  marketplaceTab: MarketplaceTab;
+  accountSection: AccountSettingsSection;
 }
 
 function parseSafeIdParam(params: URLSearchParams, key: string): string | null {
@@ -134,6 +174,16 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
   const postId = parseSafeIdParam(params, 'postId');
   const commentId = parseSafeIdParam(params, 'commentId');
   const listingId = parseSafeIdParam(params, 'listingId');
+  const rawMktTab = params.get('mktTab');
+  const marketplaceTab =
+    route === 'marketplace' && isValidMarketplaceTab(rawMktTab)
+      ? rawMktTab
+      : 'browse';
+  const rawSection = params.get('section');
+  const accountSection =
+    route === 'account' && isValidAccountSection(rawSection)
+      ? rawSection
+      : 'profile';
 
   return {
     route,
@@ -146,6 +196,8 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
     postId,
     commentId,
     listingId,
+    marketplaceTab,
+    accountSection,
   };
 }
 
@@ -165,6 +217,8 @@ export function buildSearchForRoute(
     postId?: string | null;
     commentId?: string | null;
     listingId?: string | null;
+    marketplaceTab?: MarketplaceTab | null;
+    accountSection?: AccountSettingsSection | null;
   }
 ): string {
   const pathname =
@@ -181,6 +235,11 @@ export function buildSearchForRoute(
     }
     if (options?.profileTab && options.profileTab !== 'posts') {
       params.set('tab', options.profileTab);
+    }
+  }
+  if (route === 'account') {
+    if (options?.accountSection && options.accountSection !== 'profile') {
+      params.set('section', options.accountSection);
     }
   }
   if (route === 'search') {
@@ -213,10 +272,15 @@ export function buildSearchForRoute(
       params.set('commentId', options.commentId);
     }
   }
-  if (route === 'marketplace' && options?.listingId) {
-    params.set('listingId', options.listingId);
-    if (options?.commentId) {
-      params.set('commentId', options.commentId);
+  if (route === 'marketplace') {
+    if (options?.marketplaceTab && options.marketplaceTab !== 'browse') {
+      params.set('mktTab', options.marketplaceTab);
+    }
+    if (options?.listingId) {
+      params.set('listingId', options.listingId);
+      if (options?.commentId) {
+        params.set('commentId', options.commentId);
+      }
     }
   }
 
@@ -225,4 +289,33 @@ export function buildSearchForRoute(
 
 export function isFeedRoute(route: ActiveRoute): boolean {
   return route === 'for-you' || route === 'following' || route === 'latest';
+}
+
+export function isProtectedRouteOrTab(target: {
+  route: ActiveRoute;
+  profileTab?: ProfileTab | null;
+  marketplaceTab?: MarketplaceTab | null;
+}): boolean {
+  if (
+    target.route === 'account' ||
+    target.route === 'notifications' ||
+    target.route === 'admin' ||
+    target.route === 'following'
+  ) {
+    return true;
+  }
+  if (
+    target.route === 'profile' &&
+    (target.profileTab === 'saved' || target.profileTab === 'anonymous')
+  ) {
+    return true;
+  }
+  if (
+    target.route === 'marketplace' &&
+    (target.marketplaceTab === 'my_listings' ||
+      target.marketplaceTab === 'pending_approvals')
+  ) {
+    return true;
+  }
+  return false;
 }

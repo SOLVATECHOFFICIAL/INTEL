@@ -16,6 +16,13 @@ import {
   type MediaTargetCollection,
   type PublicUserProfile,
 } from '../types/database';
+import {
+  deletePersistentMediaByPredicate,
+  readPersistentMediaRecord,
+  writePersistentMediaRecord,
+} from './persistentCache';
+import { notifyProfileUpdated } from './cacheInvalidation';
+import { perfMetrics } from '../utils/cacheSync';
 import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
   buildMediaDataUrl,
@@ -31,6 +38,7 @@ import {
 const PERSISTENT_CACHE_NAME = 'lasued-intel-media-v1';
 const PERSISTENT_CACHE_ORIGIN = 'https://media-cache.lasuedintel.local/asset/';
 const PERSISTENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const PERSISTENT_CACHE_MAX_ENTRIES = 160;
 
 const l1MediaCache = new MediaMemoryLru(250, 24 * 1024 * 1024);
 const inFlightMediaRequests = new Map<string, Promise<string | null>>();
@@ -62,32 +70,55 @@ async function openPersistentMediaCache(): Promise<Cache | null> {
   }
 }
 
+async function pruneCacheApiEntries(cache: Cache): Promise<void> {
+  try {
+    const keys = await cache.keys();
+    if (keys.length <= PERSISTENT_CACHE_MAX_ENTRIES) return;
+    const excessCount = keys.length - PERSISTENT_CACHE_MAX_ENTRIES;
+    for (let i = 0; i < excessCount; i += 1) {
+      await cache.delete(keys[i]).catch(() => false);
+    }
+  } catch {
+    // Non-blocking cleanup
+  }
+}
+
 async function readPersistentMediaCache(
   cacheKey: string
 ): Promise<string | null> {
   const cache = await openPersistentMediaCache();
-  if (!cache) return null;
-  const reqUrl = makePersistentRequestUrl(cacheKey);
-  try {
-    const response = await cache.match(reqUrl);
-    if (!response) return null;
-    const cachedAt = Number(response.headers.get('X-Cached-At') ?? '0');
-    if (
-      cachedAt > 0 &&
-      Date.now() - cachedAt > PERSISTENT_CACHE_MAX_AGE_MS
-    ) {
-      await cache.delete(reqUrl).catch(() => false);
-      return null;
+  if (cache) {
+    const reqUrl = makePersistentRequestUrl(cacheKey);
+    try {
+      const response = await cache.match(reqUrl);
+      if (response) {
+        const cachedAt = Number(response.headers.get('X-Cached-At') ?? '0');
+        if (
+          cachedAt > 0 &&
+          Date.now() - cachedAt > PERSISTENT_CACHE_MAX_AGE_MS
+        ) {
+          await cache.delete(reqUrl).catch(() => false);
+        } else {
+          const text = await response.text();
+          if (text.startsWith('data:image/')) {
+            perfMetrics.recordHit('media_l2_cache_api');
+            return text;
+          }
+          await cache.delete(reqUrl).catch(() => false);
+        }
+      }
+    } catch {
+      // Fall through to IndexedDB fallback
     }
-    const text = await response.text();
-    if (!text.startsWith('data:image/')) {
-      await cache.delete(reqUrl).catch(() => false);
-      return null;
-    }
-    return text;
-  } catch {
-    return null;
   }
+
+  const idbHit = await readPersistentMediaRecord(cacheKey);
+  if (idbHit) {
+    perfMetrics.recordHit('media_l2_idb');
+  } else {
+    perfMetrics.recordMiss('media_l2');
+  }
+  return idbHit;
 }
 
 async function writePersistentMediaCache(
@@ -95,24 +126,29 @@ async function writePersistentMediaCache(
   dataUrl: string
 ): Promise<void> {
   const cache = await openPersistentMediaCache();
-  if (!cache) return;
-  const reqUrl = makePersistentRequestUrl(cacheKey);
-  try {
-    const response = new Response(dataUrl, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'X-Cached-At': String(Date.now()),
-      },
-    });
-    await cache.put(reqUrl, response);
-  } catch {
-    // Ignore Cache API quota errors cleanly
+  if (cache) {
+    const reqUrl = makePersistentRequestUrl(cacheKey);
+    try {
+      const response = new Response(dataUrl, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'X-Cached-At': String(Date.now()),
+        },
+      });
+      await cache.put(reqUrl, response);
+      void pruneCacheApiEntries(cache);
+      return;
+    } catch {
+      // Fallback to IndexedDB on Cache API quota/restriction error
+    }
   }
+  await writePersistentMediaRecord(cacheKey, dataUrl);
 }
 
 async function deletePersistentMediaEntriesByPredicate(
   predicate: (cacheKey: string) => boolean
 ): Promise<void> {
+  void deletePersistentMediaByPredicate(predicate);
   const cache = await openPersistentMediaCache();
   if (!cache) return;
   try {
@@ -149,7 +185,11 @@ export function getCachedMediaImageDataUrl(
   if (!isValidFirestoreId(imageId) || isMarkedDeleted(imageId)) return null;
   const scopedKey = buildScopedMediaCacheKey(imageId, options);
   if (!scopedKey) return null;
-  return l1MediaCache.get(scopedKey);
+  const hit = l1MediaCache.get(scopedKey);
+  if (hit) {
+    perfMetrics.recordHit('media_l1');
+  }
+  return hit;
 }
 
 export function primeMediaImageCache(
@@ -188,7 +228,7 @@ export function evictMediaImageCacheBatch(imageIds: readonly string[]): void {
 }
 
 /**
- * Purges any viewer-scoped private media entries from L1 and persistent Cache API
+ * Purges any viewer-scoped private media entries from L1 and persistent caches
  * so signing out or switching accounts never leaks restricted media across sessions.
  */
 export function clearViewerScopedMediaCache(uid?: string | null): void {
@@ -205,7 +245,7 @@ export function clearViewerScopedMediaCache(uid?: string | null): void {
 /**
  * Resolves a compressed MediaImage document through:
  * 1. L1 synchronous memory LRU
- * 2. L2 persistent Cache API (survives page reloads & revisits)
+ * 2. L2 persistent Cache API / IndexedDB fallback (survives page reloads & revisits)
  * 3. Firestore with transient retry and automatic stale-cache eviction if deleted
  */
 export async function fetchMediaImageDataUrl(
@@ -230,6 +270,7 @@ export async function fetchMediaImageDataUrl(
     }
     const cached = l1MediaCache.get(scopedKey);
     if (cached) {
+      perfMetrics.recordHit('media_l1');
       return cached;
     }
   }
@@ -241,13 +282,19 @@ export async function fetchMediaImageDataUrl(
 
   const path = `${COLLECTION_NAMES.mediaImages}/${imageId}`;
   const promise = (async () => {
+    const startMs = Date.now();
     try {
       if (!options?.forceRefresh) {
         const persistentHit = await readPersistentMediaCache(scopedKey);
         if (persistentHit && !isMarkedDeleted(imageId)) {
           l1MediaCache.set(scopedKey, persistentHit);
+          perfMetrics.recordTiming('media_l2', Date.now() - startMs);
           return persistentHit;
         }
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return null;
       }
 
       const snapshot = await runWithFirestoreConnectionRetry(() =>
@@ -270,8 +317,12 @@ export async function fetchMediaImageDataUrl(
       }
       const dataUrl = buildMediaDataUrl(data.mimeType, data.base64Data);
       primeMediaImageCache(imageId, dataUrl, options);
+      perfMetrics.recordTiming('media_network', Date.now() - startMs);
       return dataUrl;
     } catch (error) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return null;
+      }
       handleFirestoreError(error, OperationType.GET, path);
     } finally {
       inFlightMediaRequests.delete(scopedKey);
@@ -290,7 +341,12 @@ export async function prefetchMediaImages(
   imageIds: readonly (string | null | undefined)[],
   options?: MediaCacheKeyOptions
 ): Promise<void> {
-  if (isDataSaverConnection()) return;
+  if (
+    isDataSaverConnection() ||
+    (typeof navigator !== 'undefined' && navigator.onLine === false)
+  ) {
+    return;
+  }
   const targets = Array.from(
     new Set(
       imageIds.filter(
@@ -427,6 +483,7 @@ export async function saveProfileMediaImage(input: {
     evictMediaImageCache(input.previousImageId);
   }
   primeMediaImageCache(newImageId, input.compressed.dataUrl);
+  notifyProfileUpdated({ uid: input.uid });
   input.onProgress?.({ percent: 100, label: 'Saved to profile' });
 
   return {
@@ -484,4 +541,5 @@ export async function removeProfileMediaImage(input: {
   if (input.currentImageId) {
     evictMediaImageCache(input.currentImageId);
   }
+  notifyProfileUpdated({ uid: input.uid });
 }

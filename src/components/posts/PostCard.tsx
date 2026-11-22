@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
   Check,
@@ -21,6 +21,16 @@ import {
 } from '../../config/anonymousBackgrounds';
 import { useFirebase } from '../../context/firebaseContext';
 import { togglePostCommentReaction } from '../../services/events';
+import {
+  getPostUiSnapshot,
+  hydratePostUiSnapshot,
+  savePostUiSnapshot,
+} from '../../services/navigationStateCache';
+import {
+  clearPersistentDraft,
+  loadPersistentDraft,
+  savePersistentDraft,
+} from '../../services/persistentCache';
 import {
   addPostComment,
   deletePostCascading,
@@ -126,7 +136,7 @@ function formatPostTimestamp(value: unknown): string {
   });
 }
 
-export const PostCard: React.FC<PostCardProps> = ({
+const PostCardComponent: React.FC<PostCardProps> = ({
   kind,
   post,
   author,
@@ -197,27 +207,46 @@ export const PostCard: React.FC<PostCardProps> = ({
       ? commentsCountOverride.value
       : post.commentsCount;
 
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const viewerKey = viewerUid ?? 'guest';
+  const initialUiSnapshot = getPostUiSnapshot(viewerKey, kind, post.id);
+
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(
+    () => initialUiSnapshot?.lightboxIndex ?? null
+  );
   const [confirmDeletePost, setConfirmDeletePost] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const [commentsManualOpen, setCommentsManualOpen] = useState<boolean | null>(
-    null
+    () => initialUiSnapshot?.commentsManualOpen ?? null
   );
   const commentsOpen =
     commentsManualOpen ?? Boolean(defaultCommentsOpen || highlightCommentId);
   const [commentsLoading, setCommentsLoading] = useState(
-    Boolean(defaultCommentsOpen || highlightCommentId)
+    () =>
+      Boolean(
+        initialUiSnapshot?.commentsManualOpen ??
+          (defaultCommentsOpen || highlightCommentId)
+      ) && !initialUiSnapshot?.commentsLoaded
   );
   const [loadingMoreComments, setLoadingMoreComments] = useState(false);
-  const [comments, setComments] = useState<CommentWithAuthor[]>([]);
+  const [comments, setComments] = useState<CommentWithAuthor[]>(
+    () => initialUiSnapshot?.comments ?? []
+  );
   const [commentsCursor, setCommentsCursor] =
-    useState<CommentsPageCursor | null>(null);
-  const [hasMoreComments, setHasMoreComments] = useState(false);
-  const [commentsLoaded, setCommentsLoaded] = useState(false);
+    useState<CommentsPageCursor | null>(
+      () => initialUiSnapshot?.commentsCursor ?? null
+    );
+  const [hasMoreComments, setHasMoreComments] = useState(
+    () => initialUiSnapshot?.hasMoreComments ?? false
+  );
+  const [commentsLoaded, setCommentsLoaded] = useState(
+    () => initialUiSnapshot?.commentsLoaded ?? false
+  );
 
   const [newCommentBody, setNewCommentBody] = useState('');
-  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyingToId, setReplyingToId] = useState<string | null>(
+    () => initialUiSnapshot?.replyingToId ?? null
+  );
   const [replyBody, setReplyBody] = useState('');
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -242,14 +271,156 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [likedCommentState, setLikedCommentState] = useState<{
     uid: string | null;
     ids: Set<string>;
-  }>({ uid: null, ids: new Set() });
-  const likedCommentIds =
-    viewerUid && likedCommentState.uid === viewerUid
-      ? likedCommentState.ids
-      : new Set<string>();
+  }>(() => ({
+    uid: viewerUid,
+    ids: initialUiSnapshot?.likedCommentIds ?? new Set(),
+  }));
+  const likedCommentIds = useMemo<Set<string>>(
+    () =>
+      viewerUid && likedCommentState.uid === viewerUid
+        ? likedCommentState.ids
+        : new Set<string>(),
+    [viewerUid, likedCommentState.uid, likedCommentState.ids]
+  );
   const [commentLikesCounts, setCommentLikesCounts] = useState<
     Record<string, number>
-  >({});
+  >(() => initialUiSnapshot?.commentLikesCounts ?? {});
+
+  useEffect(() => {
+    if (
+      commentsManualOpen === null &&
+      !commentsLoaded &&
+      lightboxIndex === null &&
+      replyingToId === null
+    ) {
+      return;
+    }
+    savePostUiSnapshot({
+      viewerKey,
+      kind,
+      postId: post.id,
+      commentsManualOpen,
+      comments,
+      commentsCursor,
+      hasMoreComments,
+      commentsLoaded,
+      replyingToId,
+      lightboxIndex,
+      likedCommentIds,
+      commentLikesCounts,
+      cachedAt: Date.now(),
+    });
+  }, [
+    viewerKey,
+    kind,
+    post.id,
+    commentsManualOpen,
+    comments,
+    commentsCursor,
+    hasMoreComments,
+    commentsLoaded,
+    replyingToId,
+    lightboxIndex,
+    likedCommentIds,
+    commentLikesCounts,
+  ]);
+
+  // Hydrate persisted Post UI snapshot from IDB after cold reloads
+  useEffect(() => {
+    if (getPostUiSnapshot(viewerKey, kind, post.id)) {
+      return;
+    }
+    let active = true;
+    void hydratePostUiSnapshot(viewerKey, kind, post.id)
+      .then((stored) => {
+        if (!active || !stored) return;
+        setCommentsManualOpen((curr) =>
+          curr !== null ? curr : stored.commentsManualOpen
+        );
+        setComments((curr) => (curr.length > 0 ? curr : stored.comments));
+        setCommentsCursor((curr) => curr ?? stored.commentsCursor);
+        setHasMoreComments((curr) => curr || stored.hasMoreComments);
+        setCommentsLoaded((curr) => {
+          const next = curr || stored.commentsLoaded;
+          if (next) setCommentsLoading(false);
+          return next;
+        });
+        setReplyingToId((curr) => curr ?? stored.replyingToId);
+        if (stored.likedCommentIds.size > 0 && viewerUid) {
+          setLikedCommentState((curr) =>
+            curr.ids.size > 0
+              ? curr
+              : { uid: viewerUid, ids: stored.likedCommentIds }
+          );
+        }
+        setCommentLikesCounts((curr) =>
+          Object.keys(curr).length > 0 ? curr : stored.commentLikesCounts
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, viewerUid, kind, post.id]);
+
+  // Load & autosave persistent top-level comment draft
+  useEffect(() => {
+    let active = true;
+    void loadPersistentDraft<string>(
+      viewerKey,
+      `post_comment:${kind}:${post.id}`
+    )
+      .then((draft) => {
+        if (!active || !draft) return;
+        setNewCommentBody((curr) => (curr.trim() ? curr : draft));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, kind, post.id]);
+
+  useEffect(() => {
+    if (!newCommentBody.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(
+        viewerKey,
+        `post_comment:${kind}:${post.id}`,
+        newCommentBody
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, kind, post.id, newCommentBody]);
+
+  // Load & autosave persistent reply draft when replying to a comment
+  useEffect(() => {
+    if (!replyingToId) return;
+    let active = true;
+    void loadPersistentDraft<string>(
+      viewerKey,
+      `post_reply:${kind}:${post.id}:${replyingToId}`
+    )
+      .then((draft) => {
+        if (!active || !draft) return;
+        setReplyBody((curr) => (curr.trim() ? curr : draft));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerKey, kind, post.id, replyingToId]);
+
+  useEffect(() => {
+    if (!replyingToId || !replyBody.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(
+        viewerKey,
+        `post_reply:${kind}:${post.id}:${replyingToId}`,
+        replyBody
+      );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, kind, post.id, replyingToId, replyBody]);
 
   const [reportingTarget, setReportingTarget] = useState<{
     targetType: AnonymousReportTargetType;
@@ -617,6 +788,12 @@ export const PostCard: React.FC<PostCardProps> = ({
     const trimmed = text.trim();
     if (!trimmed) return;
     if (parentCommentId && isOptimisticTempId(parentCommentId)) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setCardError(
+        'You are offline. Your comment draft is saved safely — reconnect to post.'
+      );
+      return;
+    }
 
     const lockKey = `${parentCommentId ?? 'root'}:${trimmed}`;
     if (commentSubmitLockRef.current.has(lockKey)) return;
@@ -671,6 +848,17 @@ export const PostCard: React.FC<PostCardProps> = ({
           value: result.commentsCount,
         });
         onPostUpdated({ ...post, commentsCount: result.commentsCount });
+        if (parentCommentId) {
+          void clearPersistentDraft(
+            viewerKey,
+            `post_reply:${kind}:${post.id}:${parentCommentId}`
+          );
+        } else {
+          void clearPersistentDraft(
+            viewerKey,
+            `post_comment:${kind}:${post.id}`
+          );
+        }
         if (kind === 'anonymous') {
           onAnonymousCommentTracked?.(result.comment.id, 'add');
         }
@@ -705,6 +893,10 @@ export const PostCard: React.FC<PostCardProps> = ({
       commentActionBusyId ||
       isOptimisticTempId(commentId)
     ) {
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setCardError('You are offline. Reconnect to save your comment edit.');
       return;
     }
     const trimmed = editingCommentBody.trim();
@@ -1019,6 +1211,10 @@ export const PostCard: React.FC<PostCardProps> = ({
   ) => {
     event.preventDefault();
     if (!viewerUid || !reportingTarget || reportSubmitting) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setCardError('You are offline. Reconnect to submit your report.');
+      return;
+    }
     setReportSubmitting(true);
     setCardError(null);
     try {
@@ -2110,9 +2306,12 @@ export const PostCard: React.FC<PostCardProps> = ({
           initialIndex={lightboxIndex}
           postTitle={'title' in post ? post.title : undefined}
           postCaption={post.body.trim() || undefined}
+          onIndexChange={setLightboxIndex}
           onClose={() => setLightboxIndex(null)}
         />
       )}
     </article>
   );
 };
+
+export const PostCard = React.memo(PostCardComponent);

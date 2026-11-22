@@ -1,0 +1,329 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import type {
+  AnonymousPost,
+  CommunityPost,
+  PublicProfileProjection,
+} from '../types/database';
+import {
+  BoundedLruMap,
+  SingleFlightRegistry,
+  computeActivePollDelayMs,
+  deserializeRecordMap,
+  deserializeSet,
+  isNewerOrSameTimestamp,
+  isPersistableCacheKey,
+  mergeCommunityPostItems,
+  mergeOrderedRecords,
+  patchAuthorProjectionInPostItems,
+  perfMetrics,
+  removeItemById,
+  sanitizeAnonymousPostForCache,
+  sanitizeAnonymousPostsForCache,
+  serializeRecordMap,
+  serializeSet,
+  stripFirestoreCursor,
+  upsertItemById,
+} from './cacheSync';
+
+function makeProfile(
+  uid: string,
+  overrides: Partial<PublicProfileProjection> = {}
+): PublicProfileProjection {
+  return {
+    fullName: `Member ${uid}`,
+    username: `user_${uid}`,
+    department: 'Computer Science',
+    level: '300L',
+    badge: 'verified',
+    accountStatus: 'active',
+    showWhatsappPublicly: false,
+    followersCount: 10,
+    followingCount: 5,
+    createdAt: 1000,
+    ...overrides,
+  };
+}
+
+function makeCommunityPost(
+  id: string,
+  overrides: Partial<CommunityPost> = {}
+): CommunityPost {
+  return {
+    id,
+    ownerUID: 'u1',
+    authorRole: 'verified',
+    postType: 'text',
+    category: 'Campus Update',
+    body: `Post ${id}`,
+    isOfficial: false,
+    isPinned: false,
+    status: 'published',
+    visibility: 'public',
+    likesCount: 0,
+    commentsCount: 0,
+    createdAt: 1000,
+    updatedAt: 1000,
+    ...overrides,
+  };
+}
+
+test('serializeSet and deserializeSet roundtrip string sets safely', () => {
+  const original = new Set(['a', 'b', 'c']);
+  const serialized = serializeSet(original);
+  assert.deepEqual(serialized, ['a', 'b', 'c']);
+  const restored = deserializeSet(serialized);
+  assert.deepEqual(Array.from(restored), ['a', 'b', 'c']);
+  assert.equal(deserializeSet(null).size, 0);
+});
+
+test('serializeRecordMap and deserializeRecordMap roundtrip key-value maps safely', () => {
+  const original = new Map<string, number>([
+    ['post-1', 12],
+    ['post-2', 4],
+  ]);
+  const restored = deserializeRecordMap<number>(serializeRecordMap(original));
+  assert.equal(restored.get('post-1'), 12);
+  assert.equal(restored.get('post-2'), 4);
+  assert.equal(deserializeRecordMap('invalid').size, 0);
+});
+
+test('stripFirestoreCursor preserves offset cursors and clears Firestore snapshots', () => {
+  assert.deepEqual(stripFirestoreCursor({ mode: 'offset', offset: 24 }), {
+    mode: 'offset',
+    offset: 24,
+  });
+  assert.equal(stripFirestoreCursor({ mode: 'firestore' }), null);
+  assert.equal(stripFirestoreCursor(null), null);
+});
+
+test('isPersistableCacheKey blocks admin, audit, and anonymous mapping keys', () => {
+  assert.equal(isPersistableCacheKey('adminAuditLogs:recent'), false);
+  assert.equal(isPersistableCacheKey('badgeAuditLogs:all'), false);
+  assert.equal(isPersistableCacheKey('anonymousIdentityMappings:p1'), false);
+  assert.equal(isPersistableCacheKey('anonymousReports:pending'), false);
+  assert.equal(isPersistableCacheKey('admin:overview'), false);
+  assert.equal(isPersistableCacheKey('feed:for-you:guest'), true);
+  assert.equal(isPersistableCacheKey('profile:public:amaka'), true);
+});
+
+test('sanitizeAnonymousPostForCache strips any identity linkage defensively', () => {
+  const dirty = {
+    id: 'anon-1',
+    postType: 'text',
+    category: 'Campus Life',
+    body: 'Hello campus',
+    status: 'published',
+    visibility: 'public',
+    likesCount: 3,
+    commentsCount: 1,
+    createdAt: 1000,
+    updatedAt: 1000,
+    ownerUID: 'secret-uid',
+    authorUid: 'secret-uid-2',
+    email: 'secret@lasued.edu.ng',
+  } as unknown as AnonymousPost;
+
+  const [sanitized] = sanitizeAnonymousPostsForCache([dirty]);
+  assert.equal('ownerUID' in sanitized, false);
+  assert.equal('authorUid' in sanitized, false);
+  assert.equal('email' in sanitized, false);
+  assert.equal(sanitized.id, 'anon-1');
+  assert.equal(sanitized.body, 'Hello campus');
+  assert.equal(
+    'ownerUID' in sanitizeAnonymousPostForCache(dirty),
+    false
+  );
+});
+
+test('monotonic timestamp protection stops stale caches overwriting newer server state', () => {
+  const newer = { createdAt: 1000, updatedAt: 5000 };
+  const older = { createdAt: 1000, updatedAt: 3000 };
+  assert.equal(isNewerOrSameTimestamp(older, newer), false);
+  assert.equal(isNewerOrSameTimestamp(newer, older), true);
+  assert.equal(isNewerOrSameTimestamp(newer, newer), true);
+});
+
+test('mergeCommunityPostItems deduplicates, preserves older pages and keeps unchanged refs', () => {
+  const author1 = makeProfile('u1');
+  const existingItem1 = { post: makeCommunityPost('p1', { likesCount: 2 }), author: author1 };
+  const existingItem2 = { post: makeCommunityPost('p2', { likesCount: 5 }), author: author1 };
+  const olderPageItem = { post: makeCommunityPost('p3'), author: author1 };
+
+  const incoming = [
+    { post: makeCommunityPost('p0', { createdAt: 2000, updatedAt: 2000 }), author: author1 },
+    { post: makeCommunityPost('p1', { likesCount: 2 }), author: makeProfile('u1') },
+    { post: makeCommunityPost('p2', { likesCount: 8, updatedAt: 2500 }), author: author1 },
+  ];
+
+  const mergedHead = mergeCommunityPostItems({
+    existing: [existingItem1, existingItem2, olderPageItem],
+    incoming,
+    preferIncomingOrder: false,
+    preserveTail: true,
+  });
+
+  assert.deepEqual(
+    mergedHead.map((i) => i.post.id),
+    ['p0', 'p1', 'p2', 'p3']
+  );
+  // Unchanged p1 and p3 retain identical object references so React.memo skips re-render
+  assert.equal(mergedHead[1], existingItem1);
+  assert.equal(mergedHead[2].post.likesCount, 8);
+  assert.equal(mergedHead[3], olderPageItem);
+
+  // Stale incoming data does not overwrite newer updated p2
+  const staleMerged = mergeCommunityPostItems({
+    existing: mergedHead,
+    incoming: [
+      { post: makeCommunityPost('p2', { likesCount: 1, updatedAt: 1200 }), author: author1 },
+    ],
+  });
+  assert.equal(
+    staleMerged.find((i) => i.post.id === 'p2')?.post.likesCount,
+    8
+  );
+});
+
+test('mergeOrderedRecords prevents duplicates and supports preferIncomingOrder', () => {
+  const r1 = { id: 'a', createdAt: 100, updatedAt: 100, name: 'First' };
+  const r2 = { id: 'b', createdAt: 200, updatedAt: 200, name: 'Second' };
+  const r3 = { id: 'c', createdAt: 50, updatedAt: 50, name: 'Third' };
+
+  const merged = mergeOrderedRecords({
+    existing: [r1, r2, r3],
+    incoming: [
+      { id: 'b', createdAt: 200, updatedAt: 300, name: 'Second Updated' },
+      { id: 'a', createdAt: 100, updatedAt: 100, name: 'First' },
+      { id: 'b', createdAt: 200, updatedAt: 300, name: 'Second Updated' },
+    ],
+    preferIncomingOrder: true,
+    preserveTail: true,
+  });
+
+  assert.deepEqual(
+    merged.map((m) => m.id),
+    ['b', 'a', 'c']
+  );
+  assert.equal(merged[0].name, 'Second Updated');
+  assert.equal(merged[1], r1);
+  assert.equal(merged[2], r3);
+});
+
+test('upsertItemById, removeItemById, and patchAuthorProjectionInPostItems update cleanly', () => {
+  const p1 = makeCommunityPost('p1');
+  const p2 = makeCommunityPost('p2');
+  const added = upsertItemById([p1], p2, true);
+  assert.deepEqual(
+    added.map((p) => p.id),
+    ['p2', 'p1']
+  );
+  const replaced = upsertItemById(added, { ...p1, body: 'Edited' });
+  assert.equal(replaced[1].body, 'Edited');
+  const removed = removeItemById(replaced, 'p2');
+  assert.deepEqual(
+    removed.map((p) => p.id),
+    ['p1']
+  );
+
+  const authorOld = makeProfile('u1', { fullName: 'Old Name' });
+  const authorNew = makeProfile('u1', { fullName: 'New Name' });
+  const items = [{ post: p1, author: authorOld }];
+  const patched = patchAuthorProjectionInPostItems(items, authorNew);
+  assert.equal(patched[0].author?.fullName, 'New Name');
+});
+
+test('SingleFlightRegistry coalesces concurrent calls and cleans up after settlement', async () => {
+  const registry = new SingleFlightRegistry();
+  let executions = 0;
+
+  const task = () =>
+    new Promise<number>((resolve) => {
+      executions += 1;
+      setTimeout(() => resolve(42), 10);
+    });
+
+  const [a, b, c] = await Promise.all([
+    registry.run('key-1', task),
+    registry.run('key-1', task),
+    registry.run('key-1', task),
+  ]);
+
+  assert.equal(a, 42);
+  assert.equal(b, 42);
+  assert.equal(c, 42);
+  assert.equal(executions, 1);
+  assert.equal(registry.size(), 0);
+
+  // Subsequent run executes freshly
+  await registry.run('key-1', task);
+  assert.equal(executions, 2);
+});
+
+test('BoundedLruMap evicts oldest accessed key when capacity is exceeded', () => {
+  const cache = new BoundedLruMap<string, number>(2);
+  cache.set('a', 1);
+  cache.set('b', 2);
+  assert.equal(cache.get('a'), 1); // 'a' becomes MRU, 'b' becomes LRU
+  cache.set('c', 3);
+  assert.equal(cache.has('b'), false);
+  assert.equal(cache.get('a'), 1);
+  assert.equal(cache.get('c'), 3);
+});
+
+test('computeActivePollDelayMs pauses when hidden or offline and backs off on errors/data-saver', () => {
+  assert.equal(
+    computeActivePollDelayMs({ isVisible: false, isOnline: true }),
+    null
+  );
+  assert.equal(
+    computeActivePollDelayMs({ isVisible: true, isOnline: false }),
+    null
+  );
+  assert.equal(
+    computeActivePollDelayMs({ isVisible: true, isOnline: true }),
+    5000
+  );
+  assert.equal(
+    computeActivePollDelayMs({
+      isVisible: true,
+      isOnline: true,
+      isDataSaver: true,
+    }),
+    12000
+  );
+  assert.equal(
+    computeActivePollDelayMs({
+      isVisible: true,
+      isOnline: true,
+      consecutiveErrors: 2,
+    }),
+    20000
+  );
+  assert.equal(
+    computeActivePollDelayMs({
+      isVisible: true,
+      isOnline: true,
+      consecutiveErrors: 6,
+    }),
+    30000
+  );
+});
+
+test('perfMetrics tracks hits, misses, and timings cleanly', () => {
+  perfMetrics.reset();
+  perfMetrics.recordHit('feed');
+  perfMetrics.recordHit('feed');
+  perfMetrics.recordMiss('feed');
+  perfMetrics.recordTiming('feed', 40);
+  perfMetrics.recordTiming('feed', 80);
+
+  const summary = perfMetrics.getSummary();
+  assert.deepEqual(summary.feed, {
+    hits: 2,
+    misses: 1,
+    loads: 2,
+    avgMs: 60,
+    lastMs: 80,
+  });
+});

@@ -16,17 +16,33 @@ interface FullScreenImageLightboxProps {
   initialIndex: number;
   postCaption?: string;
   postTitle?: string;
+  onIndexChange?: (index: number) => void;
   onClose: () => void;
 }
 
 export const FullScreenImageLightbox: React.FC<
   FullScreenImageLightboxProps
-> = ({ items, initialIndex, postCaption, postTitle, onClose }) => {
+> = ({
+  items,
+  initialIndex,
+  postCaption,
+  postTitle,
+  onIndexChange,
+  onClose,
+}) => {
   const [currentIndex, setCurrentIndex] = useState(() =>
     Math.min(Math.max(0, initialIndex), Math.max(0, items.length - 1))
   );
   const [zoomScale, setZoomScale] = useState<number>(1);
   const touchStartX = useRef<number | null>(null);
+  const onIndexChangeRef = useRef(onIndexChange);
+  useEffect(() => {
+    onIndexChangeRef.current = onIndexChange;
+  }, [onIndexChange]);
+
+  useEffect(() => {
+    onIndexChangeRef.current?.(currentIndex);
+  }, [currentIndex]);
 
   const count = items.length;
   const activeItem = items[currentIndex];

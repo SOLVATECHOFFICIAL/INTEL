@@ -28,6 +28,7 @@ interface RegisterPageProps {
   returnRoute: ActiveRoute;
   onSuccess: (destination: ActiveRoute) => void;
   onNavigate: (route: ActiveRoute) => void;
+  onBack?: () => void;
   onRefreshAccount: () => Promise<void>;
 }
 
@@ -35,6 +36,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
   returnRoute,
   onSuccess,
   onNavigate,
+  onBack,
   onRefreshAccount,
 }) => {
   const [fullName, setFullName] = useState('');
@@ -183,11 +185,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       <div className="mb-4">
         <button
           type="button"
-          onClick={() => onNavigate(returnRoute)}
+          onClick={() => (onBack ? onBack() : onNavigate(returnRoute))}
           className="inline-flex min-h-[44px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Back to campus feed
+          Back
         </button>
       </div>
 

@@ -88,6 +88,18 @@ import {
   shouldEmitActivityNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
+import {
+  notifyAnonymousPostCreated,
+  notifyAnonymousPostDeleted,
+  notifyAnonymousPostReactionChanged,
+  notifyAnonymousPostSavedChanged,
+  notifyCommunityPostCreated,
+  notifyCommunityPostDeleted,
+  notifyCommunityPostReactionChanged,
+  notifyCommunityPostSavedChanged,
+  notifyAnonymousPostUpdated,
+  notifyCommunityPostUpdated,
+} from './cacheInvalidation';
 
 export interface ComposerImageAttachment {
   clientId: string;
@@ -374,11 +386,13 @@ export async function createCommunityPostWithMedia(input: {
   }
   input.onProgress?.({ percent: 100, label: 'Published' });
 
-  return {
+  const createdPost: CommunityPost = {
     ...(postDoc as unknown as CommunityPost),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
+  notifyCommunityPostCreated(createdPost);
+  return createdPost;
 }
 
 export async function createAnonymousPostWithMedia(input: {
@@ -504,11 +518,13 @@ export async function createAnonymousPostWithMedia(input: {
   }
   input.onProgress?.({ percent: 100, label: 'Published anonymously' });
 
-  return {
+  const createdAnonPost: AnonymousPost = {
     ...(publicDoc as unknown as AnonymousPost),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
+  notifyAnonymousPostCreated(createdAnonPost, input.authorUid);
+  return createdAnonPost;
 }
 
 export async function updateCommunityPostWithMedia(input: {
@@ -612,7 +628,7 @@ export async function updateCommunityPostWithMedia(input: {
   }
   input.onProgress?.({ percent: 100, label: 'Updated' });
 
-  return {
+  const updatedPost: CommunityPost = {
     ...input.post,
     postType: lockedPostType,
     category: cleanCategory,
@@ -622,6 +638,8 @@ export async function updateCommunityPostWithMedia(input: {
     mediaItems: !isTextPost && mediaItems.length > 0 ? mediaItems : undefined,
     updatedAt: Date.now(),
   };
+  notifyCommunityPostUpdated(updatedPost);
+  return updatedPost;
 }
 
 export async function updateAnonymousPostWithMedia(input: {
@@ -715,7 +733,7 @@ export async function updateAnonymousPostWithMedia(input: {
   }
   input.onProgress?.({ percent: 100, label: 'Updated' });
 
-  return {
+  const updatedAnonPost: AnonymousPost = {
     ...input.post,
     category: cleanCategory,
     body: cleanBody,
@@ -723,6 +741,8 @@ export async function updateAnonymousPostWithMedia(input: {
     mediaItems: !isTextPost && mediaItems.length > 0 ? mediaItems : undefined,
     updatedAt: Date.now(),
   };
+  notifyAnonymousPostUpdated(updatedAnonPost);
+  return updatedAnonPost;
 }
 
 export async function removeSingleImageFromPost(input: {
@@ -773,11 +793,17 @@ export async function removeSingleImageFromPost(input: {
   }
 
   evictMediaImageCache(input.imageIdToRemove);
-  return {
+  const updatedPost = {
     ...input.post,
     mediaItems: remaining.length > 0 ? remaining : undefined,
     updatedAt: Date.now(),
   };
+  if (input.kind === 'posts') {
+    notifyCommunityPostUpdated(updatedPost as CommunityPost);
+  } else {
+    notifyAnonymousPostUpdated(updatedPost as AnonymousPost);
+  }
+  return updatedPost;
 }
 
 /**
@@ -954,6 +980,11 @@ export async function deletePostCascading(input: {
   for (const metaId of mediaIdsFromPost) {
     evictMediaImageCache(metaId);
   }
+  if (input.kind === 'posts') {
+    notifyCommunityPostDeleted(postId);
+  } else {
+    notifyAnonymousPostDeleted(postId);
+  }
 }
 
 export async function togglePostReaction(input: {
@@ -1060,6 +1091,20 @@ export async function togglePostReaction(input: {
         actorUid: input.actorUid,
         targetImageId: result.postImageId,
       });
+    }
+
+    if (input.kind === 'posts') {
+      notifyCommunityPostReactionChanged(
+        input.postId,
+        result.liked,
+        result.likesCount
+      );
+    } else {
+      notifyAnonymousPostReactionChanged(
+        input.postId,
+        result.liked,
+        result.likesCount
+      );
     }
 
     return {
@@ -1301,6 +1346,11 @@ export async function toggleSavedPost(input: {
   try {
     if (shouldUnsave) {
       await runWithFirestoreConnectionRetry(() => deleteDoc(savedRef));
+      if (input.targetCollection === 'posts') {
+        notifyCommunityPostSavedChanged(input.targetId, false);
+      } else if (input.targetCollection === 'anonymousPosts') {
+        notifyAnonymousPostSavedChanged(input.targetId, false);
+      }
       return { saved: false };
     }
     await runWithFirestoreConnectionRetry(() =>
@@ -1312,6 +1362,11 @@ export async function toggleSavedPost(input: {
         createdAt: serverTimestamp(),
       })
     );
+    if (input.targetCollection === 'posts') {
+      notifyCommunityPostSavedChanged(input.targetId, true);
+    } else if (input.targetCollection === 'anonymousPosts') {
+      notifyAnonymousPostSavedChanged(input.targetId, true);
+    }
     return { saved: true };
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);

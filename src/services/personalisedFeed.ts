@@ -18,7 +18,6 @@ import {
   type PublicProfileProjection,
   type PublicUserProfile,
 } from '../types/database';
-import type { FeedTabId } from '../types/platform';
 import { toPublicProfileProjection } from '../utils/authValidation';
 import {
   buildInteractionAffinities,
@@ -32,11 +31,6 @@ import {
   type OpportunityRecommendationItem,
   type PersonRecommendationItem,
 } from '../utils/feedRanking';
-import type {
-  AnonymousFeedPageCursor,
-  CommunityFeedCursor,
-  CommunityPostWithAuthor,
-} from './firestoreFoundation';
 import { fetchPublicAnonymousFeedPage } from './firestoreFoundation';
 import { fetchPublishedOpportunities } from './adminDashboard';
 import { fetchPublishedCampusEvents } from './events';
@@ -45,6 +39,23 @@ import {
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
 } from './socialPosts';
+
+export type {
+  AnonymousFeedSessionSnapshot,
+  HomeFeedSessionSnapshot,
+} from './feedSessionCache';
+export {
+  clearAnonymousFeedSessionCache,
+  clearHomeFeedSessionCache,
+  getAnonymousFeedSessionSnapshot,
+  getHomeFeedSessionSnapshot,
+  hydrateAnonymousFeedSnapshot,
+  hydrateHomeFeedSnapshot,
+  saveAnonymousFeedSessionSnapshot,
+  saveHomeFeedSessionSnapshot,
+  updateAllCachedHomeFeedSnapshots,
+  updateCachedAnonymousFeedSnapshot,
+} from './feedSessionCache';
 
 export interface ForYouDiscoveryBundle {
   recommendedPeople: PersonRecommendationItem[];
@@ -58,100 +69,6 @@ export interface ForYouDiscoveryBundle {
   savedAnonIds: Set<string>;
   ownedAnonPostIds: Set<string>;
   ownedAnonCommentIds: Set<string>;
-}
-
-export interface HomeFeedSessionSnapshot {
-  viewerKey: string;
-  tab: FeedTabId;
-  postItems: CommunityPostWithAuthor[];
-  likedPostIds: Set<string>;
-  savedPostIds: Set<string>;
-  followingCount: number;
-  followedUids: string[];
-  feedCursor: CommunityFeedCursor | null;
-  hasMorePosts: boolean;
-  rankingOptions?: Omit<ForYouRankingOptions, 'followedUids' | 'authorMap'>;
-  discovery?: ForYouDiscoveryBundle;
-  interestSignature: string;
-  cachedAt: number;
-}
-
-export interface AnonymousFeedSessionSnapshot {
-  viewerKey: string;
-  anonymousPosts: AnonymousPost[];
-  anonCursor: AnonymousFeedPageCursor | null;
-  hasMoreAnon: boolean;
-  likedAnonIds: Set<string>;
-  savedAnonIds: Set<string>;
-  ownedAnonPostIds: Set<string>;
-  ownedAnonCommentIds: Set<string>;
-  cachedAt: number;
-}
-
-const SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
-const homeFeedSessionCache = new Map<string, HomeFeedSessionSnapshot>();
-let anonymousFeedSessionCache: AnonymousFeedSessionSnapshot | null = null;
-
-function makeHomeCacheKey(viewerKey: string, tab: FeedTabId): string {
-  return `${viewerKey}:${tab}`;
-}
-
-export function getHomeFeedSessionSnapshot(
-  viewerKey: string,
-  tab: FeedTabId
-): HomeFeedSessionSnapshot | null {
-  const entry = homeFeedSessionCache.get(makeHomeCacheKey(viewerKey, tab));
-  if (!entry) return null;
-  if (Date.now() - entry.cachedAt > SESSION_CACHE_TTL_MS) {
-    homeFeedSessionCache.delete(makeHomeCacheKey(viewerKey, tab));
-    return null;
-  }
-  return entry;
-}
-
-export function saveHomeFeedSessionSnapshot(
-  snapshot: HomeFeedSessionSnapshot
-): void {
-  homeFeedSessionCache.set(
-    makeHomeCacheKey(snapshot.viewerKey, snapshot.tab),
-    snapshot
-  );
-}
-
-export function clearHomeFeedSessionCache(tab?: FeedTabId): void {
-  if (!tab) {
-    homeFeedSessionCache.clear();
-    return;
-  }
-  for (const key of homeFeedSessionCache.keys()) {
-    if (key.endsWith(`:${tab}`)) {
-      homeFeedSessionCache.delete(key);
-    }
-  }
-}
-
-export function getAnonymousFeedSessionSnapshot(
-  viewerKey: string
-): AnonymousFeedSessionSnapshot | null {
-  if (!anonymousFeedSessionCache) return null;
-  if (
-    anonymousFeedSessionCache.viewerKey !== viewerKey ||
-    Date.now() - anonymousFeedSessionCache.cachedAt > SESSION_CACHE_TTL_MS
-  ) {
-    anonymousFeedSessionCache = null;
-    return null;
-  }
-  return anonymousFeedSessionCache;
-}
-
-export function saveAnonymousFeedSessionSnapshot(
-  snapshot: AnonymousFeedSessionSnapshot
-): void {
-  anonymousFeedSessionCache = snapshot;
-}
-
-export function clearAnonymousFeedSessionCache(): void {
-  anonymousFeedSessionCache = null;
 }
 
 async function fetchActiveDirectoryMembers(maxItems = 50): Promise<{

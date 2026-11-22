@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   Briefcase,
@@ -19,6 +19,10 @@ import {
   X,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
+import {
+  getNotificationsFilterSnapshot,
+  saveNotificationsFilterSnapshot,
+} from '../../services/navigationStateCache';
 import type { NotificationEventType, NotificationItem } from '../../types/database';
 import { ActiveRoute } from '../../types/platform';
 import { extractActorUsernameFromNotification } from '../../utils/followRelations';
@@ -132,9 +136,36 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
     clearNotificationError,
   } = useFirebase();
 
-  const [readFilter, setReadFilter] = useState<NotificationReadFilter>('all');
+  const viewerKey = user?.uid ?? 'guest';
+  const prevViewerKeyRef = useRef(viewerKey);
+
+  const [readFilter, setReadFilter] = useState<NotificationReadFilter>(
+    () => getNotificationsFilterSnapshot(viewerKey)?.readFilter ?? 'all'
+  );
   const [categoryFilter, setCategoryFilter] =
-    useState<NotificationCategoryFilter>('all');
+    useState<NotificationCategoryFilter>(
+      () => getNotificationsFilterSnapshot(viewerKey)?.categoryFilter ?? 'all'
+    );
+
+  useEffect(() => {
+    if (prevViewerKeyRef.current === viewerKey) return;
+    prevViewerKeyRef.current = viewerKey;
+    const snap = getNotificationsFilterSnapshot(viewerKey);
+    const timer = window.setTimeout(() => {
+      setReadFilter(snap?.readFilter ?? 'all');
+      setCategoryFilter(snap?.categoryFilter ?? 'all');
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey]);
+
+  useEffect(() => {
+    saveNotificationsFilterSnapshot({
+      viewerKey,
+      readFilter,
+      categoryFilter,
+      cachedAt: Date.now(),
+    });
+  }, [viewerKey, readFilter, categoryFilter]);
 
   const visibleNotifications = useMemo(
     () =>

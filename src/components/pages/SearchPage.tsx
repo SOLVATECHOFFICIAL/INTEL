@@ -17,10 +17,17 @@ import { PLATFORM_SECTIONS } from '../../config/sections';
 import { useFirebase } from '../../context/firebaseContext';
 import { toggleEventReaction } from '../../services/events';
 import {
+  getSearchPageSnapshot,
+  saveSearchPageSnapshot,
+} from '../../services/navigationStateCache';
+import {
   executeScopedSearchDiscovery,
   fetchSearchSuggestionSeed,
   fetchSearchViewerInteractions,
   getCachedSearchBundle,
+  getRequiredCollectionsForScope,
+  hydrateCachedSearchBundle,
+  hydrateSearchSuggestionSeed,
   loadMoreSearchSlice,
   type SearchCollectionKey,
   type SearchDiscoveryBundle,
@@ -152,6 +159,18 @@ function normalizeTabScope(scope: SearchScopeId): SearchScopeId {
   return scope === 'home' ? 'all' : scope;
 }
 
+function areSearchFiltersEqual(
+  a: SearchFiltersState,
+  b: SearchFiltersState
+): boolean {
+  return (
+    a.sortBy === b.sortBy &&
+    a.category === b.category &&
+    a.department === b.department &&
+    a.availability === b.availability
+  );
+}
+
 export const SearchPage: React.FC<SearchPageProps> = ({
   initialScope,
   initialQuery = null,
@@ -161,34 +180,68 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   onRequireAuth,
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
+  const viewerKey = user?.uid ?? 'guest';
+  const prevViewerKeyRef = useRef(viewerKey);
+  const initialSnapshot = getSearchPageSnapshot(viewerKey);
 
   const normalizedInitialScope = normalizeTabScope(initialScope);
   const initialCleanQuery = initialQuery ? normalizeSearchInput(initialQuery) : '';
-
-  const [activeScope, setActiveScope] = useState<SearchScopeId>(
-    normalizedInitialScope
-  );
-  const [queryText, setQueryText] = useState(initialCleanQuery);
-  const [submittedQuery, setSubmittedQuery] = useState(initialCleanQuery);
-  const [filters, setFilters] = useState<SearchFiltersState>(
-    initialFilters ?? DEFAULT_SEARCH_FILTERS
+  const snapshotMatches = Boolean(
+    initialSnapshot &&
+      (!initialCleanQuery ||
+        normalizeSearchInput(initialSnapshot.submittedQuery).toLowerCase() ===
+          initialCleanQuery.toLowerCase())
   );
 
-  const [bundle, setBundle] = useState<SearchDiscoveryBundle | null>(() =>
-    initialCleanQuery ? getCachedSearchBundle(initialCleanQuery) : null
-  );
+  const startingQuery =
+    initialCleanQuery ||
+    (snapshotMatches && initialSnapshot ? initialSnapshot.queryText : '');
+  const startingSubmittedQuery =
+    initialCleanQuery ||
+    (snapshotMatches && initialSnapshot ? initialSnapshot.submittedQuery : '');
+  const startingScope =
+    initialScope !== 'all' || !snapshotMatches || !initialSnapshot
+      ? normalizedInitialScope
+      : initialSnapshot.activeScope;
+  const startingFilters =
+    initialFilters ??
+    (snapshotMatches && initialSnapshot
+      ? initialSnapshot.filters
+      : DEFAULT_SEARCH_FILTERS);
+  const startingBundle =
+    (snapshotMatches && initialSnapshot?.bundle
+      ? initialSnapshot.bundle
+      : null) ??
+    (startingSubmittedQuery ? getCachedSearchBundle(startingSubmittedQuery) : null);
+
+  const [activeScope, setActiveScope] = useState<SearchScopeId>(startingScope);
+  const [queryText, setQueryText] = useState(startingQuery);
+  const [submittedQuery, setSubmittedQuery] = useState(startingSubmittedQuery);
+  const [filters, setFilters] = useState<SearchFiltersState>(startingFilters);
+
+  const [bundle, setBundle] = useState<SearchDiscoveryBundle | null>(startingBundle);
   const [status, setStatus] = useState<
     'idle' | 'short' | 'loading' | 'ready' | 'error'
   >(() => {
-    if (!initialCleanQuery) return 'idle';
-    const check = validateSearchQuery(initialCleanQuery);
+    if (!startingSubmittedQuery) {
+      return snapshotMatches && initialSnapshot ? initialSnapshot.status : 'idle';
+    }
+    const check = validateSearchQuery(startingSubmittedQuery);
     if (!check.valid) return 'short';
-    return getCachedSearchBundle(initialCleanQuery) ? 'ready' : 'loading';
+    if (
+      startingBundle &&
+      getRequiredCollectionsForScope(startingScope).every(
+        (col) => startingBundle[col].loaded && !startingBundle[col].error
+      )
+    ) {
+      return 'ready';
+    }
+    return 'loading';
   });
   const [validationMessage, setValidationMessage] = useState<string | null>(
     () => {
-      if (!initialCleanQuery) return null;
-      const check = validateSearchQuery(initialCleanQuery);
+      if (!startingSubmittedQuery) return null;
+      const check = validateSearchQuery(startingSubmittedQuery);
       return check.valid ? null : check.message ?? null;
     }
   );
@@ -222,16 +275,59 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRequestIdRef = useRef(0);
-  const skipNextDebounceRef = useRef(Boolean(initialCleanQuery));
+  const skipNextDebounceRef = useRef(Boolean(startingQuery));
   const lastSyncedRef = useRef<{
     scope: SearchScopeId;
     query: string;
     filters: SearchFiltersState;
   }>({
-    scope: normalizedInitialScope,
-    query: initialCleanQuery,
-    filters: initialFilters ?? DEFAULT_SEARCH_FILTERS,
+    scope: startingScope,
+    query: startingQuery,
+    filters: startingFilters,
   });
+
+  // Reset/rehydrate if authenticated viewer changes while mounted
+  useEffect(() => {
+    if (prevViewerKeyRef.current === viewerKey) return;
+    prevViewerKeyRef.current = viewerKey;
+    const snap = getSearchPageSnapshot(viewerKey);
+    const timer = window.setTimeout(() => {
+      if (snap) {
+        if (snap.queryText) skipNextDebounceRef.current = true;
+        setActiveScope(snap.activeScope);
+        setQueryText(snap.queryText);
+        setSubmittedQuery(snap.submittedQuery);
+        setFilters(snap.filters);
+        setBundle(snap.bundle);
+        setStatus(snap.status);
+      } else {
+        setActiveScope('all');
+        setQueryText('');
+        setSubmittedQuery('');
+        setFilters(DEFAULT_SEARCH_FILTERS);
+        setBundle(null);
+        setStatus('idle');
+      }
+      setValidationMessage(null);
+      setErrorMessage(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey]);
+
+  // Persist SearchPage snapshot per viewer
+  useEffect(() => {
+    saveSearchPageSnapshot({
+      viewerKey,
+      activeScope,
+      queryText,
+      submittedQuery,
+      filters,
+      showFilters: false,
+      bundle,
+      status,
+      cachedAt: Date.now(),
+    });
+  }, [viewerKey, activeScope, queryText, submittedQuery, filters, bundle, status]);
 
   // Sync external initialScope / initialQuery / initialFilters changes (e.g. Browser Back/Forward or Header trigger)
   useEffect(() => {
@@ -243,7 +339,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     if (
       nextScope === synced.scope &&
       nextQ === synced.query &&
-      nextFilters === synced.filters
+      areSearchFiltersEqual(nextFilters, synced.filters)
     ) {
       return;
     }
@@ -262,7 +358,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           setStatus('idle');
         }
       }
-      if (nextFilters !== lastSyncedRef.current.filters) {
+      if (!areSearchFiltersEqual(nextFilters, lastSyncedRef.current.filters)) {
         lastSyncedRef.current.filters = nextFilters;
         setFilters(nextFilters);
       }
@@ -274,6 +370,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   // Keep App route state & URL synced whenever scope/query/filters change
   useEffect(() => {
     const cleanQ = normalizeSearchInput(queryText);
+    const prev = lastSyncedRef.current;
+    if (
+      prev.scope === activeScope &&
+      prev.query === cleanQ &&
+      areSearchFiltersEqual(prev.filters, filters)
+    ) {
+      return;
+    }
     lastSyncedRef.current = {
       scope: activeScope,
       query: cleanQ,
@@ -315,8 +419,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
   const ensureSuggestionSeed = useCallback(() => {
     if (suggestionSeed) return;
-    void fetchSearchSuggestionSeed()
-      .then((seed) => setSuggestionSeed(seed))
+    void hydrateSearchSuggestionSeed()
+      .then((persisted) => {
+        if (persisted) {
+          setSuggestionSeed(persisted);
+          if (Date.now() - persisted.fetchedAt <= 5 * 60 * 1000) {
+            return;
+          }
+        }
+        return fetchSearchSuggestionSeed().then((seed) => {
+          setSuggestionSeed(seed);
+        });
+      })
       .catch(() => {
         // Non-blocking
       });
@@ -357,12 +471,48 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         setRecentSearches(saveRecentSearch(cleanQuery));
       }
 
-      const cached = !options?.forceRefresh
+      let cached = !options?.forceRefresh
         ? getCachedSearchBundle(cleanQuery)
         : null;
-      if (cached) {
-        setBundle(cached);
+      if (!cached && !options?.forceRefresh) {
+        cached = await hydrateCachedSearchBundle(cleanQuery).catch(() => null);
+        if (requestId !== activeRequestIdRef.current) return;
       }
+
+      if (cached) {
+        const allSlicesReady = getRequiredCollectionsForScope(targetScope).every(
+          (col) => cached[col].loaded && !cached[col].error
+        );
+        setBundle(cached);
+        if (allSlicesReady) {
+          setStatus('ready');
+          if (
+            Date.now() - cached.updatedAt > 30_000 &&
+            (typeof navigator === 'undefined' || navigator.onLine !== false)
+          ) {
+            void executeScopedSearchDiscovery({
+              rawQuery: cleanQuery,
+              scope: targetScope,
+            })
+              .then((freshBundle) => {
+                if (requestId === activeRequestIdRef.current) {
+                  setBundle(freshBundle);
+                }
+              })
+              .catch(() => undefined);
+          }
+          return;
+        }
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        setErrorMessage(
+          'You are offline and these search results are not cached yet. Reconnect to search campus records.'
+        );
+        setStatus('error');
+        return;
+      }
+
       setStatus('loading');
 
       try {
@@ -383,11 +533,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     []
   );
 
-  // Run initial query if opened with ?view=search&q=...
+  // Run initial query if opened with ?view=search&q=... and slices aren't already cached
   useEffect(() => {
-    if (!initialCleanQuery) return;
+    if (!startingSubmittedQuery) return;
+    const existing = startingBundle ?? getCachedSearchBundle(startingSubmittedQuery);
+    const alreadyReady =
+      existing !== null &&
+      getRequiredCollectionsForScope(startingScope).every(
+        (col) => existing[col].loaded && !existing[col].error
+      );
+    if (alreadyReady) return;
     const timer = window.setTimeout(() => {
-      void runSearch(initialCleanQuery, normalizedInitialScope);
+      void runSearch(startingSubmittedQuery, startingScope);
     }, 0);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

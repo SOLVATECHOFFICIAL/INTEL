@@ -27,6 +27,11 @@ import {
   type UploadProgressState,
 } from '../../services/mediaStorage';
 import {
+  clearPersistentDraft,
+  loadPersistentDraft,
+  savePersistentDraft,
+} from '../../services/persistentCache';
+import {
   createAnonymousPostWithMedia,
   createCommunityPostWithMedia,
   updateAnonymousPostWithMedia,
@@ -204,7 +209,78 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   const [uploadProgress, setUploadProgress] =
     useState<UploadProgressState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const draftId =
+    mode === 'ordinary' ? 'post_composer_ordinary' : 'post_composer_anonymous';
+  const draftViewerKey = actorUid || 'guest';
+
+  useEffect(() => {
+    if (isEditing) return;
+    let active = true;
+    void loadPersistentDraft<{
+      category?: string;
+      title?: string;
+      body?: string;
+      isOfficial?: boolean;
+      textBackgroundStyle?: TextPostBackgroundId;
+      anonBackgroundStyle?: AnonymousBackgroundId;
+    }>(draftViewerKey, draftId)
+      .then((draft) => {
+        if (!active || !draft) return;
+        const hasText = Boolean(draft.body?.trim() || draft.title?.trim());
+        if (!hasText) return;
+        setBody((curr) => {
+          if (curr.trim()) return curr;
+          if (draft.category) setCategory(draft.category);
+          if (draft.title) {
+            setTitle((currTitle) => (currTitle.trim() ? currTitle : draft.title!));
+          }
+          if (typeof draft.isOfficial === 'boolean') {
+            setIsOfficial(draft.isOfficial);
+          }
+          if (draft.textBackgroundStyle) {
+            setTextBackgroundStyle(draft.textBackgroundStyle);
+          }
+          if (draft.anonBackgroundStyle) {
+            setAnonBackgroundStyle(draft.anonBackgroundStyle);
+          }
+          setDraftRestored(true);
+          return draft.body || '';
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isEditing, draftViewerKey, draftId]);
+
+  useEffect(() => {
+    if (isEditing) return;
+    if (!body.trim() && !title.trim()) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(draftViewerKey, draftId, {
+        category,
+        title,
+        body,
+        isOfficial,
+        textBackgroundStyle,
+        anonBackgroundStyle,
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    isEditing,
+    draftViewerKey,
+    draftId,
+    category,
+    title,
+    body,
+    isOfficial,
+    textBackgroundStyle,
+    anonBackgroundStyle,
+  ]);
 
   useEffect(() => {
     const existingIds = (initialPost?.mediaItems ?? []).map((m) => m.imageId);
@@ -412,6 +488,18 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     }
   };
 
+  const handleDiscardDraft = () => {
+    setCategory(defaultCategories[0]);
+    setTitle('');
+    setBody('');
+    setIsOfficial(false);
+    setTextBackgroundStyle(TEXT_POST_BACKGROUND_THEMES[0].id);
+    setAnonBackgroundStyle('plain');
+    setDraftRestored(false);
+    setErrorMessage(null);
+    void clearPersistentDraft(draftViewerKey, draftId);
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (submitLockRef.current || isSubmitting || compressingCount > 0) return;
@@ -480,6 +568,13 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       }
     }
 
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErrorMessage(
+        'You are offline. Your post draft is saved safely — reconnect to publish.'
+      );
+      return;
+    }
+
     submitLockRef.current = true;
     setIsSubmitting(true);
     try {
@@ -512,6 +607,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             isOfficial,
             onProgress: setUploadProgress,
           });
+          void clearPersistentDraft(draftViewerKey, draftId);
           onSuccess(created);
         }
       } else {
@@ -539,6 +635,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             attachments: effectiveAttachments,
             onProgress: setUploadProgress,
           });
+          void clearPersistentDraft(draftViewerKey, draftId);
           onSuccess(created);
         }
       }
@@ -671,6 +768,19 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           />
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+            {draftRestored && !isEditing && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1E88E5]/25 bg-[#1E88E5]/5 px-3.5 py-2 text-xs text-[#0B1A2E]">
+                <span>Saved draft restored from this device.</span>
+                <button
+                  type="button"
+                  onClick={handleDiscardDraft}
+                  className="font-semibold text-[#1E88E5] hover:underline"
+                >
+                  Discard draft
+                </button>
+              </div>
+            )}
+
             {errorMessage && (
               <div
                 role="alert"

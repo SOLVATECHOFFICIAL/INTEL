@@ -35,6 +35,8 @@ interface EventDetailsViewProps {
   isSaved: boolean;
   autoFocusComments?: boolean;
   highlightCommentId?: string | null;
+  initialLightboxIndex?: number | null;
+  onLightboxIndexChange?: (idx: number | null) => void;
   guestPromptMessage: string | null;
   errorMessage: string | null;
   onDismissGuestPrompt: () => void;
@@ -54,6 +56,8 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
   isSaved,
   autoFocusComments = false,
   highlightCommentId = null,
+  initialLightboxIndex = null,
+  onLightboxIndexChange,
   guestPromptMessage,
   errorMessage,
   onDismissGuestPrompt,
@@ -66,10 +70,17 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
   onRequireAuth,
 }) => {
   const [bannerError, setBannerError] = useState(false);
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(
+    initialLightboxIndex
+  );
   const [focusCommentsNonce, setFocusCommentsNonce] = useState(
     autoFocusComments ? 1 : 0
   );
+
+  const updateLightboxIndex = (idx: number | null) => {
+    setLightboxIndex(idx);
+    onLightboxIndexChange?.(idx);
+  };
 
   const lifecycle = resolveEventLifecycle(event, nowMs);
   const dateRangeLabel = formatEventDateTimeRange(event);
@@ -371,7 +382,8 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
           initialIndex={lightboxIndex}
           postTitle={event.title}
           postCaption={event.venue ? `${dateRangeLabel} · ${event.venue}` : dateRangeLabel}
-          onClose={() => setLightboxIndex(null)}
+          onIndexChange={(idx) => updateLightboxIndex(idx)}
+          onClose={() => updateLightboxIndex(null)}
         />
       )}
     </div>

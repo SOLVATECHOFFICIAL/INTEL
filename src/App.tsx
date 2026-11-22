@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Wifi, WifiOff, X } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { HomeFeedWorkspace } from './components/HomeFeedWorkspace';
@@ -9,18 +9,18 @@ import { SectionSidebar } from './components/SectionSidebar';
 import { SectionWorkspace } from './components/SectionWorkspace';
 import { LoginPage } from './components/auth/LoginPage';
 import { RegisterPage } from './components/auth/RegisterPage';
-import {
-  AccountPage,
-  type AccountSettingsSection,
-} from './components/pages/AccountPage';
+import { AccountPage } from './components/pages/AccountPage';
 import { AdminGuardPage } from './components/pages/AdminGuardPage';
 import { MemberProfilePage } from './components/pages/MemberProfilePage';
 import { NotificationsPage } from './components/pages/NotificationsPage';
 import { SearchPage } from './components/pages/SearchPage';
 import { useFirebase } from './context/firebaseContext';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
 import {
+  AccountSettingsSection,
   ActiveRoute,
   FeedTabId,
+  MarketplaceTab,
   ProfileTab,
   SearchScopeId,
   SectionId,
@@ -31,308 +31,525 @@ import {
   type SearchFiltersState,
 } from './utils/contextualSearch';
 import {
+  areDestinationsEqual,
+  createInitialHistoryStack,
+  destinationFromParsedLocation,
+  findMostRecentSearchEntry,
+  getBackTarget,
+  moveToHistoryEntryKey,
+  normalizeRouteDestination,
+  pushHistoryStackEntry,
+  replaceCurrentHistoryDestination,
+  resolveGuestSafeDestination,
+  updateHistoryEntryScroll,
+  type HistoryStackEntry,
+  type NavigationStackState,
+  type NormalizedRouteDestination,
+  type RouteDestination,
+} from './utils/navigationHistory';
+import {
   createInitialSectionStates,
   transitionViewState,
 } from './utils/sectionState';
 import {
   buildSearchForRoute,
   isFeedRoute,
+  isProtectedRouteOrTab,
   parseLocationSearch,
 } from './utils/urlRouting';
 
-interface RouteHistoryEntry {
-  route: ActiveRoute;
-  username?: string | null;
-  profileTab?: ProfileTab | null;
-  searchScope?: SearchScopeId;
-  searchQuery?: string | null;
-  searchFilters?: SearchFiltersState;
-  opportunityId?: string | null;
-  eventId?: string | null;
-  postId?: string | null;
-  commentId?: string | null;
-  listingId?: string | null;
+export interface NavigateOptions extends Partial<Omit<RouteDestination, 'route'>> {
+  replace?: boolean;
+  restoreScrollY?: number;
+}
+
+interface StoredBrowserHistoryState {
+  entryKey?: string;
   scrollY?: number;
+  searchFilters?: SearchFiltersState;
+}
+
+function readBrowserHistoryState(state: unknown): StoredBrowserHistoryState {
+  if (!state || typeof state !== 'object') {
+    return {};
+  }
+  const obj = state as Record<string, unknown>;
+  return {
+    entryKey: typeof obj.entryKey === 'string' ? obj.entryKey : undefined,
+    scrollY:
+      typeof obj.scrollY === 'number' && Number.isFinite(obj.scrollY)
+        ? Math.max(0, obj.scrollY)
+        : undefined,
+    searchFilters:
+      obj.searchFilters && typeof obj.searchFilters === 'object'
+        ? (obj.searchFilters as SearchFiltersState)
+        : undefined,
+  };
 }
 
 export function App() {
-  const { refreshAccountState } = useFirebase();
+  const { authReady, user, refreshAccountState } = useFirebase();
+  const { isOnline, justReconnected, syncErrorMessage, clearSyncError } =
+    useNetworkStatus();
 
-  const initialParsed = parseLocationSearch(window.location.search);
-  const [activeRoute, setActiveRoute] = useState<ActiveRoute>(
-    initialParsed.route
+  const initialParsed = parseLocationSearch(
+    typeof window !== 'undefined' ? window.location.search : ''
   );
-  const [profileUsername, setProfileUsername] = useState<string | null>(
-    initialParsed.profileUsername
+  const initialStoredState =
+    typeof window !== 'undefined'
+      ? readBrowserHistoryState(window.history.state)
+      : {};
+  const initialDest = destinationFromParsedLocation(
+    initialParsed,
+    initialStoredState.searchFilters
   );
-  const [profileTab, setProfileTab] = useState<ProfileTab | null>(
-    initialParsed.profileTab
-  );
-  const [searchScope, setSearchScope] = useState<SearchScopeId>(
-    initialParsed.searchScope
-  );
-  const [searchQuery, setSearchQuery] = useState<string | null>(
-    initialParsed.searchQuery
-  );
-  const [searchFilters, setSearchFilters] = useState<SearchFiltersState>(
-    DEFAULT_SEARCH_FILTERS
-  );
-  const [selectedOpportunityId, setSelectedOpportunityId] = useState<
+
+  const [navDest, setNavDest] =
+    useState<NormalizedRouteDestination>(initialDest);
+  const {
+    route: activeRoute,
+    username: profileUsername,
+    profileTab,
+    searchScope,
+    searchQuery,
+    searchFilters,
+    opportunityId: selectedOpportunityId,
+    eventId: selectedEventId,
+    postId: selectedPostId,
+    commentId: selectedCommentId,
+    listingId: selectedListingId,
+    marketplaceTab,
+    accountSection,
+  } = navDest;
+
+  const [pendingAuthDestination, setPendingAuthDestination] =
+    useState<NormalizedRouteDestination | null>(null);
+  const [recentSearchEntry, setRecentSearchEntry] =
+    useState<HistoryStackEntry | null>(null);
+  const [dismissedSearchBannerKey, setDismissedSearchBannerKey] = useState<
     string | null
-  >(initialParsed.opportunityId);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(
-    initialParsed.eventId
-  );
-  const [selectedPostId, setSelectedPostId] = useState<string | null>(
-    initialParsed.postId
-  );
-  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
-    initialParsed.commentId
-  );
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(
-    initialParsed.listingId
-  );
-  const [accountSection, setAccountSection] =
-    useState<AccountSettingsSection>('profile');
-  const [previousEntry, setPreviousEntry] = useState<RouteHistoryEntry>({
-    route: 'for-you',
-  });
-  const [returnRoute, setReturnRoute] = useState<ActiveRoute>('for-you');
+  >(null);
+
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [sectionStates, setSectionStates] = useState<
     Record<SectionId, ViewState>
   >(() => createInitialSectionStates('empty'));
 
   const retryTimerRef = useRef<number | null>(null);
-  const currentEntryRef = useRef<RouteHistoryEntry>({
-    route: initialParsed.route,
-    username: initialParsed.profileUsername,
-    profileTab: initialParsed.profileTab,
-    searchScope: initialParsed.searchScope,
-    searchQuery: initialParsed.searchQuery,
-    searchFilters: DEFAULT_SEARCH_FILTERS,
-    opportunityId: initialParsed.opportunityId,
-    eventId: initialParsed.eventId,
-    postId: initialParsed.postId,
-    commentId: initialParsed.commentId,
-    listingId: initialParsed.listingId,
-  });
+  const historyStackRef = useRef<NavigationStackState>(
+    createInitialHistoryStack(
+      initialDest,
+      initialStoredState.scrollY ?? 0,
+      initialStoredState.entryKey
+    )
+  );
+  const entryScrollMapRef = useRef<Map<string, number>>(new Map());
+  const pendingAuthDestinationRef = useRef<NormalizedRouteDestination | null>(
+    null
+  );
+  const cancelScrollRestoreRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    const onPopState = (event: PopStateEvent) => {
-      const parsed = parseLocationSearch(window.location.search);
-      const historyObj =
-        event.state && typeof event.state === 'object'
-          ? (event.state as {
-              scrollY?: unknown;
-              searchFilters?: SearchFiltersState;
-            })
-          : null;
-      const restoredFilters =
-        historyObj?.searchFilters ?? DEFAULT_SEARCH_FILTERS;
+  const scheduleScrollRestore = useCallback((targetScrollY: number) => {
+    if (cancelScrollRestoreRef.current) {
+      cancelScrollRestoreRef.current();
+      cancelScrollRestoreRef.current = null;
+    }
+    if (typeof window === 'undefined') return;
 
-      setActiveRoute(parsed.route);
-      setProfileUsername(parsed.profileUsername);
-      setProfileTab(parsed.profileTab);
-      setSearchScope(parsed.searchScope);
-      setSearchQuery(parsed.searchQuery);
-      setSearchFilters(restoredFilters);
-      setSelectedOpportunityId(parsed.opportunityId);
-      setSelectedEventId(parsed.eventId);
-      setSelectedPostId(parsed.postId);
-      setSelectedCommentId(parsed.commentId);
-      setSelectedListingId(parsed.listingId);
-      const stateScrollY =
-        typeof historyObj?.scrollY === 'number'
-          ? historyObj.scrollY
-          : undefined;
-      currentEntryRef.current = {
-        route: parsed.route,
-        username: parsed.profileUsername,
-        profileTab: parsed.profileTab,
-        searchScope: parsed.searchScope,
-        searchQuery: parsed.searchQuery,
-        searchFilters: restoredFilters,
-        opportunityId: parsed.opportunityId,
-        eventId: parsed.eventId,
-        postId: parsed.postId,
-        commentId: parsed.commentId,
-        listingId: parsed.listingId,
-        scrollY: stateScrollY,
-      };
-      if (stateScrollY !== undefined) {
-        window.requestAnimationFrame(() => {
-          window.scrollTo({ top: stateScrollY, behavior: 'auto' });
-        });
+    const clampedTarget = Math.max(0, Math.round(targetScrollY));
+    if (clampedTarget === 0) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+      return;
+    }
+
+    let cancelled = false;
+    let rafId: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    const deadline = performance.now() + 950;
+
+    const cleanup = () => {
+      cancelled = true;
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+      resizeObserver?.disconnect();
+      window.removeEventListener('wheel', cleanup);
+      window.removeEventListener('touchstart', cleanup);
+      window.removeEventListener('keydown', onUserKey);
+      if (cancelScrollRestoreRef.current === cleanup) {
+        cancelScrollRestoreRef.current = null;
       }
     };
+
+    const onUserKey = (event: KeyboardEvent) => {
+      if (
+        event.key === 'ArrowDown' ||
+        event.key === 'ArrowUp' ||
+        event.key === 'PageDown' ||
+        event.key === 'PageUp' ||
+        event.key === 'Home' ||
+        event.key === 'End' ||
+        event.key === ' '
+      ) {
+        cleanup();
+      }
+    };
+
+    const attemptScroll = () => {
+      if (cancelled) return;
+      const maxScrollable = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight
+      );
+      const goal = Math.min(clampedTarget, maxScrollable);
+      if (Math.abs(window.scrollY - goal) > 2) {
+        window.scrollTo({ top: goal, behavior: 'auto' });
+      }
+      if (
+        maxScrollable >= clampedTarget - 2 &&
+        Math.abs(window.scrollY - clampedTarget) <= 2
+      ) {
+        cleanup();
+        return;
+      }
+      if (performance.now() < deadline) {
+        rafId = window.requestAnimationFrame(attemptScroll);
+      } else {
+        cleanup();
+      }
+    };
+
+    const timeoutId = window.setTimeout(cleanup, 1000);
+    if (typeof ResizeObserver !== 'undefined' && document.body) {
+      resizeObserver = new ResizeObserver(() => {
+        if (!cancelled) {
+          attemptScroll();
+        }
+      });
+      resizeObserver.observe(document.body);
+    }
+
+    window.addEventListener('wheel', cleanup, { passive: true, once: true });
+    window.addEventListener('touchstart', cleanup, {
+      passive: true,
+      once: true,
+    });
+    window.addEventListener('keydown', onUserKey);
+    cancelScrollRestoreRef.current = cleanup;
+    rafId = window.requestAnimationFrame(attemptScroll);
+  }, []);
+
+  const syncSearchBannerFromStack = useCallback(
+    (stack: NavigationStackState) => {
+      setRecentSearchEntry(findMostRecentSearchEntry(stack));
+    },
+    [setRecentSearchEntry]
+  );
+
+  const buildUrlForDestination = useCallback(
+    (dest: NormalizedRouteDestination): string => {
+      return buildSearchForRoute(dest.route, {
+        username: dest.username,
+        profileTab: dest.profileTab,
+        searchScope: dest.route === 'search' ? dest.searchScope : undefined,
+        searchQuery: dest.route === 'search' ? dest.searchQuery : undefined,
+        opportunityId:
+          dest.route === 'opportunities' ? dest.opportunityId : undefined,
+        eventId: dest.route === 'upcoming-events' ? dest.eventId : undefined,
+        postId: dest.postId,
+        commentId: dest.commentId,
+        listingId: dest.route === 'marketplace' ? dest.listingId : undefined,
+        marketplaceTab:
+          dest.route === 'marketplace' ? dest.marketplaceTab : undefined,
+        accountSection:
+          dest.route === 'account' ? dest.accountSection : undefined,
+      });
+    },
+    []
+  );
+
+  const persistCurrentBrowserState = useCallback(
+    (entry: HistoryStackEntry, scrollY: number) => {
+      if (typeof window === 'undefined') return;
+      const existing =
+        window.history.state && typeof window.history.state === 'object'
+          ? (window.history.state as Record<string, unknown>)
+          : {};
+      window.history.replaceState(
+        {
+          ...existing,
+          entryKey: entry.key,
+          scrollY: Math.max(0, Math.round(scrollY)),
+          ...(entry.destination.route === 'search'
+            ? { searchFilters: entry.destination.searchFilters }
+            : {}),
+        },
+        '',
+        buildUrlForDestination(entry.destination)
+      );
+    },
+    [buildUrlForDestination]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const prevScrollRestoration = window.history.scrollRestoration;
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+
+    const initialEntry =
+      historyStackRef.current.entries[historyStackRef.current.index];
+    if (initialEntry) {
+      entryScrollMapRef.current.set(initialEntry.key, initialEntry.scrollY);
+      persistCurrentBrowserState(initialEntry, initialEntry.scrollY);
+      if (initialEntry.scrollY > 0) {
+        scheduleScrollRestore(initialEntry.scrollY);
+      }
+    }
+
+    let scrollRaf: number | null = null;
+    const captureScrollPosition = () => {
+      const activeEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (!activeEntry) return;
+      const currentScroll = Math.max(0, Math.round(window.scrollY));
+      entryScrollMapRef.current.set(activeEntry.key, currentScroll);
+      historyStackRef.current = updateHistoryEntryScroll(
+        historyStackRef.current,
+        currentScroll
+      );
+    };
+
+    const handleScroll = () => {
+      if (scrollRaf !== null) return;
+      scrollRaf = window.requestAnimationFrame(() => {
+        scrollRaf = null;
+        captureScrollPosition();
+      });
+    };
+
+    const flushHistoryScrollState = () => {
+      captureScrollPosition();
+      const activeEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (activeEntry) {
+        persistCurrentBrowserState(activeEntry, activeEntry.scrollY);
+      }
+    };
+
+    const onPopState = (event: PopStateEvent) => {
+      const parsed = parseLocationSearch(window.location.search);
+      const historyObj = readBrowserHistoryState(event.state);
+      const fallbackDest = destinationFromParsedLocation(
+        parsed,
+        historyObj.searchFilters
+      );
+
+      const moved = moveToHistoryEntryKey(
+        historyStackRef.current,
+        historyObj.entryKey,
+        fallbackDest,
+        historyObj.scrollY ?? 0
+      );
+      historyStackRef.current = moved.stack;
+
+      const targetEntry = moved.entry;
+      const recordedScroll =
+        historyObj.scrollY ??
+        entryScrollMapRef.current.get(targetEntry.key) ??
+        targetEntry.scrollY ??
+        0;
+
+      if (!historyObj.entryKey) {
+        persistCurrentBrowserState(targetEntry, recordedScroll);
+      }
+
+      setNavDest(targetEntry.destination);
+      syncSearchBannerFromStack(historyStackRef.current);
+      scheduleScrollRestore(recordedScroll);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('pagehide', flushHistoryScrollState);
     window.addEventListener('popstate', onPopState);
+
     return () => {
+      if (scrollRaf !== null) {
+        window.cancelAnimationFrame(scrollRaf);
+      }
+      if ('scrollRestoration' in window.history) {
+        window.history.scrollRestoration = prevScrollRestoration;
+      }
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('pagehide', flushHistoryScrollState);
       window.removeEventListener('popstate', onPopState);
       if (retryTimerRef.current !== null) {
         window.clearTimeout(retryTimerRef.current);
       }
+      if (cancelScrollRestoreRef.current) {
+        cancelScrollRestoreRef.current();
+      }
     };
-  }, []);
+  }, [
+    persistCurrentBrowserState,
+    scheduleScrollRestore,
+    setNavDest,
+    syncSearchBannerFromStack,
+  ]);
 
   const handleNavigate = useCallback(
-    (
-      route: ActiveRoute,
-      options?: {
-        username?: string | null;
-        profileTab?: ProfileTab | null;
-        searchScope?: SearchScopeId;
-        searchQuery?: string | null;
-        searchFilters?: SearchFiltersState;
-        opportunityId?: string | null;
-        eventId?: string | null;
-        postId?: string | null;
-        commentId?: string | null;
-        listingId?: string | null;
-        accountSection?: AccountSettingsSection;
-        restoreScrollY?: number;
-      }
-    ) => {
-      const current = currentEntryRef.current;
+    (route: ActiveRoute, options?: NavigateOptions) => {
       const departingScrollY =
-        typeof window !== 'undefined' ? window.scrollY : 0;
-      const nextUsername =
-        route === 'profile'
-          ? options?.username?.trim().toLowerCase() ?? null
-          : null;
-      const nextProfileTab =
-        route === 'profile' ? options?.profileTab ?? null : null;
-      const nextSearchScope =
-        route === 'search' ? options?.searchScope ?? 'all' : 'home';
-      const nextSearchQuery =
-        route === 'search' ? options?.searchQuery ?? null : null;
-      const nextSearchFilters =
-        route === 'search'
-          ? options?.searchFilters ?? DEFAULT_SEARCH_FILTERS
-          : DEFAULT_SEARCH_FILTERS;
-      const nextOpportunityId =
-        route === 'opportunities' ? options?.opportunityId ?? null : null;
-      const nextEventId =
-        route === 'upcoming-events' ? options?.eventId ?? null : null;
-      const nextPostId =
-        isFeedRoute(route) || route === 'anonymous'
-          ? options?.postId ?? null
-          : null;
-      const nextListingId =
-        route === 'marketplace' ? options?.listingId ?? null : null;
-      const nextCommentId =
-        isFeedRoute(route) ||
-        route === 'anonymous' ||
-        route === 'upcoming-events' ||
-        route === 'marketplace'
-          ? options?.commentId ?? null
-          : null;
+        typeof window !== 'undefined' ? Math.max(0, Math.round(window.scrollY)) : 0;
 
-      const isRouteChange =
-        current.route !== route ||
-        (route === 'profile' && current.username !== nextUsername);
+      const nextDest = normalizeRouteDestination({
+        route,
+        username: options?.username,
+        profileTab: options?.profileTab,
+        searchScope: options?.searchScope,
+        searchQuery: options?.searchQuery,
+        searchFilters: options?.searchFilters,
+        opportunityId: options?.opportunityId,
+        eventId: options?.eventId,
+        postId: options?.postId,
+        commentId: options?.commentId,
+        listingId: options?.listingId,
+        marketplaceTab: options?.marketplaceTab,
+        accountSection: options?.accountSection,
+      });
 
-      if (
-        current.route !== 'login' &&
-        current.route !== 'register' &&
-        isRouteChange &&
-        route === 'profile' &&
-        current.route !== 'profile'
-      ) {
-        setPreviousEntry({
-          ...current,
-          scrollY: departingScrollY,
-        });
-      } else if (
-        current.route !== 'login' &&
-        current.route !== 'register' &&
-        current.route !== route &&
-        route !== 'profile'
-      ) {
-        setPreviousEntry({
-          ...current,
-          scrollY: departingScrollY,
-        });
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (currentEntry) {
+        entryScrollMapRef.current.set(currentEntry.key, departingScrollY);
+        historyStackRef.current = updateHistoryEntryScroll(
+          historyStackRef.current,
+          departingScrollY
+        );
+        persistCurrentBrowserState(currentEntry, departingScrollY);
       }
 
+      if (options?.replace) {
+        const replaced = replaceCurrentHistoryDestination(
+          historyStackRef.current,
+          nextDest,
+          options.restoreScrollY ?? 0
+        );
+        historyStackRef.current = replaced.stack;
+        entryScrollMapRef.current.set(
+          replaced.entry.key,
+          options.restoreScrollY ?? 0
+        );
+        setNavDest(replaced.entry.destination);
+        syncSearchBannerFromStack(historyStackRef.current);
+        persistCurrentBrowserState(replaced.entry, options.restoreScrollY ?? 0);
+
+        if (options.restoreScrollY !== undefined) {
+          scheduleScrollRestore(options.restoreScrollY);
+        } else if (!nextDest.postId && !nextDest.commentId) {
+          window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+        return;
+      }
+
+      const targetInitialScroll = options?.restoreScrollY ?? 0;
+      const pushed = pushHistoryStackEntry(
+        historyStackRef.current,
+        nextDest,
+        departingScrollY,
+        targetInitialScroll
+      );
+      historyStackRef.current = pushed.stack;
+      entryScrollMapRef.current.set(pushed.entry.key, pushed.entry.scrollY);
+      setNavDest(pushed.entry.destination);
+      syncSearchBannerFromStack(historyStackRef.current);
+
+      if (!pushed.pushed) {
+        if (options?.restoreScrollY !== undefined) {
+          scheduleScrollRestore(options.restoreScrollY);
+        } else if (!nextDest.postId && !nextDest.commentId) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
+
+      const nextUrl = buildUrlForDestination(pushed.entry.destination);
       if (typeof window !== 'undefined') {
-        const currentHistoryState =
-          window.history.state && typeof window.history.state === 'object'
-            ? (window.history.state as Record<string, unknown>)
-            : {};
-        window.history.replaceState(
+        window.history.pushState(
           {
-            ...currentHistoryState,
-            scrollY: departingScrollY,
-            ...(current.route === 'search' && current.searchFilters
-              ? { searchFilters: current.searchFilters }
+            entryKey: pushed.entry.key,
+            scrollY: targetInitialScroll,
+            ...(pushed.entry.destination.route === 'search'
+              ? { searchFilters: pushed.entry.destination.searchFilters }
               : {}),
           },
-          ''
+          '',
+          nextUrl
         );
       }
 
-      setActiveRoute(route);
-      setProfileUsername(nextUsername);
-      setProfileTab(nextProfileTab);
-      setSearchScope(nextSearchScope);
-      setSearchQuery(nextSearchQuery);
-      setSearchFilters(nextSearchFilters);
-      setSelectedOpportunityId(nextOpportunityId);
-      setSelectedEventId(nextEventId);
-      setSelectedPostId(nextPostId);
-      setSelectedCommentId(nextCommentId);
-      setSelectedListingId(nextListingId);
-      setAccountSection(
-        route === 'account' ? options?.accountSection ?? 'profile' : 'profile'
-      );
-
-      const targetScrollY = options?.restoreScrollY ?? 0;
-
-      currentEntryRef.current = {
-        route,
-        username: nextUsername,
-        profileTab: nextProfileTab,
-        searchScope: nextSearchScope,
-        searchQuery: nextSearchQuery,
-        searchFilters: nextSearchFilters,
-        opportunityId: nextOpportunityId,
-        eventId: nextEventId,
-        postId: nextPostId,
-        commentId: nextCommentId,
-        listingId: nextListingId,
-        scrollY: targetScrollY,
-      };
-
-      const nextUrl = buildSearchForRoute(route, {
-        username: nextUsername,
-        profileTab: nextProfileTab,
-        searchScope: route === 'search' ? nextSearchScope : undefined,
-        searchQuery: route === 'search' ? nextSearchQuery : undefined,
-        opportunityId:
-          route === 'opportunities' ? nextOpportunityId : undefined,
-        eventId: route === 'upcoming-events' ? nextEventId : undefined,
-        postId: nextPostId,
-        commentId: nextCommentId,
-        listingId: route === 'marketplace' ? nextListingId : undefined,
-      });
-      window.history.pushState(
-        {
-          scrollY: targetScrollY,
-          ...(route === 'search' ? { searchFilters: nextSearchFilters } : {}),
-        },
-        '',
-        nextUrl
-      );
       if (options?.restoreScrollY !== undefined) {
-        window.requestAnimationFrame(() => {
-          window.scrollTo({ top: targetScrollY, behavior: 'auto' });
-        });
-      } else if (!nextPostId && !nextCommentId) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        scheduleScrollRestore(targetInitialScroll);
+      } else if (!nextDest.postId && !nextDest.commentId) {
+        window.scrollTo({ top: 0, behavior: 'auto' });
       }
     },
-    []
+    [
+      buildUrlForDestination,
+      persistCurrentBrowserState,
+      scheduleScrollRestore,
+      setNavDest,
+      syncSearchBannerFromStack,
+    ]
+  );
+
+  // Enforce guest-safe views when auth resolves as signed out (e.g. after sign-out)
+  useEffect(() => {
+    if (!authReady || user) return;
+    const currentEntry =
+      historyStackRef.current.entries[historyStackRef.current.index];
+    if (!currentEntry) return;
+    if (!isProtectedRouteOrTab(currentEntry.destination)) return;
+
+    const safeDest = resolveGuestSafeDestination(
+      currentEntry.destination,
+      false
+    );
+    handleNavigate(safeDest.route, {
+      ...safeDest,
+      replace: true,
+      restoreScrollY: 0,
+    });
+  }, [authReady, user, handleNavigate]);
+
+  const handleReplaceCurrentDestination = useCallback(
+    (patch: Partial<Omit<RouteDestination, 'route'>>) => {
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (!currentEntry) return;
+      const currentScroll =
+        typeof window !== 'undefined' ? Math.max(0, Math.round(window.scrollY)) : 0;
+      const nextDest = normalizeRouteDestination({
+        ...currentEntry.destination,
+        ...patch,
+        route: currentEntry.destination.route,
+      });
+      if (areDestinationsEqual(currentEntry.destination, nextDest)) {
+        return;
+      }
+      const replaced = replaceCurrentHistoryDestination(
+        historyStackRef.current,
+        nextDest,
+        currentScroll
+      );
+      historyStackRef.current = replaced.stack;
+      entryScrollMapRef.current.set(replaced.entry.key, currentScroll);
+      setNavDest(replaced.entry.destination);
+      syncSearchBannerFromStack(historyStackRef.current);
+      persistCurrentBrowserState(replaced.entry, currentScroll);
+    },
+    [persistCurrentBrowserState, setNavDest, syncSearchBannerFromStack]
   );
 
   const handleSyncSearchState = useCallback(
@@ -341,87 +558,157 @@ export function App() {
       query: string;
       filters: SearchFiltersState;
     }) => {
-      if (currentEntryRef.current.route !== 'search') return;
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (!currentEntry || currentEntry.destination.route !== 'search') return;
       const cleanQuery = next.query.trim() || null;
-      currentEntryRef.current = {
-        ...currentEntryRef.current,
+      handleReplaceCurrentDestination({
         searchScope: next.scope,
         searchQuery: cleanQuery,
         searchFilters: next.filters,
-      };
-      setSearchScope(next.scope);
-      setSearchQuery(cleanQuery);
-      setSearchFilters(next.filters);
-
-      if (typeof window !== 'undefined') {
-        const nextUrl = buildSearchForRoute('search', {
-          searchScope: next.scope,
-          searchQuery: cleanQuery,
-        });
-        const currentHistoryState =
-          window.history.state && typeof window.history.state === 'object'
-            ? (window.history.state as Record<string, unknown>)
-            : {};
-        window.history.replaceState(
-          { ...currentHistoryState, searchFilters: next.filters },
-          '',
-          nextUrl
-        );
-      }
+      });
     },
-    []
+    [handleReplaceCurrentDestination]
   );
 
-  const handleBackToSearch = useCallback(() => {
-    handleNavigate('search', {
-      searchScope: previousEntry.searchScope ?? 'all',
-      searchQuery: previousEntry.searchQuery ?? null,
-      searchFilters: previousEntry.searchFilters ?? DEFAULT_SEARCH_FILTERS,
-      restoreScrollY: previousEntry.scrollY ?? 0,
-    });
-  }, [handleNavigate, previousEntry]);
+  const handleSyncProfileTab = useCallback(
+    (nextTab: ProfileTab) => {
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (!currentEntry || currentEntry.destination.route !== 'profile') return;
+      handleReplaceCurrentDestination({ profileTab: nextTab });
+    },
+    [handleReplaceCurrentDestination]
+  );
 
-  const handleBackFromProfile = useCallback(() => {
-    if (previousEntry.route && previousEntry.route !== 'profile') {
-      handleNavigate(previousEntry.route, {
-        username: previousEntry.username,
-        profileTab: previousEntry.profileTab,
-        searchScope: previousEntry.searchScope,
-        searchQuery: previousEntry.searchQuery,
-        searchFilters: previousEntry.searchFilters,
-        opportunityId: previousEntry.opportunityId,
-        eventId: previousEntry.eventId,
-        postId: previousEntry.postId,
-        commentId: previousEntry.commentId,
-        listingId: previousEntry.listingId,
-        restoreScrollY: previousEntry.scrollY ?? 0,
+  const handleSyncMarketplaceTab = useCallback(
+    (nextTab: MarketplaceTab) => {
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (!currentEntry || currentEntry.destination.route !== 'marketplace') {
+        return;
+      }
+      handleReplaceCurrentDestination({ marketplaceTab: nextTab });
+    },
+    [handleReplaceCurrentDestination]
+  );
+
+  const handleSyncAccountSection = useCallback(
+    (nextSection: AccountSettingsSection) => {
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      if (!currentEntry || currentEntry.destination.route !== 'account') return;
+      handleReplaceCurrentDestination({ accountSection: nextSection });
+    },
+    [handleReplaceCurrentDestination]
+  );
+
+  const handleNavigateBack = useCallback(() => {
+    const resolution = getBackTarget(historyStackRef.current);
+    if (resolution.kind === 'history_back' && typeof window !== 'undefined') {
+      if (resolution.steps === 1) {
+        window.history.back();
+      } else {
+        window.history.go(-resolution.steps);
+      }
+      return;
+    }
+
+    const fallback =
+      resolution.kind === 'fallback'
+        ? resolution.destination
+        : normalizeRouteDestination({ route: 'for-you' });
+    handleNavigate(fallback.route, {
+      ...fallback,
+      replace: true,
+      restoreScrollY: 0,
+    });
+  }, [handleNavigate]);
+
+  const handleBackToSearch = useCallback(() => {
+    const stack = historyStackRef.current;
+    const immediatePrev = stack.entries[stack.index - 1];
+    if (
+      immediatePrev?.destination.route === 'search' &&
+      typeof window !== 'undefined'
+    ) {
+      window.history.back();
+      return;
+    }
+
+    const searchEntry = recentSearchEntry ?? findMostRecentSearchEntry(stack);
+    if (searchEntry) {
+      const targetIndex = stack.entries.findIndex(
+        (item) => item.key === searchEntry.key
+      );
+      if (targetIndex !== -1 && targetIndex < stack.index) {
+        window.history.go(-(stack.index - targetIndex));
+        return;
+      }
+      handleNavigate('search', {
+        searchScope: searchEntry.destination.searchScope,
+        searchQuery: searchEntry.destination.searchQuery,
+        searchFilters: searchEntry.destination.searchFilters,
+        restoreScrollY: searchEntry.scrollY,
       });
       return;
     }
-    handleNavigate('for-you', { restoreScrollY: previousEntry.scrollY ?? 0 });
-  }, [handleNavigate, previousEntry]);
+
+    handleNavigate('search', {
+      searchScope: 'all',
+      searchQuery: null,
+      searchFilters: DEFAULT_SEARCH_FILTERS,
+    });
+  }, [handleNavigate, recentSearchEntry]);
 
   const handleRequireAuth = useCallback(
     (authRoute: 'login' | 'register', returnTo: ActiveRoute) => {
-      const safeReturn =
-        returnTo === 'login' || returnTo === 'register' || returnTo === 'profile'
-          ? 'for-you'
-          : returnTo;
-      setReturnRoute(safeReturn);
+      const currentEntry =
+        historyStackRef.current.entries[historyStackRef.current.index];
+      let savedDest: NormalizedRouteDestination;
+
+      if (
+        currentEntry &&
+        currentEntry.destination.route !== 'login' &&
+        currentEntry.destination.route !== 'register' &&
+        currentEntry.destination.route === returnTo
+      ) {
+        savedDest = currentEntry.destination;
+      } else if (returnTo === 'login' || returnTo === 'register') {
+        savedDest = normalizeRouteDestination({ route: 'for-you' });
+      } else {
+        savedDest = normalizeRouteDestination({ route: returnTo });
+      }
+
+      pendingAuthDestinationRef.current = savedDest;
+      setPendingAuthDestination(savedDest);
       handleNavigate(authRoute);
     },
-    [handleNavigate]
+    [handleNavigate, setPendingAuthDestination]
   );
 
   const handleAuthSuccess = useCallback(
     (destination: ActiveRoute) => {
+      const pending = pendingAuthDestinationRef.current;
+      pendingAuthDestinationRef.current = null;
+      setPendingAuthDestination(null);
+
+      if (pending) {
+        handleNavigate(pending.route, {
+          ...pending,
+          replace: true,
+          restoreScrollY: 0,
+        });
+        return;
+      }
+
       const target =
         destination === 'login' || destination === 'register'
           ? 'for-you'
           : destination;
-      handleNavigate(target);
+      handleNavigate(target, { replace: true });
     },
-    [handleNavigate]
+    [handleNavigate, setPendingAuthDestination]
   );
 
   const handleRetry = (sectionId: SectionId) => {
@@ -443,13 +730,16 @@ export function App() {
     }, 650);
   };
 
+  const authReturnRoute = pendingAuthDestination?.route ?? 'for-you';
+
   const renderMainContent = () => {
     if (activeRoute === 'login') {
       return (
         <LoginPage
-          returnRoute={returnRoute}
+          returnRoute={authReturnRoute}
           onSuccess={handleAuthSuccess}
           onNavigate={handleNavigate}
+          onBack={handleNavigateBack}
           onRefreshAccount={refreshAccountState}
         />
       );
@@ -458,9 +748,10 @@ export function App() {
     if (activeRoute === 'register') {
       return (
         <RegisterPage
-          returnRoute={returnRoute}
+          returnRoute={authReturnRoute}
           onSuccess={handleAuthSuccess}
           onNavigate={handleNavigate}
+          onBack={handleNavigateBack}
           onRefreshAccount={refreshAccountState}
         />
       );
@@ -478,8 +769,9 @@ export function App() {
     if (activeRoute === 'account') {
       return (
         <AccountPage
-          key={accountSection}
+          key={user?.uid ?? 'guest'}
           initialSection={accountSection}
+          onSectionChange={handleSyncAccountSection}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
         />
@@ -489,12 +781,13 @@ export function App() {
     if (activeRoute === 'profile') {
       return (
         <MemberProfilePage
-          key={`${profileUsername ?? 'none'}:${profileTab ?? 'posts'}`}
+          key={profileUsername ?? 'self'}
           username={profileUsername}
           initialTab={profileTab}
+          onTabChange={handleSyncProfileTab}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
-          onBack={handleBackFromProfile}
+          onBack={handleNavigateBack}
         />
       );
     }
@@ -552,6 +845,12 @@ export function App() {
         selectedListingId={
           activeRoute === 'marketplace' ? selectedListingId : null
         }
+        marketplaceTab={
+          activeRoute === 'marketplace' ? marketplaceTab : undefined
+        }
+        onSelectMarketplaceTab={
+          activeRoute === 'marketplace' ? handleSyncMarketplaceTab : undefined
+        }
         sectionStates={sectionStates}
         onNavigate={handleNavigate}
         onRetry={handleRetry}
@@ -564,7 +863,8 @@ export function App() {
     activeRoute !== 'login' && activeRoute !== 'register';
 
   const showBackToSearchBanner =
-    previousEntry.route === 'search' &&
+    Boolean(recentSearchEntry) &&
+    dismissedSearchBannerKey !== recentSearchEntry?.key &&
     activeRoute !== 'search' &&
     activeRoute !== 'profile' &&
     activeRoute !== 'login' &&
@@ -574,6 +874,7 @@ export function App() {
     <div className="flex min-h-screen flex-col bg-slate-50/50 text-[#0B1A2E]">
       <Header
         activeRoute={activeRoute}
+        isMobileDrawerOpen={isMobileDrawerOpen}
         onNavigate={handleNavigate}
         onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
         onRequireAuth={handleRequireAuth}
@@ -583,12 +884,57 @@ export function App() {
         {showSidebar && (
           <SectionSidebar
             activeRoute={activeRoute}
+            marketplaceTab={
+              activeRoute === 'marketplace' ? marketplaceTab : undefined
+            }
             onNavigate={handleNavigate}
           />
         )}
 
         <div className="min-w-0 flex-1 space-y-4">
-          {showBackToSearchBanner && (
+          {!isOnline ? (
+            <div
+              role="status"
+              data-testid="network-offline-banner"
+              className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-950 sm:text-sm"
+            >
+              <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+              <span>
+                You&apos;re offline — browsing cached campus content. New posts and
+                edits require an internet connection.
+              </span>
+            </div>
+          ) : justReconnected ? (
+            <div
+              role="status"
+              data-testid="network-reconnected-banner"
+              className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-900 sm:text-sm"
+            >
+              <Wifi className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+              <span>Back online — syncing latest updates...</span>
+            </div>
+          ) : syncErrorMessage ? (
+            <div
+              role="alert"
+              data-testid="network-sync-error-banner"
+              className="flex items-center justify-between gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-900 sm:text-sm"
+            >
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-700" aria-hidden="true" />
+                <span>{syncErrorMessage}</span>
+              </div>
+              <button
+                type="button"
+                onClick={clearSyncError}
+                aria-label="Dismiss sync notice"
+                className="rounded p-1 text-red-700 hover:bg-red-100"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
+
+          {showBackToSearchBanner && recentSearchEntry && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
               <button
                 type="button"
@@ -598,14 +944,16 @@ export function App() {
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 <span>
                   Back to Search Results
-                  {previousEntry.searchQuery
-                    ? ` for “${previousEntry.searchQuery}”`
+                  {recentSearchEntry.destination.searchQuery
+                    ? ` for “${recentSearchEntry.destination.searchQuery}”`
                     : ''}
                 </span>
               </button>
               <button
                 type="button"
-                onClick={() => setPreviousEntry({ route: 'for-you' })}
+                onClick={() =>
+                  setDismissedSearchBannerKey(recentSearchEntry.key)
+                }
                 className="text-xs font-medium text-slate-500 hover:text-[#0B1A2E]"
               >
                 Dismiss
@@ -627,6 +975,9 @@ export function App() {
       <MobileSectionDrawer
         isOpen={isMobileDrawerOpen}
         activeRoute={activeRoute}
+        marketplaceTab={
+          activeRoute === 'marketplace' ? marketplaceTab : undefined
+        }
         onSelectRoute={handleNavigate}
         onRequireAuth={handleRequireAuth}
         onClose={() => setIsMobileDrawerOpen(false)}

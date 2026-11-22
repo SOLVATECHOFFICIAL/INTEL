@@ -41,6 +41,18 @@ export type ProfileTab =
   | 'followers'
   | 'following';
 
+export type MarketplaceTab =
+  | 'browse'
+  | 'my_listings'
+  | 'updates'
+  | 'pending_approvals';
+
+export type AccountSettingsSection =
+  | 'profile'
+  | 'security'
+  | 'privacy'
+  | 'management';
+
 export type ViewState = 'empty' | 'loading' | 'error';
 
 export type SectionGroup = 'Feeds' | 'Campus Hub';

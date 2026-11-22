@@ -38,23 +38,28 @@ import {
   shouldEmitActivityNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
+import { SingleFlightRegistry } from '../utils/cacheSync';
 import type { CommentWithAuthor } from './socialPosts';
 
+const eventsSingleFlight = new SingleFlightRegistry();
+
 export async function fetchPublishedCampusEvents(): Promise<CampusEvent[]> {
-  try {
-    const snap = await getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.events),
-        where('published', '==', true),
-        limit(150)
-      )
-    );
-    return snap.docs
-      .map((item) => item.data() as CampusEvent)
-      .filter((evt) => isCampusEventPublished(evt));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.events);
-  }
+  return eventsSingleFlight.run('events:published', async () => {
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.events),
+          where('published', '==', true),
+          limit(150)
+        )
+      );
+      return snap.docs
+        .map((item) => item.data() as CampusEvent)
+        .filter((evt) => isCampusEventPublished(evt));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.events);
+    }
+  });
 }
 
 export async function fetchCampusEventById(

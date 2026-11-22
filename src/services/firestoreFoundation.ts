@@ -64,6 +64,11 @@ import {
   validateUsernameCandidate,
   type ProfileSettingsFormInput,
 } from '../utils/authValidation';
+import { SingleFlightRegistry } from '../utils/cacheSync';
+import {
+  notifyFollowToggled,
+  notifyProfileUpdated,
+} from './cacheInvalidation';
 import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
   extractTimestampMs,
@@ -558,6 +563,12 @@ export async function updateMemberAccountProfileAndUsername(
       }
     });
 
+    notifyProfileUpdated({
+      uid,
+      username: cleanUsername,
+      previousUsername: normalizeUsername(currentUsername),
+    });
+
     return { updatedUsername: cleanUsername };
   } catch (error) {
     if (error instanceof DomainValidationError) {
@@ -585,6 +596,7 @@ export async function updateMemberPrivacySettings(
       updatedAt: serverTimestamp(),
     });
     await batch.commit();
+    notifyProfileUpdated({ uid });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -647,14 +659,18 @@ async function resolveUsernameToUidInternal(
   return null;
 }
 
+const foundationSingleFlight = new SingleFlightRegistry();
+
 export async function fetchMemberProfileBundleByUsername(
   rawUsername: string,
   viewerUid: string | null
 ): Promise<MemberProfileBundle | null> {
-  const resolved = await resolveUsernameToUidInternal(rawUsername);
-  if (!resolved) {
-    return null;
-  }
+  const flightKey = `profile:${normalizeUsername(rawUsername)}:${viewerUid ?? 'guest'}`;
+  return foundationSingleFlight.run(flightKey, async () => {
+    const resolved = await resolveUsernameToUidInternal(rawUsername);
+    if (!resolved) {
+      return null;
+    }
 
   const userPath = `${COLLECTION_NAMES.users}/${resolved.uid}`;
   let profileDoc: PublicUserProfile | null = null;
@@ -765,10 +781,11 @@ export async function fetchMemberProfileBundleByUsername(
     isSuspended: profileDoc.accountStatus === 'suspended',
     canPublishOrdinaryPosts,
     totalLikesReceived,
-    posts,
-    likedPosts,
-    listings,
-  };
+      posts,
+      likedPosts,
+      listings,
+    };
+  });
 }
 
 /**
@@ -925,6 +942,7 @@ export async function followMemberByUsername(
         tx.set(notifRef, notifPayload);
       })
     );
+    notifyFollowToggled({ targetUsername, following: true });
   } catch (error) {
     if (error instanceof DomainValidationError || (error instanceof Error && !('code' in error))) {
       throw error;
@@ -994,6 +1012,7 @@ export async function unfollowMemberByUsername(
         }
       })
     );
+    notifyFollowToggled({ targetUsername, following: false });
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1284,6 +1303,7 @@ export async function fetchCommunityFeedPage(input: {
   rankingOptions?: Omit<ForYouRankingOptions, 'followedUids' | 'authorMap'>;
 }): Promise<CommunityFeedPageResult> {
   const pageSize = Math.max(1, Math.min(30, input.pageSize ?? 12));
+  const runFetch = async (): Promise<CommunityFeedPageResult> => {
 
   try {
     let followedUids = input.followedUids;
@@ -1535,6 +1555,13 @@ export async function fetchCommunityFeedPage(input: {
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.posts);
   }
+  };
+
+  if (!input.cursor) {
+    const flightKey = `feed:${input.tab}:${input.viewerUid ?? 'guest'}:${pageSize}`;
+    return foundationSingleFlight.run(flightKey, runFetch);
+  }
+  return runFetch();
 }
 
 export async function fetchPublicCommunityFeed(
@@ -1600,6 +1627,7 @@ export async function fetchPublicAnonymousFeedPage(
 ): Promise<AnonymousFeedPageResult> {
   const path = COLLECTION_NAMES.anonymousPosts;
   const pageSize = Math.max(1, Math.min(30, options.pageSize ?? 12));
+  const runFetch = async (): Promise<AnonymousFeedPageResult> => {
 
   try {
     if (options.cursor?.mode === 'offset') {
@@ -1675,6 +1703,12 @@ export async function fetchPublicAnonymousFeedPage(
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
   }
+  };
+
+  if (!options.cursor) {
+    return foundationSingleFlight.run(`anon:${pageSize}`, runFetch);
+  }
+  return runFetch();
 }
 
 export async function fetchPublicAnonymousFeed(

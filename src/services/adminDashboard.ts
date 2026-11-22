@@ -87,6 +87,14 @@ import {
   generateFirestoreDocId,
   primeMediaImageCache,
 } from './mediaStorage';
+import {
+  notifyCampusEventMutated,
+  notifyCommunityPostUpdated,
+  notifyMarketplaceListingDeleted,
+  notifyMarketplaceListingUpdated,
+  notifyOpportunityMutated,
+  notifyTrustedContactMutated,
+} from './cacheInvalidation';
 import { deletePostComment, deletePostCascading } from './socialPosts';
 
 function sortByCreatedAtDesc<T extends { createdAt: unknown }>(items: T[]): T[] {
@@ -510,6 +518,7 @@ export async function reviewMarketplaceListingWithAudit(input: {
     // Primary transaction already persisted cleanly; avoid losing UI refresh if notification fails.
   }
 
+  notifyMarketplaceListingUpdated(updated);
   return updated;
 }
 
@@ -543,12 +552,14 @@ export async function adminUpdateMarketplaceStatusWithAudit(input: {
 
   try {
     await batch.commit();
-    return {
+    const updated: MarketplaceListing = {
       ...input.listing,
       status: input.nextStatus,
       visibility: nextVisibility,
       updatedAt: Date.now(),
     };
+    notifyMarketplaceListingUpdated(updated);
+    return updated;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -601,6 +612,7 @@ export async function adminDeleteMarketplaceListingWithAudit(input: {
         evictMediaImageCache(imgDoc.id);
       }
     }
+    notifyMarketplaceListingDeleted(input.listing.id);
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1010,12 +1022,14 @@ export async function adminTogglePostFlagsWithAudit(input: {
 
   try {
     await batch.commit();
-    return {
+    const updatedPost: CommunityPost = {
       ...input.post,
       isPinned: nextPinned,
       isOfficial: nextOfficial,
       updatedAt: Date.now(),
     };
+    notifyCommunityPostUpdated(updatedPost);
+    return updatedPost;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1060,6 +1074,25 @@ export async function fetchPublishedOpportunities(): Promise<Opportunity[]> {
       OperationType.LIST,
       COLLECTION_NAMES.opportunities
     );
+  }
+}
+
+export async function fetchOpportunityById(
+  opportunityId: string
+): Promise<Opportunity | null> {
+  if (!isValidFirestoreId(opportunityId)) return null;
+  try {
+    const snap = await getDoc(
+      doc(db, COLLECTION_NAMES.opportunities, opportunityId)
+    );
+    if (!snap.exists()) return null;
+    const item = snap.data() as Opportunity;
+    if (item.status !== 'active' && item.status !== 'expired') {
+      return null;
+    }
+    return item;
+  } catch {
+    return null;
   }
 }
 
@@ -1146,13 +1179,15 @@ export async function createOpportunityRecord(input: {
 
   try {
     await batch.commit();
-    return {
+    const createdOpp: Opportunity = {
       ...(payload as unknown as Opportunity),
       opensAt: opensMs ?? undefined,
       expiresAt: deadlineMs,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+    notifyOpportunityMutated({ action: 'upsert', opportunity: createdOpp });
+    return createdOpp;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1254,7 +1289,7 @@ export async function updateOpportunityRecord(input: {
 
   try {
     await batch.commit();
-    return {
+    const updatedOpp: Opportunity = {
       ...input.existing,
       category: input.form.category,
       title: input.form.title.trim(),
@@ -1274,6 +1309,8 @@ export async function updateOpportunityRecord(input: {
       expiresAt: deadlineMs,
       updatedAt: Date.now(),
     };
+    notifyOpportunityMutated({ action: 'upsert', opportunity: updatedOpp });
+    return updatedOpp;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1323,11 +1360,13 @@ export async function toggleOpportunityStatusRecord(input: {
 
   try {
     await batch.commit();
-    return {
+    const updatedOpp: Opportunity = {
       ...input.opportunity,
       status: input.nextStatus,
       updatedAt: Date.now(),
     };
+    notifyOpportunityMutated({ action: 'upsert', opportunity: updatedOpp });
+    return updatedOpp;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1367,11 +1406,13 @@ export async function toggleOpportunityVerifiedRecord(input: {
 
   try {
     await batch.commit();
-    return {
+    const updatedOpp: Opportunity = {
       ...input.opportunity,
       isVerified: input.nextVerified,
       updatedAt: Date.now(),
     };
+    notifyOpportunityMutated({ action: 'upsert', opportunity: updatedOpp });
+    return updatedOpp;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1547,6 +1588,10 @@ export async function deleteOpportunityRecord(input: {
   });
   try {
     await batch.commit();
+    notifyOpportunityMutated({
+      action: 'delete',
+      opportunityId: input.opportunity.id,
+    });
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1702,13 +1747,15 @@ export async function createCampusEventRecord(input: {
     for (const item of primedCache) {
       primeMediaImageCache(item.imageId, item.dataUrl);
     }
-    return {
+    const createdEvent: CampusEvent = {
       ...(payload as unknown as CampusEvent),
       eventDate: eventMs,
       endDate: endMs,
       createdAt: nowMs,
       updatedAt: nowMs,
     };
+    notifyCampusEventMutated({ action: 'upsert', event: createdEvent });
+    return createdEvent;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1879,7 +1926,7 @@ export async function updateCampusEventRecord(input: {
     for (const item of primedCache) {
       primeMediaImageCache(item.imageId, item.dataUrl);
     }
-    return {
+    const updatedEvent: CampusEvent = {
       ...input.existing,
       category: input.form.category ?? input.existing.category ?? 'other',
       title: input.form.title.trim(),
@@ -1900,6 +1947,8 @@ export async function updateCampusEventRecord(input: {
       published,
       updatedAt: nowMs,
     };
+    notifyCampusEventMutated({ action: 'upsert', event: updatedEvent });
+    return updatedEvent;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1934,11 +1983,13 @@ export async function toggleCampusEventPublishedRecord(input: {
   });
   try {
     await batch.commit();
-    return {
+    const updatedEvent: CampusEvent = {
       ...input.event,
       published: input.nextPublished,
       updatedAt: Date.now(),
     };
+    notifyCampusEventMutated({ action: 'upsert', event: updatedEvent });
+    return updatedEvent;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1972,11 +2023,13 @@ export async function markCampusEventCompletedRecord(input: {
   });
   try {
     await batch.commit();
-    return {
+    const updatedEvent: CampusEvent = {
       ...input.event,
       status: 'completed',
       updatedAt: Date.now(),
     };
+    notifyCampusEventMutated({ action: 'upsert', event: updatedEvent });
+    return updatedEvent;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -2208,6 +2261,7 @@ export async function deleteCampusEventRecord(input: {
   for (const id of mediaIds) {
     evictMediaImageCache(id);
   }
+  notifyCampusEventMutated({ action: 'delete', eventId: input.event.id });
 }
 
 export async function updateTrustedContactWithAudit(input: {
@@ -2328,6 +2382,7 @@ export async function updateTrustedContactWithAudit(input: {
     if (input.compressedPhoto && nextPhotoImageId) {
       primeMediaImageCache(nextPhotoImageId, input.compressedPhoto.dataUrl);
     }
+    notifyTrustedContactMutated();
     return nextRecord;
   } catch (error) {
     handleFirestoreError(
@@ -2448,6 +2503,7 @@ export async function createTrustedContactWithAudit(input: {
     if (input.compressedPhoto && photoImageId) {
       primeMediaImageCache(photoImageId, input.compressedPhoto.dataUrl);
     }
+    notifyTrustedContactMutated();
     return record;
   } catch (error) {
     handleFirestoreError(
@@ -2491,6 +2547,7 @@ export async function deleteTrustedContactWithAudit(input: {
     if (input.contact.photoImageId) {
       evictMediaImageCache(input.contact.photoImageId);
     }
+    notifyTrustedContactMutated();
   } catch (error) {
     handleFirestoreError(
       error,

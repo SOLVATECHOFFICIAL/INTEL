@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Award,
   Building2,
@@ -15,12 +15,19 @@ import {
   X,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
+import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
 import {
   createTrustedContactWithAudit,
   deleteTrustedContactWithAudit,
   updateTrustedContactWithAudit,
 } from '../../services/adminDashboard';
 import { fetchTrustedCircleDirectory } from '../../services/governance';
+import { prefetchMediaImages } from '../../services/mediaStorage';
+import {
+  getTrustedCircleSnapshot,
+  hydrateTrustedCircleSnapshot,
+  saveTrustedCircleSnapshot,
+} from '../../services/navigationStateCache';
 import type {
   PublicProfileProjection,
   TrustedContact,
@@ -41,6 +48,7 @@ import {
   compressImageFile,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
+import { isDataSaverConnection } from '../../utils/mediaCache';
 import { RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
@@ -78,18 +86,21 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
   const actorRole: UserRole =
     effectiveTier === 'owner' ? 'owner' : 'supreme_admin';
 
+  const viewerKey = user?.uid ?? 'guest';
+  const initialCache = getTrustedCircleSnapshot(viewerKey);
+
   const [supremeAdmins, setSupremeAdmins] = useState<PublicProfileProjection[]>(
-    []
+    () => initialCache?.supremeAdmins ?? []
   );
   const [verifiedMembers, setVerifiedMembers] = useState<
     PublicProfileProjection[]
-  >([]);
+  >(() => initialCache?.verifiedMembers ?? []);
   const [officialContacts, setOfficialContacts] = useState<TrustedContact[]>(
-    []
+    () => initialCache?.officialContacts ?? []
   );
   const [activeFilter, setActiveFilter] =
     useState<TrustedCircleCategoryFilter>('all');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !initialCache);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -118,26 +129,119 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const hasDirectoryDataRef = useRef(Boolean(initialCache));
+
+  const prefetchDirectoryAvatars = useCallback(
+    (
+      admins: readonly PublicProfileProjection[],
+      verified: readonly PublicProfileProjection[],
+      contacts: readonly TrustedContact[]
+    ) => {
+      if (isDataSaverConnection()) return;
+      const ids = [
+        ...admins.slice(0, 4).map((m) => m.photoImageId),
+        ...verified.slice(0, 4).map((m) => m.photoImageId),
+        ...contacts.slice(0, 4).map((c) => c.photoImageId),
+      ];
+      if (ids.some(Boolean)) {
+        void prefetchMediaImages(ids);
+      }
+    },
+    []
+  );
+
+  const syncTrustedCircleFromNetwork = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      if (
+        mode === 'background' &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine === false
+      ) {
+        return;
+      }
+
+      const data = await fetchTrustedCircleDirectory();
+      if (isCancelled?.()) return;
+
+      setSupremeAdmins(data.supremeAdmins);
+      setVerifiedMembers(data.verifiedMembers);
+      setOfficialContacts(data.officialContacts);
+      hasDirectoryDataRef.current = true;
+      setErrorMessage(null);
+      setLoading(false);
+      prefetchDirectoryAvatars(
+        data.supremeAdmins,
+        data.verifiedMembers,
+        data.officialContacts
+      );
+    },
+    [prefetchDirectoryAvatars]
+  );
 
   useEffect(() => {
     let active = true;
+    let networkSettled = false;
 
-    fetchTrustedCircleDirectory()
-      .then((data) => {
-        if (!active) return;
-        setSupremeAdmins(data.supremeAdmins);
-        setVerifiedMembers(data.verifiedMembers);
-        setOfficialContacts(data.officialContacts);
-        setErrorMessage(null);
-      })
+    const ramHit = getTrustedCircleSnapshot(viewerKey);
+    if (ramHit) {
+      prefetchDirectoryAvatars(
+        ramHit.supremeAdmins,
+        ramHit.verifiedMembers,
+        ramHit.officialContacts
+      );
+      let timer: number | null = null;
+      if (Date.now() - ramHit.cachedAt > 15_000) {
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          void syncTrustedCircleFromNetwork('background', () => !active).catch(
+            () => undefined
+          );
+        }, 0);
+      }
+      return () => {
+        active = false;
+        if (timer !== null) window.clearTimeout(timer);
+      };
+    }
+
+    const run = async () => {
+      const persisted = await hydrateTrustedCircleSnapshot(viewerKey);
+      if (active && !networkSettled && persisted) {
+        setSupremeAdmins(persisted.supremeAdmins);
+        setVerifiedMembers(persisted.verifiedMembers);
+        setOfficialContacts(persisted.officialContacts);
+        hasDirectoryDataRef.current = true;
+        setLoading(false);
+        prefetchDirectoryAvatars(
+          persisted.supremeAdmins,
+          persisted.verifiedMembers,
+          persisted.officialContacts
+        );
+
+        await syncTrustedCircleFromNetwork('background', () => !active).catch(
+          () => undefined
+        );
+        return;
+      }
+
+      await syncTrustedCircleFromNetwork('initial', () => !active);
+      networkSettled = true;
+    };
+
+    void run()
       .catch((error) => {
         if (!active) return;
-        setErrorMessage(
-          formatFirestoreOrAppError(
-            error,
-            'Unable to load the Trusted Circle directory right now.'
-          )
-        );
+        if (!hasDirectoryDataRef.current) {
+          setErrorMessage(
+            formatFirestoreOrAppError(
+              error,
+              'Unable to load the Trusted Circle directory right now.'
+            )
+          );
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -146,7 +250,24 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     return () => {
       active = false;
     };
-  }, []);
+  }, [viewerKey, prefetchDirectoryAvatars, syncTrustedCircleFromNetwork]);
+
+  useEffect(() => {
+    if (loading) return;
+    saveTrustedCircleSnapshot({
+      viewerKey,
+      supremeAdmins,
+      verifiedMembers,
+      officialContacts,
+      cachedAt: Date.now(),
+    });
+  }, [loading, viewerKey, supremeAdmins, verifiedMembers, officialContacts]);
+
+  useActiveBackgroundRefresh({
+    enabled: !loading,
+    onRefresh: () => syncTrustedCircleFromNetwork('background'),
+    baseIntervalMs: 5000,
+  });
 
   const partitioned = useMemo(
     () =>

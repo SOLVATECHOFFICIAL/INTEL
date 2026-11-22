@@ -32,8 +32,17 @@ import {
   updateMemberAccountProfileAndUsername,
   updateMemberPrivacySettings,
 } from '../../services/firestoreFoundation';
+import {
+  getAccountSectionSnapshot,
+  saveAccountSectionSnapshot,
+} from '../../services/navigationStateCache';
 import { BLUEPRINT_LIMITS } from '../../types/database';
-import type { ActiveRoute, ProfileTab, SearchScopeId } from '../../types/platform';
+import type {
+  AccountSettingsSection,
+  ActiveRoute,
+  ProfileTab,
+  SearchScopeId,
+} from '../../types/platform';
 import {
   ACCOUNT_CATEGORY_OPTIONS,
   buildWhatsAppChatUrl,
@@ -64,14 +73,11 @@ import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
 
-export type AccountSettingsSection =
-  | 'profile'
-  | 'security'
-  | 'privacy'
-  | 'management';
+export type { AccountSettingsSection };
 
 interface AccountPageProps {
   initialSection?: AccountSettingsSection;
+  onSectionChange?: (section: AccountSettingsSection) => void;
   onNavigate: (
     route: ActiveRoute,
     options?: {
@@ -85,6 +91,7 @@ interface AccountPageProps {
 
 export const AccountPage: React.FC<AccountPageProps> = ({
   initialSection = 'profile',
+  onSectionChange,
   onNavigate,
   onRequireAuth,
 }) => {
@@ -101,12 +108,38 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     refreshAccountState,
   } = useFirebase();
 
-  const [activeTab, setActiveTab] =
-    useState<AccountSettingsSection>(initialSection);
+  const viewerKey = user?.uid ?? 'guest';
+
+  const [activeTab, setActiveTab] = useState<AccountSettingsSection>(() => {
+    if (initialSection && initialSection !== 'profile') {
+      return initialSection;
+    }
+    return getAccountSectionSnapshot(viewerKey)?.activeTab ?? initialSection;
+  });
 
   // Shared status feedback
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const lastInitialSectionRef = React.useRef(initialSection);
+  useEffect(() => {
+    if (lastInitialSectionRef.current === initialSection) return;
+    lastInitialSectionRef.current = initialSection;
+    const timer = window.setTimeout(() => {
+      setActiveTab(initialSection);
+      setErrorMessage(null);
+      setStatusMessage(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialSection]);
+
+  useEffect(() => {
+    saveAccountSectionSnapshot({
+      viewerKey,
+      activeTab,
+      cachedAt: Date.now(),
+    });
+  }, [viewerKey, activeTab]);
 
   // Section B: Account Security state
   const [signingOut, setSigningOut] = useState(false);
@@ -552,6 +585,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                 aria-selected={isSelected}
                 onClick={() => {
                   setActiveTab(tab.id);
+                  onSectionChange?.(tab.id);
                   setErrorMessage(null);
                   setStatusMessage(null);
                 }}

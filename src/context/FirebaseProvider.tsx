@@ -10,6 +10,8 @@ import type { User } from 'firebase/auth';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { testConnection } from '../lib/firebase';
 import { clearViewerScopedMediaCache } from '../services/mediaStorage';
+import { notifyViewerSessionReset } from '../services/cacheInvalidation';
+import { clearSearchBundleCache } from '../services/searchDiscovery';
 import { subscribeToAuthChanges } from '../services/auth';
 import {
   deleteUserNotification,
@@ -131,11 +133,15 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       prevUidRef.current = nextUser?.uid ?? null;
       if (previousUid && previousUid !== nextUser?.uid) {
         clearViewerScopedMediaCache(previousUid);
+        clearSearchBundleCache();
+        void notifyViewerSessionReset(previousUid);
       }
       setUser(nextUser);
       setAuthReady(true);
       if (!nextUser) {
         clearViewerScopedMediaCache(null);
+        clearSearchBundleCache();
+        void notifyViewerSessionReset(previousUid);
         setProfile(null);
         setRoleRecord(null);
         setLiveNotifications([]);

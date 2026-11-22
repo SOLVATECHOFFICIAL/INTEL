@@ -1,22 +1,28 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Bell,
   Bookmark,
   ChevronRight,
   ExternalLink,
+  Flame,
   Lock,
   LogIn,
   LogOut,
   Search,
+  Settings,
   ShieldCheck,
-  User as UserIcon,
   UserPlus,
   X,
 } from 'lucide-react';
 import { PLATFORM_SECTIONS } from '../config/sections';
 import { useFirebase } from '../context/firebaseContext';
 import { signOutCurrentUser } from '../services/auth';
-import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
+import {
+  ActiveRoute,
+  MarketplaceTab,
+  ProfileTab,
+  SearchScopeId,
+} from '../types/platform';
 import {
   canAccessAdminDashboard,
   canAccessFullAdminDashboard,
@@ -27,12 +33,14 @@ import { SectionIcon } from './SectionIcon';
 interface MobileSectionDrawerProps {
   isOpen: boolean;
   activeRoute: ActiveRoute;
+  marketplaceTab?: MarketplaceTab;
   onSelectRoute: (
     route: ActiveRoute,
     options?: {
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      marketplaceTab?: MarketplaceTab;
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -42,11 +50,23 @@ interface MobileSectionDrawerProps {
 export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
   isOpen,
   activeRoute,
+  marketplaceTab = 'browse',
   onSelectRoute,
   onRequireAuth,
   onClose,
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -58,6 +78,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      marketplaceTab?: MarketplaceTab;
     }
   ) => {
     onSelectRoute(route, options);
@@ -80,6 +101,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
 
   return (
     <div
+      id="mobile-navigation-drawer"
       className="fixed inset-0 z-50 flex items-end bg-[#0B1A2E]/50 backdrop-blur-xs md:hidden"
       role="dialog"
       aria-modal="true"
@@ -198,18 +220,6 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 </>
               )}
 
-              <button
-                type="button"
-                onClick={() => handlePick('account')}
-                className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
-              >
-                <span className="flex items-center gap-3">
-                  <UserIcon className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                  Account Settings
-                </span>
-                <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
-              </button>
-
               {showAdminLink && (
                 <button
                   type="button"
@@ -274,17 +284,83 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
           <button
             type="button"
             onClick={() => handlePick('notifications')}
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium ${
+              activeRoute === 'notifications'
+                ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
+                : 'text-slate-700 hover:bg-slate-50'
+            }`}
           >
             <span className="flex items-center gap-3">
-              <Bell className="h-4 w-4 text-slate-500" aria-hidden="true" />
+              <Bell
+                className={`h-4 w-4 ${
+                  activeRoute === 'notifications' ? 'text-[#1E88E5]' : 'text-slate-500'
+                }`}
+                aria-hidden="true"
+              />
               Notifications
             </span>
             <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
           </button>
 
+          <button
+            type="button"
+            onClick={() => handlePick('account')}
+            className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium ${
+              activeRoute === 'account'
+                ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
+                : 'text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <Settings
+                className={`h-4 w-4 ${
+                  activeRoute === 'account' ? 'text-[#1E88E5]' : 'text-slate-500'
+                }`}
+                aria-hidden="true"
+              />
+              Settings
+            </span>
+            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              handlePick('marketplace', { marketplaceTab: 'updates' })
+            }
+            className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left ${
+              activeRoute === 'marketplace' && marketplaceTab === 'updates'
+                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
+                : 'text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <Flame
+                className={`h-4 w-4 shrink-0 ${
+                  activeRoute === 'marketplace' && marketplaceTab === 'updates'
+                    ? 'text-[#1E88E5]'
+                    : 'text-slate-400'
+                }`}
+                aria-hidden="true"
+              />
+              <span>
+                <span className="block text-sm font-semibold">
+                  Marketplace Updates
+                </span>
+                <span className="block text-xs text-slate-500">
+                  Vendor notices and restocks
+                </span>
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+          </button>
+
           {PLATFORM_SECTIONS.map((section) => {
-            const isActive = activeRoute === section.id;
+            const isActive =
+              activeRoute === section.id &&
+              !(
+                section.id === 'marketplace' && marketplaceTab === 'updates'
+              );
             return (
               <button
                 key={section.id}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -36,7 +36,21 @@ import {
   reviewPendingMarketplaceListing,
   updateOwnMarketplaceListingQuantity,
 } from '../../services/governance';
-import type { UploadProgressState } from '../../services/mediaStorage';
+import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
+import {
+  getMarketplaceSessionSnapshot,
+  hydrateMarketplaceSnapshot,
+  saveMarketplaceSessionSnapshot,
+} from '../../services/navigationStateCache';
+import {
+  prefetchMediaImages,
+  type UploadProgressState,
+} from '../../services/mediaStorage';
+import {
+  clearPersistentDraft,
+  loadPersistentDraft,
+  savePersistentDraft,
+} from '../../services/persistentCache';
 import {
   BLUEPRINT_LIMITS,
   canRolePublishCommunityFeed,
@@ -45,7 +59,7 @@ import {
   type PublicProfileProjection,
   type UserRole,
 } from '../../types/database';
-import type { ActiveRoute } from '../../types/platform';
+import type { ActiveRoute, MarketplaceTab } from '../../types/platform';
 import {
   buildWhatsAppChatUrl,
   formatFirestoreOrAppError,
@@ -57,9 +71,11 @@ import {
   type CompressedImageResult,
 } from '../../utils/imageCompression';
 import {
+  isDataSaverConnection,
   partitionDuplicateSelectedFiles,
   reorderArrayItem,
 } from '../../utils/mediaCache';
+import { mergeOrderedRecords } from '../../utils/cacheSync';
 import type { GridPhotoItem } from '../../utils/mediaGrid';
 import { RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
@@ -73,6 +89,8 @@ import { MarketplaceListingCard } from './marketplace/MarketplaceListingCard';
 interface MarketplaceSectionProps {
   selectedListingId?: string | null;
   selectedCommentId?: string | null;
+  initialTab?: MarketplaceTab;
+  onTabChange?: (tab: MarketplaceTab) => void;
   onSelectListing?: (listingId: string | null) => void;
   onRequireAuth: (
     authRoute: 'login' | 'register',
@@ -80,12 +98,6 @@ interface MarketplaceSectionProps {
   ) => void;
   onNavigateProfile?: (username: string) => void;
 }
-
-type MarketplaceTab =
-  | 'browse'
-  | 'my_listings'
-  | 'updates'
-  | 'pending_approvals';
 
 const MARKETPLACE_CATEGORIES = [
   'Electronics',
@@ -128,11 +140,16 @@ function getListingGallerySources(
 export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   selectedListingId = null,
   selectedCommentId = null,
+  initialTab,
+  onTabChange,
   onSelectListing,
   onRequireAuth,
   onNavigateProfile,
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
+  const viewerUid = user?.uid ?? null;
+  const viewerKey = viewerUid ?? 'guest';
+  const initialCache = getMarketplaceSessionSnapshot(viewerKey);
 
   const canModerateApprovals =
     !isSuspended &&
@@ -144,23 +161,31 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   ) as UserRole;
   const isAutoPublished = canRolePublishCommunityFeed(actorRole);
 
-  const [activeTab, setActiveTab] = useState<MarketplaceTab>('browse');
+  const [activeTab, setActiveTab] = useState<MarketplaceTab>(() => {
+    if (initialTab && initialTab !== 'browse') return initialTab;
+    return initialCache?.activeTab ?? initialTab ?? 'browse';
+  });
   const [kindFilter] = useState<'all' | MarketplaceListingKind>('all');
-  const [selectedCategory, setSelectedCategory] =
-    useState<string>('All Categories');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>(
+    () => initialCache?.selectedCategory ?? 'All Categories'
+  );
+  const [searchQuery, setSearchQuery] = useState<string>(
+    () => initialCache?.searchQuery ?? ''
+  );
 
   const [publicListings, setPublicListings] = useState<MarketplaceListing[]>(
-    []
+    () => initialCache?.publicListings ?? []
   );
   const [sellerMap, setSellerMap] = useState<
     Map<string, PublicProfileProjection>
-  >(new Map());
-  const [myListings, setMyListings] = useState<MarketplaceListing[]>([]);
-  const [pendingListings, setPendingListings] = useState<MarketplaceListing[]>(
-    []
+  >(() => initialCache?.sellerMap ?? new Map());
+  const [myListings, setMyListings] = useState<MarketplaceListing[]>(
+    () => initialCache?.myListings ?? []
   );
-  const [loading, setLoading] = useState(true);
+  const [pendingListings, setPendingListings] = useState<MarketplaceListing[]>(
+    () => initialCache?.pendingListings ?? []
+  );
+  const [loading, setLoading] = useState(() => !initialCache);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -172,8 +197,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   const [directLookupListing, setDirectLookupListing] = useState<{
     targetId: string;
     listing: MarketplaceListing | null;
-  } | null>(null);
-  const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
+  } | null>(() => initialCache?.directLookupListing ?? null);
+  const [galleryIndexByListingId, setGalleryIndexByListingId] = useState<
+    Record<string, number>
+  >(() => initialCache?.activeGalleryIndexByListingId ?? {});
   const [listingLinkCopied, setListingLinkCopied] = useState(false);
   const [confirmDeleteListingId, setConfirmDeleteListingId] = useState<
     string | null
@@ -209,12 +236,17 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     useState<UploadProgressState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [busyListingId, setBusyListingId] = useState<string | null>(null);
   const [formLightboxIndex, setFormLightboxIndex] = useState<number | null>(
     null
   );
   const [detailLightboxIndex, setDetailLightboxIndex] = useState<number | null>(
-    null
+    () =>
+      selectedListingId &&
+      initialCache?.detailLightbox?.listingId === selectedListingId
+        ? initialCache.detailLightbox.index
+        : null
   );
 
   const [updatesList] = useState<
@@ -242,53 +274,292 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     },
   ]);
 
+  const lastInitialTabRef = useRef(initialTab);
   useEffect(() => {
-    let active = true;
-    const viewerUid = user?.uid ?? null;
+    if (lastInitialTabRef.current === initialTab) return;
+    lastInitialTabRef.current = initialTab;
+    if (!initialTab) return;
+    const timer = window.setTimeout(() => {
+      setActiveTab(initialTab);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [initialTab]);
 
-    const publicPromise = fetchPublicMarketplaceListings();
-    const minePromise = viewerUid
-      ? fetchMyMarketplaceListings(viewerUid).catch(() => [])
-      : Promise.resolve([]);
-    const pendingPromise = canModerateApprovals
-      ? fetchPendingMarketplaceApprovals().catch(() => [])
-      : Promise.resolve([]);
+  const handleSelectTab = (nextTab: MarketplaceTab) => {
+    setActiveTab(nextTab);
+    onTabChange?.(nextTab);
+  };
 
-    Promise.all([publicPromise, minePromise, pendingPromise])
-      .then(async ([pubItems, myItems, pendingItems]) => {
-        if (!active) return;
-        setPublicListings(pubItems);
-        setMyListings(myItems);
-        setPendingListings(pendingItems);
+  const syncMarketplaceFromNetwork = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      try {
+        const [pubItems, myItems, pendingItems] = await Promise.all([
+          fetchPublicMarketplaceListings(),
+          viewerUid
+            ? fetchMyMarketplaceListings(viewerUid).catch(() => [])
+            : Promise.resolve([]),
+          canModerateApprovals
+            ? fetchPendingMarketplaceApprovals().catch(() => [])
+            : Promise.resolve([]),
+        ]);
+
+        if (isCancelled?.()) return;
+
+        setPublicListings((prev) =>
+          mode === 'initial' || prev.length === 0
+            ? pubItems
+            : mergeOrderedRecords({
+                existing: prev,
+                incoming: pubItems,
+                preferIncomingOrder: true,
+                preserveTail: false,
+              })
+        );
+        setMyListings((prev) =>
+          mode === 'initial' || prev.length === 0
+            ? myItems
+            : mergeOrderedRecords({
+                existing: prev,
+                incoming: myItems,
+                preferIncomingOrder: true,
+                preserveTail: false,
+              })
+        );
+        setPendingListings((prev) =>
+          mode === 'initial' || prev.length === 0
+            ? pendingItems
+            : mergeOrderedRecords({
+                existing: prev,
+                incoming: pendingItems,
+                preferIncomingOrder: true,
+                preserveTail: false,
+              })
+        );
         setErrorMessage(null);
+
+        if (!isDataSaverConnection()) {
+          const coverIds = pubItems
+            .slice(0, 12)
+            .map((item) => item.mediaItems?.[0]?.imageId)
+            .filter((id): id is string => Boolean(id));
+          if (coverIds.length > 0) {
+            prefetchMediaImages(coverIds);
+          }
+        }
+
         const sellers = await fetchMarketplaceSellersMap(pubItems).catch(
           () => new Map<string, PublicProfileProjection>()
         );
-        if (active) {
-          setSellerMap(sellers);
+        if (isCancelled?.()) return;
+        setSellerMap((prev) => {
+          if (mode === 'initial' || prev.size === 0) return sellers;
+          const next = new Map(prev);
+          sellers.forEach((proj, uid) => next.set(uid, proj));
+          return next;
+        });
+      } catch (error) {
+        if (isCancelled?.()) return;
+        if (mode === 'initial') {
+          setPublicListings((curr) => {
+            if (curr.length === 0) {
+              setErrorMessage(
+                formatFirestoreOrAppError(
+                  error,
+                  'Unable to load Campus Marketplace listings right now.'
+                )
+              );
+            }
+            return curr;
+          });
+        }
+      } finally {
+        if (!isCancelled?.()) {
+          setLoading(false);
+        }
+      }
+    },
+    [viewerUid, canModerateApprovals]
+  );
+
+  useEffect(() => {
+    let active = true;
+    const cached = getMarketplaceSessionSnapshot(viewerKey);
+    if (cached) {
+      if (!isDataSaverConnection()) {
+        const coverIds = cached.publicListings
+          .slice(0, 12)
+          .map((item) => item.mediaItems?.[0]?.imageId)
+          .filter((id): id is string => Boolean(id));
+        if (coverIds.length > 0) {
+          prefetchMediaImages(coverIds);
+        }
+      }
+      if (
+        Date.now() - cached.cachedAt > 15_000 ||
+        (canModerateApprovals && cached.pendingListings.length === 0)
+      ) {
+        void syncMarketplaceFromNetwork('background', () => !active);
+      }
+      return () => {
+        active = false;
+      };
+    }
+
+    let networkSettled = false;
+
+    void hydrateMarketplaceSnapshot(viewerKey)
+      .then((persisted) => {
+        if (!active || networkSettled || !persisted) return;
+        setPublicListings(persisted.publicListings);
+        setSellerMap(persisted.sellerMap);
+        setMyListings(persisted.myListings);
+        setPendingListings(persisted.pendingListings);
+        if (!initialTab || initialTab === 'browse') {
+          setActiveTab(persisted.activeTab);
+        }
+        setSelectedCategory(persisted.selectedCategory || 'All Categories');
+        setSearchQuery(persisted.searchQuery);
+        setGalleryIndexByListingId(persisted.activeGalleryIndexByListingId);
+        setLoading(false);
+
+        if (!isDataSaverConnection()) {
+          const coverIds = persisted.publicListings
+            .slice(0, 12)
+            .map((item) => item.mediaItems?.[0]?.imageId)
+            .filter((id): id is string => Boolean(id));
+          if (coverIds.length > 0) {
+            prefetchMediaImages(coverIds);
+          }
         }
       })
-      .catch((error) => {
-        if (!active) return;
-        setErrorMessage(
-          formatFirestoreOrAppError(
-            error,
-            'Unable to load Campus Marketplace listings right now.'
-          )
-        );
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .catch(() => undefined);
+
+    void syncMarketplaceFromNetwork('initial', () => !active).finally(() => {
+      networkSettled = true;
+    });
 
     return () => {
       active = false;
     };
-  }, [user, canModerateApprovals]);
+  }, [viewerKey, canModerateApprovals, initialTab, syncMarketplaceFromNetwork]);
+
+  useActiveBackgroundRefresh({
+    enabled: !loading,
+    onRefresh: () => syncMarketplaceFromNetwork('background'),
+    baseIntervalMs: 5000,
+  });
+
+  // Persistent draft load & autosave for marketplace listing composer
+  useEffect(() => {
+    if (!viewerUid) return;
+    let active = true;
+    void loadPersistentDraft<{
+      listingKind: MarketplaceListingKind;
+      title: string;
+      category: string;
+      price: string;
+      quantity: string;
+      whatsappNumber: string;
+      description: string;
+    }>(viewerKey, 'mkt_create_listing')
+      .then((draft) => {
+        if (!active || !draft) return;
+        const hasContent = Boolean(
+          draft.title?.trim() || draft.description?.trim() || draft.price?.trim()
+        );
+        if (!hasContent) return;
+        setTitle((curr) => {
+          if (curr.trim()) return curr;
+          setListingKind(draft.listingKind || 'product');
+          setCategory(draft.category || MARKETPLACE_CATEGORIES[0]);
+          setPrice(draft.price || '');
+          setQuantity(draft.quantity || '1');
+          if (draft.whatsappNumber) setWhatsappNumber(draft.whatsappNumber);
+          setDescription(draft.description || '');
+          setDraftRestored(true);
+          return draft.title || '';
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [viewerUid, viewerKey]);
+
+  useEffect(() => {
+    if (!viewerUid) return;
+    const hasContent = Boolean(
+      title.trim() || description.trim() || price.trim()
+    );
+    if (!hasContent) return;
+    const timer = window.setTimeout(() => {
+      void savePersistentDraft(viewerKey, 'mkt_create_listing', {
+        listingKind,
+        title,
+        category,
+        price,
+        quantity,
+        whatsappNumber,
+        description,
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    viewerUid,
+    viewerKey,
+    listingKind,
+    title,
+    category,
+    price,
+    quantity,
+    whatsappNumber,
+    description,
+  ]);
 
   const effectiveSelectedListingId = onSelectListing
     ? selectedListingId
     : localSelectedListingId;
+
+  useEffect(() => {
+    if (loading) return;
+    saveMarketplaceSessionSnapshot({
+      viewerKey,
+      activeTab,
+      selectedCategory,
+      searchQuery,
+      publicListings,
+      sellerMap,
+      myListings,
+      pendingListings,
+      activeGalleryIndexByListingId: galleryIndexByListingId,
+      detailLightbox:
+        detailLightboxIndex !== null && effectiveSelectedListingId
+          ? {
+              listingId: effectiveSelectedListingId,
+              index: detailLightboxIndex,
+            }
+          : null,
+      directLookupListing,
+      cachedAt: Date.now(),
+    });
+  }, [
+    loading,
+    viewerKey,
+    activeTab,
+    selectedCategory,
+    searchQuery,
+    publicListings,
+    sellerMap,
+    myListings,
+    pendingListings,
+    galleryIndexByListingId,
+    detailLightboxIndex,
+    effectiveSelectedListingId,
+    directLookupListing,
+  ]);
 
   const selectedProductFromLists = effectiveSelectedListingId
     ? [...publicListings, ...myListings, ...pendingListings].find(
@@ -302,6 +573,13 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     directLookupListing?.targetId === effectiveSelectedListingId
       ? directLookupListing.listing
       : null);
+
+  const directLookupLoading = Boolean(
+    effectiveSelectedListingId &&
+      !loading &&
+      !selectedProductFromLists &&
+      directLookupListing?.targetId !== effectiveSelectedListingId
+  );
 
   useEffect(() => {
     if (
@@ -351,8 +629,20 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     directLookupListing?.targetId,
   ]);
 
+  const activeGalleryIndex = effectiveSelectedListingId
+    ? galleryIndexByListingId[effectiveSelectedListingId] ?? 0
+    : 0;
+
+  const setActiveGalleryIndex = (idx: number) => {
+    if (!effectiveSelectedListingId) return;
+    setGalleryIndexByListingId((prev) => ({
+      ...prev,
+      [effectiveSelectedListingId]: idx,
+    }));
+  };
+
   const openListingModal = (listingId: string | null) => {
-    setActiveGalleryIndex(0);
+    setDetailLightboxIndex(null);
     setListingLinkCopied(false);
     if (onSelectListing) {
       onSelectListing(listingId);
@@ -565,11 +855,31 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     }
   };
 
+  const handleDiscardListingDraft = () => {
+    setListingKind('product');
+    setTitle('');
+    setCategory(MARKETPLACE_CATEGORIES[0]);
+    setPrice('');
+    setQuantity('1');
+    setWhatsappNumber(profile?.publicWhatsapp || '');
+    setDescription('');
+    setFormAttachments([]);
+    setDraftRestored(false);
+    setErrorMessage(null);
+    void clearPersistentDraft(viewerKey, 'mkt_create_listing');
+  };
+
   const handleCreateListing = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
     if (!user || isSuspended || submitting || compressingPhotos || submitLockRef.current) {
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setErrorMessage(
+        'You are offline. Your marketplace listing draft is saved safely — reconnect to publish.'
+      );
       return;
     }
     submitLockRef.current = true;
@@ -613,8 +923,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
       setQuantity('1');
       setDescription('');
       setFormAttachments([]);
+      setDraftRestored(false);
       setShowCreateForm(false);
       setIsPreviewMode(false);
+      void clearPersistentDraft(viewerKey, 'mkt_create_listing');
     } catch (error) {
       setErrorMessage(
         formatFirestoreOrAppError(
@@ -859,6 +1171,19 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 : 'Moderator Approval Required'}
             </span>
           </div>
+
+          {draftRestored && !isPreviewMode && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1E88E5]/25 bg-[#1E88E5]/5 px-3.5 py-2 text-xs text-[#0B1A2E]">
+              <span>Saved listing draft restored from this device.</span>
+              <button
+                type="button"
+                onClick={handleDiscardListingDraft}
+                className="font-semibold text-[#1E88E5] hover:underline"
+              >
+                Discard draft
+              </button>
+            </div>
+          )}
 
           {!isPreviewMode ? (
             <form onSubmit={handleCreateListing} className="mt-5 space-y-4">
@@ -1267,7 +1592,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab('browse')}
+            onClick={() => handleSelectTab('browse')}
             className={`min-h-[38px] rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
               activeTab === 'browse'
                 ? 'bg-[#0B1A2E] text-white shadow-xs'
@@ -1280,7 +1605,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           {user && (
             <button
               type="button"
-              onClick={() => setActiveTab('my_listings')}
+              onClick={() => handleSelectTab('my_listings')}
               className={`min-h-[38px] rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
                 activeTab === 'my_listings'
                   ? 'bg-[#0B1A2E] text-white shadow-xs'
@@ -1293,7 +1618,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('updates')}
+            onClick={() => handleSelectTab('updates')}
             className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
               activeTab === 'updates'
                 ? 'bg-[#0B1A2E] text-white shadow-xs'
@@ -1307,7 +1632,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           {canModerateApprovals && (
             <button
               type="button"
-              onClick={() => setActiveTab('pending_approvals')}
+              onClick={() => handleSelectTab('pending_approvals')}
               className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
                 activeTab === 'pending_approvals'
                   ? 'bg-[#1E88E5] text-white'
@@ -1351,6 +1676,38 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           </div>
         )}
       </div>
+
+      {/* GRACEFUL MISSING LISTING FALLBACK */}
+      {!loading && effectiveSelectedListingId && !selectedProduct && (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center">
+          {directLookupLoading ? (
+            <div className="flex items-center justify-center gap-2 text-xs font-medium text-slate-600">
+              <Loader2 className="h-4 w-4 animate-spin text-[#1E88E5]" aria-hidden="true" />
+              <span>Opening Marketplace listing...</span>
+            </div>
+          ) : (
+            <>
+              <ShoppingBag
+                className="mx-auto mb-2 h-6 w-6 text-slate-400"
+                aria-hidden="true"
+              />
+              <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                Listing not available
+              </h3>
+              <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+                This Marketplace listing may have expired, been removed, or is not publicly available.
+              </p>
+              <button
+                type="button"
+                onClick={() => openListingModal(null)}
+                className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+              >
+                Browse Marketplace
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Main Content Area */}
       {loading ? (
@@ -1720,7 +2077,6 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      openListingModal(null);
                       onNavigateProfile?.(selectedSeller.username);
                     }}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -1753,8 +2109,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     targetUsername={selectedSeller.username}
                     compact
                     onRequireAuth={() => {
-                      openListingModal(null);
-                      setShowGuestPrompt(true);
+                      onRequireAuth('login', 'marketplace');
                     }}
                   />
                 </div>
@@ -1823,12 +2178,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   )
                 }
                 onNavigateProfile={(uname) => {
-                  openListingModal(null);
                   onNavigateProfile?.(uname);
                 }}
                 onRequireGuestAuth={() => {
-                  openListingModal(null);
-                  setShowGuestPrompt(true);
+                  onRequireAuth('login', 'marketplace');
                 }}
               />
             </div>
@@ -1899,6 +2252,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           initialIndex={detailLightboxIndex}
           postTitle={selectedProduct.title}
           postCaption={`₦${selectedProduct.price.toLocaleString()} · ${selectedProduct.category}`}
+          onIndexChange={(idx) => setDetailLightboxIndex(idx)}
           onClose={() => setDetailLightboxIndex(null)}
         />
       )}

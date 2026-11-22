@@ -8,6 +8,7 @@ import { AvatarMedia } from './media/FirestoreImage';
 
 interface HeaderProps {
   activeRoute: ActiveRoute;
+  isMobileDrawerOpen?: boolean;
   onNavigate: (
     route: ActiveRoute,
     options?: {
@@ -31,6 +32,7 @@ const DESKTOP_NAV_LINKS: { id: ActiveRoute; label: string }[] = [
 
 export const Header: React.FC<HeaderProps> = ({
   activeRoute,
+  isMobileDrawerOpen = false,
   onNavigate,
   onOpenMobileDrawer,
   onRequireAuth,
@@ -47,14 +49,14 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 md:h-16 md:gap-6">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 md:h-16 md:gap-6">
         {/* Left: Brand Logo + Desktop Search Trigger */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => onNavigate('for-you')}
             aria-label="LASUED Intel home"
-            className="inline-flex min-h-[44px] items-center rounded-lg focus-visible:outline-[#1E88E5]"
+            className="inline-flex min-h-[44px] min-w-0 shrink items-center rounded-lg focus-visible:outline-[#1E88E5]"
           >
             <BrandLogo size="sm" showWordmark />
           </button>
@@ -65,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
               onNavigate('search', { searchScope: currentSearchScope })
             }
             aria-label="Search LASUED Intel"
-            className={`hidden min-h-[40px] items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors lg:inline-flex ${
+            className={`hidden min-h-[40px] shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors lg:inline-flex ${
               activeRoute === 'search'
                 ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5]'
                 : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:text-[#0B1A2E]'
@@ -108,15 +110,19 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
 
         {/* Right: Notifications & Account Controls (Desktop) + Mobile Quick Actions */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Desktop Search fallback on md tablets */}
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          {/* Mobile / tablet Search trigger */}
           <button
             type="button"
             onClick={() =>
               onNavigate('search', { searchScope: currentSearchScope })
             }
             aria-label="Search"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] lg:hidden"
+            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors lg:hidden ${
+              activeRoute === 'search'
+                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
+                : 'text-slate-700 hover:bg-slate-100 hover:text-[#0B1A2E]'
+            }`}
           >
             <Search className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -155,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
                 )
               }
               aria-label="Open my profile"
-              className={`inline-flex min-h-[42px] items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors sm:text-sm ${
+              className={`inline-flex min-h-[42px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors sm:px-3 sm:text-sm ${
                 activeRoute === 'profile' || activeRoute === 'account'
                   ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
                   : 'border-slate-200 bg-white text-[#0B1A2E] hover:bg-slate-50'
@@ -169,16 +175,16 @@ export const Header: React.FC<HeaderProps> = ({
                 roundedClass="rounded-full"
                 textClass="text-[10px]"
               />
-              <span className="max-w-[110px] truncate">
+              <span className="max-w-[78px] truncate sm:max-w-[110px]">
                 {profile?.fullName?.split(' ')[0] || 'Profile'}
               </span>
             </button>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => onRequireAuth('login', activeRoute)}
-                className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] whitespace-nowrap transition-colors hover:bg-slate-50 sm:text-sm"
+                className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0B1A2E] whitespace-nowrap transition-colors hover:bg-slate-50 sm:px-3 sm:text-sm"
               >
                 Sign In
               </button>
@@ -192,14 +198,16 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Mobile secondary drawer button */}
+          {/* Mobile 3-line navigation drawer button */}
           <button
             type="button"
             onClick={onOpenMobileDrawer}
-            aria-label="Open menu"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-slate-200 text-[#0B1A2E] hover:bg-slate-50 md:hidden"
+            aria-label="Open navigation menu"
+            aria-expanded={isMobileDrawerOpen}
+            aria-controls="mobile-navigation-drawer"
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-[#0B1A2E] shadow-xs transition-colors hover:bg-slate-50 md:hidden"
           >
-            <Menu className="h-5 w-5" aria-hidden="true" />
+            <Menu className="h-5 w-5" strokeWidth={2.25} aria-hidden="true" />
           </button>
         </div>
       </div>

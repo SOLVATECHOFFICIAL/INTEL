@@ -11,10 +11,17 @@ import {
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import {
+  getContextualSearchSnapshot,
+  saveContextualSearchSnapshot,
+} from '../services/navigationStateCache';
+import {
   executeScopedSearchDiscovery,
   fetchSearchSuggestionSeed,
   fetchSearchViewerInteractions,
   getCachedSearchBundle,
+  getRequiredCollectionsForScope,
+  hydrateCachedSearchBundle,
+  hydrateSearchSuggestionSeed,
   loadMoreSearchSlice,
   type SearchCollectionKey,
   type SearchDiscoveryBundle,
@@ -78,22 +85,35 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   embedded = false,
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
+  const viewerKey = user?.uid ?? 'guest';
+  const initialSnapshot = getContextualSearchSnapshot(viewerKey, scope);
+
   const scopeMeta = SEARCH_SCOPE_CONFIG[scope];
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRequestIdRef = useRef(0);
+  const skipNextDebounceRef = useRef(Boolean(initialSnapshot?.submittedQuery));
+  const prevViewerKeyRef = useRef(viewerKey);
 
-  const [queryText, setQueryText] = useState('');
-  const [submittedQuery, setSubmittedQuery] = useState('');
+  const [queryText, setQueryText] = useState(
+    () => initialSnapshot?.queryText ?? ''
+  );
+  const [submittedQuery, setSubmittedQuery] = useState(
+    () => initialSnapshot?.submittedQuery ?? ''
+  );
   const [status, setStatus] = useState<
     'idle' | 'short' | 'loading' | 'ready' | 'error'
-  >('idle');
+  >(() => initialSnapshot?.status ?? 'idle');
   const [validationMessage, setValidationMessage] = useState<string | null>(
     null
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [bundle, setBundle] = useState<SearchDiscoveryBundle | null>(null);
+  const [bundle, setBundle] = useState<SearchDiscoveryBundle | null>(
+    () => initialSnapshot?.bundle ?? null
+  );
   const [loadingMoreSlice, setLoadingMoreSlice] =
-    useState<SearchCollectionKey | null>(null);
+    useState<SearchCollectionKey | null>(
+      () => initialSnapshot?.loadingMoreSlice ?? null
+    );
 
   const [suggestionSeed, setSuggestionSeed] =
     useState<SearchSuggestionSeed | null>(null);
@@ -101,6 +121,46 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
     loadRecentSearches()
   );
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+
+  useEffect(() => {
+    if (prevViewerKeyRef.current === viewerKey) return;
+    prevViewerKeyRef.current = viewerKey;
+    const snap = getContextualSearchSnapshot(viewerKey, scope);
+    if (snap?.submittedQuery) {
+      skipNextDebounceRef.current = true;
+    }
+    const timer = window.setTimeout(() => {
+      setQueryText(snap?.queryText ?? '');
+      setSubmittedQuery(snap?.submittedQuery ?? '');
+      setStatus(snap?.status ?? 'idle');
+      setBundle(snap?.bundle ?? null);
+      setLoadingMoreSlice(snap?.loadingMoreSlice ?? null);
+      setValidationMessage(null);
+      setErrorMessage(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [viewerKey, scope]);
+
+  useEffect(() => {
+    saveContextualSearchSnapshot({
+      viewerKey,
+      scope,
+      queryText,
+      submittedQuery,
+      bundle,
+      status,
+      loadingMoreSlice,
+      cachedAt: Date.now(),
+    });
+  }, [
+    viewerKey,
+    scope,
+    queryText,
+    submittedQuery,
+    bundle,
+    status,
+    loadingMoreSlice,
+  ]);
 
   const [interactions, setInteractions] = useState<SearchViewerInteractions>({
     viewerUid: null,
@@ -148,8 +208,18 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
   const ensureSuggestionSeed = useCallback(() => {
     if (suggestionSeed) return;
-    void fetchSearchSuggestionSeed()
-      .then((seed) => setSuggestionSeed(seed))
+    void hydrateSearchSuggestionSeed()
+      .then((persisted) => {
+        if (persisted) {
+          setSuggestionSeed(persisted);
+          if (Date.now() - persisted.fetchedAt <= 5 * 60 * 1000) {
+            return;
+          }
+        }
+        return fetchSearchSuggestionSeed().then((seed) => {
+          setSuggestionSeed(seed);
+        });
+      })
       .catch(() => {
         // Non-blocking suggestion seed
       });
@@ -186,10 +256,46 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         setRecentSearches(saveRecentSearch(cleanQuery));
       }
 
-      const cached = getCachedSearchBundle(cleanQuery);
-      if (cached) {
-        setBundle(cached);
+      let cached = getCachedSearchBundle(cleanQuery);
+      if (!cached) {
+        cached = await hydrateCachedSearchBundle(cleanQuery).catch(() => null);
+        if (requestId !== activeRequestIdRef.current) return;
       }
+
+      if (cached) {
+        const allLoaded = getRequiredCollectionsForScope(scope).every(
+          (col) => cached[col].loaded && !cached[col].error
+        );
+        setBundle(cached);
+        if (allLoaded) {
+          setStatus('ready');
+          if (
+            Date.now() - cached.updatedAt > 30_000 &&
+            (typeof navigator === 'undefined' || navigator.onLine !== false)
+          ) {
+            void executeScopedSearchDiscovery({
+              rawQuery: cleanQuery,
+              scope,
+            })
+              .then((freshBundle) => {
+                if (requestId === activeRequestIdRef.current) {
+                  setBundle(freshBundle);
+                }
+              })
+              .catch(() => undefined);
+          }
+          return;
+        }
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        setErrorMessage(
+          'You are offline and this search is not cached yet. Reconnect to search live campus updates.'
+        );
+        setStatus('error');
+        return;
+      }
+
       setStatus('loading');
 
       try {
@@ -210,6 +316,10 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   );
 
   useEffect(() => {
+    if (skipNextDebounceRef.current) {
+      skipNextDebounceRef.current = false;
+      return;
+    }
     const trimmed = normalizeSearchInput(queryText);
     if (!trimmed) {
       return;

@@ -47,6 +47,13 @@ import { toPublicProfileProjection, isFirebaseErrorCode } from '../utils/authVal
 import { extractTimestampMs } from '../utils/contextualSearch';
 import type { CompressedImageResult } from '../utils/imageCompression';
 import { buildMarketplaceReviewNotificationId } from '../utils/notifications';
+import { SingleFlightRegistry } from '../utils/cacheSync';
+import {
+  notifyMarketplaceListingCreated,
+  notifyMarketplaceListingDeleted,
+  notifyMarketplaceListingUpdated,
+  notifyTrustedContactMutated,
+} from './cacheInvalidation';
 import {
   createSafeMemberNotification,
   fetchPublicProfileProjectionsByUids,
@@ -546,71 +553,75 @@ export async function fetchAnonymousAuditLogs(
  * 3. Official Admin-listed campus & recommended profiles (`/trustedContacts`)
  * Hidden Permanent Owner accounts (`isHiddenFromDirectory: true`) NEVER appear here.
  */
+const governanceSingleFlight = new SingleFlightRegistry();
+
 export async function fetchTrustedCircleDirectory(): Promise<{
   supremeAdmins: PublicProfileProjection[];
   verifiedMembers: PublicProfileProjection[];
   officialContacts: TrustedContact[];
 }> {
-  try {
-    const [supremeSnap, verifiedSnap, contactsSnap] = await Promise.all([
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.users),
-          where('badge', '==', 'supreme_admin'),
-          where('isHiddenFromDirectory', '==', false),
-          limit(50)
+  return governanceSingleFlight.run('trusted-circle:directory', async () => {
+    try {
+      const [supremeSnap, verifiedSnap, contactsSnap] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.users),
+            where('badge', '==', 'supreme_admin'),
+            where('isHiddenFromDirectory', '==', false),
+            limit(50)
+          )
+        ),
+        getDocs(
+          query(
+            collection(db, COLLECTION_NAMES.users),
+            where('badge', '==', 'verified'),
+            where('isHiddenFromDirectory', '==', false),
+            limit(100)
+          )
+        ),
+        getDocs(query(collection(db, COLLECTION_NAMES.trustedContacts), limit(120))),
+      ]);
+
+      const supremeAdmins = supremeSnap.docs
+        .map((item) => item.data() as PublicUserProfile)
+        .filter(
+          (profile) =>
+            profile.badge === 'supreme_admin' &&
+            profile.accountStatus === 'active' &&
+            !profile.isHiddenFromDirectory
         )
-      ),
-      getDocs(
-        query(
-          collection(db, COLLECTION_NAMES.users),
-          where('badge', '==', 'verified'),
-          where('isHiddenFromDirectory', '==', false),
-          limit(100)
+        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        .map(toPublicProfileProjection);
+
+      const verifiedMembers = verifiedSnap.docs
+        .map((item) => item.data() as PublicUserProfile)
+        .filter(
+          (profile) =>
+            profile.badge === 'verified' &&
+            profile.accountStatus === 'active' &&
+            !profile.isHiddenFromDirectory
         )
-      ),
-      getDocs(query(collection(db, COLLECTION_NAMES.trustedContacts), limit(120))),
-    ]);
+        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        .map(toPublicProfileProjection);
 
-    const supremeAdmins = supremeSnap.docs
-      .map((item) => item.data() as PublicUserProfile)
-      .filter(
-        (profile) =>
-          profile.badge === 'supreme_admin' &&
-          profile.accountStatus === 'active' &&
-          !profile.isHiddenFromDirectory
-      )
-      .sort((a, b) => a.fullName.localeCompare(b.fullName))
-      .map(toPublicProfileProjection);
+      const officialContacts = contactsSnap.docs
+        .map((item) => item.data() as TrustedContact)
+        .filter(
+          (contact) =>
+            contact.entryType === 'admin_listed_contact' &&
+            contact.isUserAccount === false
+        )
+        .sort((a, b) => a.fullName.localeCompare(b.fullName));
 
-    const verifiedMembers = verifiedSnap.docs
-      .map((item) => item.data() as PublicUserProfile)
-      .filter(
-        (profile) =>
-          profile.badge === 'verified' &&
-          profile.accountStatus === 'active' &&
-          !profile.isHiddenFromDirectory
-      )
-      .sort((a, b) => a.fullName.localeCompare(b.fullName))
-      .map(toPublicProfileProjection);
-
-    const officialContacts = contactsSnap.docs
-      .map((item) => item.data() as TrustedContact)
-      .filter(
-        (contact) =>
-          contact.entryType === 'admin_listed_contact' &&
-          contact.isUserAccount === false
-      )
-      .sort((a, b) => a.fullName.localeCompare(b.fullName));
-
-    return { supremeAdmins, verifiedMembers, officialContacts };
-  } catch (error) {
-    handleFirestoreError(
-      error,
-      OperationType.LIST,
-      COLLECTION_NAMES.trustedContacts
-    );
-  }
+      return { supremeAdmins, verifiedMembers, officialContacts };
+    } catch (error) {
+      handleFirestoreError(
+        error,
+        OperationType.LIST,
+        COLLECTION_NAMES.trustedContacts
+      );
+    }
+  });
 }
 
 export async function createTrustedContactRecord(
@@ -698,6 +709,7 @@ export async function createTrustedContactRecord(
     if (input.compressedPhoto && photoImageId) {
       primeMediaImageCache(photoImageId, input.compressedPhoto.dataUrl);
     }
+    notifyTrustedContactMutated();
     return record;
   } catch (error) {
     handleFirestoreError(
@@ -723,6 +735,7 @@ export async function deleteTrustedContactRecord(
     if (photoImageId) {
       evictMediaImageCache(photoImageId);
     }
+    notifyTrustedContactMutated();
   } catch (error) {
     handleFirestoreError(
       error,
@@ -753,31 +766,33 @@ export async function fetchMarketplaceListingById(
 export async function fetchPublicMarketplaceListings(): Promise<
   MarketplaceListing[]
 > {
-  try {
-    const snap = await getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.marketplaceListings),
-        where('status', '==', 'active'),
-        limit(80)
-      )
-    );
-    const nowMs = Date.now();
-    return sortByCreatedAtDesc(
-      snap.docs
-        .map((item) => item.data() as MarketplaceListing)
-        .filter((listing) => {
-          if (listing.approvalStatus !== 'approved') return false;
-          const exp = extractTimestampMs(listing.expiresAt);
-          return exp === null || !isMarketplaceListingExpired(exp, nowMs);
-        })
-    );
-  } catch (error) {
-    handleFirestoreError(
-      error,
-      OperationType.LIST,
-      COLLECTION_NAMES.marketplaceListings
-    );
-  }
+  return governanceSingleFlight.run('marketplace:public', async () => {
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.marketplaceListings),
+          where('status', '==', 'active'),
+          limit(80)
+        )
+      );
+      const nowMs = Date.now();
+      return sortByCreatedAtDesc(
+        snap.docs
+          .map((item) => item.data() as MarketplaceListing)
+          .filter((listing) => {
+            if (listing.approvalStatus !== 'approved') return false;
+            const exp = extractTimestampMs(listing.expiresAt);
+            return exp === null || !isMarketplaceListingExpired(exp, nowMs);
+          })
+      );
+    } catch (error) {
+      handleFirestoreError(
+        error,
+        OperationType.LIST,
+        COLLECTION_NAMES.marketplaceListings
+      );
+    }
+  });
 }
 
 export async function fetchMyMarketplaceListings(
@@ -961,7 +976,7 @@ export async function createMarketplaceListingItem(
     });
     input.onProgress?.({ percent: 100, label: 'Listing saved!' });
 
-    return {
+    const createdListing: MarketplaceListing = {
       id: listingId,
       ownerUID: input.ownerUID,
       listingKind: input.listingKind,
@@ -979,6 +994,8 @@ export async function createMarketplaceListingItem(
       updatedAt: Date.now(),
       expiresAt: expiryDate.getTime(),
     };
+    notifyMarketplaceListingCreated(createdListing);
+    return createdListing;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1065,6 +1082,7 @@ export async function reviewPendingMarketplaceListing(input: {
       });
     }
 
+    notifyMarketplaceListingUpdated(updated);
     return updated;
   } catch (error) {
     if (error instanceof Error && !('code' in error)) {
@@ -1093,12 +1111,14 @@ export async function updateOwnMarketplaceListingQuantity(input: {
 
   try {
     await batch.commit();
-    return {
+    const updatedListing: MarketplaceListing = {
       ...input.listing,
       quantity: resolved.quantity,
       status: resolved.status,
       updatedAt: Date.now(),
     };
+    notifyMarketplaceListingUpdated(updatedListing);
+    return updatedListing;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1121,12 +1141,14 @@ export async function renewMarketplaceListing(
   });
   try {
     await batch.commit();
-    return {
+    const renewedListing: MarketplaceListing = {
       ...listing,
       status: 'active',
       expiresAt: newExpiry.getTime(),
       updatedAt: Date.now(),
     };
+    notifyMarketplaceListingUpdated(renewedListing);
+    return renewedListing;
   } catch (error) {
     handleFirestoreError(
       error,
@@ -1164,6 +1186,7 @@ export async function deleteMarketplaceListing(
     if (mediaIds.length > 0) {
       evictMediaImageCacheBatch(mediaIds);
     }
+    notifyMarketplaceListingDeleted(listingId);
   } catch (error) {
     handleFirestoreError(
       error,

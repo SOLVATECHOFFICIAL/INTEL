@@ -15,15 +15,18 @@ import {
   X,
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
+import { useActiveBackgroundRefresh } from '../hooks/useActiveBackgroundRefresh';
 import { toggleEventReaction } from '../services/events';
 import {
   fetchCommunityFeedPage,
   type CommunityFeedCursor,
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
+import { prefetchMediaImages } from '../services/mediaStorage';
 import {
   clearHomeFeedSessionCache,
   getHomeFeedSessionSnapshot,
+  hydrateHomeFeedSnapshot,
   loadPersonalisationContextAndDiscovery,
   saveHomeFeedSessionSnapshot,
   type ForYouDiscoveryBundle,
@@ -59,8 +62,10 @@ import {
   type ForYouRankingOptions,
 } from '../utils/feedRanking';
 import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions';
+import { mergeCommunityPostItems } from '../utils/cacheSync';
+import { isDataSaverConnection } from '../utils/mediaCache';
 import { getSectionById } from '../utils/sectionState';
-import type { AccountSettingsSection } from './pages/AccountPage';
+import type { AccountSettingsSection } from '../types/platform';
 import { ContextualSearchBar } from './ContextualSearchBar';
 import { EmptyState, ErrorState, LoadingState } from './StateViews';
 import { GuestPromptCard } from './auth/GuestPromptCard';
@@ -109,12 +114,12 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   onRequireAuth,
 }) => {
   const {
+    authReady,
     user,
     profile,
     roleRecord,
     effectiveTier,
     isSuspended,
-    authReady,
     interestCategories,
     followingUsernames,
   } = useFirebase();
@@ -202,40 +207,84 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   } | null>(null);
 
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
-  const hydratedFromCacheRef = useRef(Boolean(initialCache));
+  const lastHandledRetryRef = useRef(0);
+  const latestProfileRef = useRef(profile);
+  const latestInterestsRef = useRef(interestCategories);
   const latestFollowingUsernamesRef = useRef(followingUsernames);
   useEffect(() => {
+    latestProfileRef.current = profile;
+    latestInterestsRef.current = interestCategories;
     latestFollowingUsernamesRef.current = followingUsernames;
-  }, [followingUsernames]);
+  }, [profile, interestCategories, followingUsernames]);
+
+  const activeViewerUid = user?.uid ?? null;
+  const activeTabRef = useRef(activeFeedTab);
+  const viewerKeyRef = useRef(viewerKey);
+  const activeViewerUidRef = useRef(activeViewerUid);
+  const interestSigRef = useRef(interestSignature);
+  const postItemsRef = useRef(postItems);
+  const loadStateRef = useRef(loadState);
 
   useEffect(() => {
-    if (activeFeedTab === 'following' && !user) {
-      return;
-    }
+    activeTabRef.current = activeFeedTab;
+    viewerKeyRef.current = viewerKey;
+    activeViewerUidRef.current = activeViewerUid;
+    interestSigRef.current = interestSignature;
+    postItemsRef.current = postItems;
+    loadStateRef.current = loadState;
+  }, [
+    activeFeedTab,
+    viewerKey,
+    activeViewerUid,
+    interestSignature,
+    postItems,
+    loadState,
+  ]);
 
-    const cached = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
-    if (
-      cached &&
-      retryToken === 0 &&
-      hydratedFromCacheRef.current &&
-      (activeFeedTab !== 'for-you' ||
-        cached.interestSignature === interestSignature)
-    ) {
-      hydratedFromCacheRef.current = false;
-      return;
-    }
+  const prefetchLeadPostMedia = useCallback(
+    (items: readonly CommunityPostWithAuthor[]) => {
+      if (isDataSaverConnection()) return;
+      const imageIds = items
+        .slice(0, 5)
+        .flatMap((entry) => [
+          entry.author?.photoImageId,
+          entry.post.mediaItems?.[0]?.imageId,
+        ]);
+      if (imageIds.some(Boolean)) {
+        void prefetchMediaImages(imageIds);
+      }
+    },
+    []
+  );
 
-    let active = true;
+  const syncHomeFeedFromNetwork = useCallback(
+    async (
+      mode: 'initial' | 'background',
+      isCancelled?: () => boolean
+    ): Promise<void> => {
+      const targetTab = activeTabRef.current;
+      const uid = activeViewerUidRef.current;
+      if (targetTab === 'following' && !uid) return;
+      if (
+        mode === 'background' &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine === false
+      ) {
+        return;
+      }
 
-    const likedPromise = user?.uid
-      ? fetchViewerLikedPostIds('posts', user.uid).catch(() => new Set<string>())
-      : Promise.resolve(new Set<string>());
+      const likedPromise = uid
+        ? fetchViewerLikedPostIds('posts', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
 
-    const savedPromise = user?.uid
-      ? fetchViewerSavedPostIds('posts', user.uid).catch(() => new Set<string>())
-      : Promise.resolve(new Set<string>());
+      const savedPromise = uid
+        ? fetchViewerSavedPostIds('posts', uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>());
 
-    const loadAll = async () => {
       const [likedIds, savedIds] = await Promise.all([
         likedPromise,
         savedPromise,
@@ -246,16 +295,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         | undefined;
       let nextDiscovery: ForYouDiscoveryBundle | undefined;
 
-      if (activeFeedTab === 'for-you') {
+      if (targetTab === 'for-you') {
         const personalisation = await loadPersonalisationContextAndDiscovery({
-          viewerUid: user?.uid ?? null,
-          viewerProfile: profile,
-          interestCategories,
+          viewerUid: uid,
+          viewerProfile: latestProfileRef.current,
+          interestCategories: latestInterestsRef.current,
           followedUids: [],
           followingUsernames: latestFollowingUsernamesRef.current,
           likedPostIds: likedIds,
           savedPostIds: savedIds,
-          dismissedKeys: loadDismissedRecommendationKeys(user?.uid ?? null),
+          dismissedKeys: loadDismissedRecommendationKeys(uid),
         }).catch(() => null);
 
         if (personalisation) {
@@ -265,15 +314,14 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       }
 
       const page = await fetchCommunityFeedPage({
-        tab: activeFeedTab,
-        viewerUid: user?.uid ?? null,
+        tab: targetTab,
+        viewerUid: uid,
         pageSize: FEED_PAGE_SIZE,
         rankingOptions: nextRankingOptions,
       });
 
-      if (!active) return;
+      if (isCancelled?.()) return;
 
-      // Filter already-followed usernames out of person suggestions without touching postItems on live follows
       if (nextDiscovery && latestFollowingUsernamesRef.current.size > 0) {
         const currentFollowingSet = latestFollowingUsernamesRef.current;
         nextDiscovery = {
@@ -287,20 +335,118 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
       setFollowingCount(page.followingCount);
       setFollowedUids(page.followedUids);
-      setPostItems(page.items);
-      setFeedCursor(page.nextCursor);
-      setHasMorePosts(page.hasMore);
+      setPostItems((prev) =>
+        mode === 'background' && prev.length > 0
+          ? mergeCommunityPostItems({
+              existing: prev,
+              incoming: page.items,
+              preferIncomingOrder: false,
+              preserveTail: true,
+            })
+          : page.items
+      );
+      setFeedCursor((prevCursor) =>
+        mode === 'background' &&
+        postItemsRef.current.length > page.items.length &&
+        prevCursor
+          ? prevCursor
+          : page.nextCursor
+      );
+      setHasMorePosts((prevHasMore) =>
+        mode === 'background' && postItemsRef.current.length > page.items.length
+          ? prevHasMore
+          : page.hasMore
+      );
       setLikedPostIds(likedIds);
       setSavedPostIds(savedIds);
-      setRankingOptions(nextRankingOptions);
-      setDiscovery(nextDiscovery);
-      setDismissedKeys(loadDismissedRecommendationKeys(user?.uid ?? null));
+      if (nextRankingOptions) {
+        setRankingOptions(nextRankingOptions);
+      }
+      if (nextDiscovery) {
+        setDiscovery(nextDiscovery);
+      }
+      setDismissedKeys(loadDismissedRecommendationKeys(uid));
       setLoadState('ready');
+      prefetchLeadPostMedia(page.items);
+    },
+    [prefetchLeadPostMedia]
+  );
+
+  useEffect(() => {
+    if (activeFeedTab === 'following' && !activeViewerUid) {
+      return;
+    }
+
+    let active = true;
+    let networkSettled = false;
+
+    const cached = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
+    const ramMatches =
+      Boolean(cached) &&
+      retryToken === lastHandledRetryRef.current &&
+      (activeFeedTab !== 'for-you' ||
+        cached?.interestSignature === interestSignature);
+
+    if (ramMatches && cached) {
+      prefetchLeadPostMedia(cached.postItems);
+      if (Date.now() - cached.cachedAt > 15_000) {
+        void syncHomeFeedFromNetwork('background', () => !active).catch(
+          () => undefined
+        );
+      }
+      return () => {
+        active = false;
+      };
+    }
+
+    lastHandledRetryRef.current = retryToken;
+
+    const run = async () => {
+      // Cold-reload persistent IDB fast paint before network settles
+      if (retryToken === 0) {
+        const persisted = await hydrateHomeFeedSnapshot(
+          viewerKey,
+          activeFeedTab
+        );
+        if (
+          active &&
+          !networkSettled &&
+          persisted &&
+          persisted.postItems.length > 0 &&
+          (activeFeedTab !== 'for-you' ||
+            !persisted.interestSignature ||
+            persisted.interestSignature === interestSignature)
+        ) {
+          setFollowingCount(persisted.followingCount);
+          setFollowedUids(persisted.followedUids);
+          setPostItems(persisted.postItems);
+          setFeedCursor(persisted.feedCursor);
+          setHasMorePosts(persisted.hasMorePosts);
+          setLikedPostIds(persisted.likedPostIds);
+          setSavedPostIds(persisted.savedPostIds);
+          if (persisted.discovery) setDiscovery(persisted.discovery);
+          setLoadState('ready');
+          prefetchLeadPostMedia(persisted.postItems);
+
+          // Revalidate silently in background
+          await syncHomeFeedFromNetwork('background', () => !active).catch(
+            () => undefined
+          );
+          return;
+        }
+      }
+
+      await syncHomeFeedFromNetwork('initial', () => !active);
+      networkSettled = true;
     };
 
-    void loadAll().catch(() => {
+    void run().catch(() => {
       if (!active) return;
-      setLoadState('error');
+      if (postItemsRef.current.length > 0) {
+        setLoadState('ready');
+      } else {
+        setLoadState('error');
+      }
     });
 
     return () => {
@@ -308,13 +454,20 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     };
   }, [
     activeFeedTab,
-    user,
+    activeViewerUid,
     viewerKey,
     retryToken,
     interestSignature,
-    profile,
-    interestCategories,
+    prefetchLeadPostMedia,
+    syncHomeFeedFromNetwork,
   ]);
+
+  useActiveBackgroundRefresh({
+    enabled:
+      loadState === 'ready' && !(activeFeedTab === 'following' && !activeViewerUid),
+    onRefresh: () => syncHomeFeedFromNetwork('background'),
+    baseIntervalMs: 5000,
+  });
 
   useEffect(() => {
     if (loadState !== 'ready') return;
@@ -399,7 +552,6 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
   const loadFeed = () => {
     clearHomeFeedSessionCache(activeFeedTab);
-    hydratedFromCacheRef.current = false;
     setLoadState('loading');
     setFeedCursor(null);
     setHasMorePosts(false);

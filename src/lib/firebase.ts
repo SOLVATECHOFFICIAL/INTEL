@@ -5,6 +5,10 @@ import {
   getDocFromServer,
   getFirestore,
   initializeFirestore,
+  memoryLocalCache,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  persistentSingleTabManager,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import {
@@ -47,11 +51,38 @@ function createFirestoreClient() {
       app,
       {
         experimentalForceLongPolling: true,
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
       },
       firebaseConfig.firestoreDatabaseId
     );
   } catch {
-    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    try {
+      return initializeFirestore(
+        app,
+        {
+          experimentalForceLongPolling: true,
+          localCache: persistentLocalCache({
+            tabManager: persistentSingleTabManager({ forceOwnership: false }),
+          }),
+        },
+        firebaseConfig.firestoreDatabaseId
+      );
+    } catch {
+      try {
+        return initializeFirestore(
+          app,
+          {
+            experimentalForceLongPolling: true,
+            localCache: memoryLocalCache(),
+          },
+          firebaseConfig.firestoreDatabaseId
+        );
+      } catch {
+        return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+      }
+    }
   }
 }
 

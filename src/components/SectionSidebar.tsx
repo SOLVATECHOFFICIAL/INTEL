@@ -3,6 +3,7 @@ import {
   Bell,
   Bookmark,
   ExternalLink,
+  Flame,
   Lock,
   Search,
   ShieldCheck,
@@ -15,23 +16,31 @@ import {
 } from '../utils/authValidation';
 import { getSectionsByGroup } from '../utils/sectionState';
 import { getSearchScopeFromRoute } from '../utils/urlRouting';
-import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
+import {
+  ActiveRoute,
+  MarketplaceTab,
+  ProfileTab,
+  SearchScopeId,
+} from '../types/platform';
 import { SectionIcon } from './SectionIcon';
 
 interface SectionSidebarProps {
   activeRoute: ActiveRoute;
+  marketplaceTab?: MarketplaceTab;
   onNavigate: (
     route: ActiveRoute,
     options?: {
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      marketplaceTab?: MarketplaceTab;
     }
   ) => void;
 }
 
 export const SectionSidebar: React.FC<SectionSidebarProps> = ({
   activeRoute,
+  marketplaceTab = 'browse',
   onNavigate,
 }) => {
   const { user, profile, effectiveTier, isSuspended, unreadNotificationsCount } =
@@ -87,7 +96,11 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
           </p>
           <ul className="mt-2 space-y-1">
             {hub.map((section) => {
-              const isActive = activeRoute === section.id;
+              const isActive =
+                activeRoute === section.id &&
+                !(
+                  section.id === 'marketplace' && marketplaceTab === 'updates'
+                );
               return (
                 <li key={section.id}>
                   <button
@@ -111,6 +124,34 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                 </li>
               );
             })}
+            <li>
+              <button
+                type="button"
+                onClick={() =>
+                  onNavigate('marketplace', { marketplaceTab: 'updates' })
+                }
+                aria-current={
+                  activeRoute === 'marketplace' && marketplaceTab === 'updates'
+                    ? 'page'
+                    : undefined
+                }
+                className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
+                  activeRoute === 'marketplace' && marketplaceTab === 'updates'
+                    ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
+                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                }`}
+              >
+                <Flame
+                  className={`h-4 w-4 shrink-0 ${
+                    activeRoute === 'marketplace' && marketplaceTab === 'updates'
+                      ? 'text-[#1E88E5]'
+                      : 'text-slate-400'
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="truncate">Marketplace Updates</span>
+              </button>
+            </li>
           </ul>
         </div>
 
