@@ -17,6 +17,7 @@ import { useFirebase } from './context/firebaseContext';
 import {
   ActiveRoute,
   FeedTabId,
+  ProfileTab,
   SearchScopeId,
   SectionId,
   ViewState,
@@ -34,6 +35,7 @@ import {
 interface RouteHistoryEntry {
   route: ActiveRoute;
   username?: string | null;
+  profileTab?: ProfileTab | null;
   searchScope?: SearchScopeId;
 }
 
@@ -46,6 +48,9 @@ export function App() {
   );
   const [profileUsername, setProfileUsername] = useState<string | null>(
     initialParsed.profileUsername
+  );
+  const [profileTab, setProfileTab] = useState<ProfileTab | null>(
+    initialParsed.profileTab
   );
   const [searchScope, setSearchScope] = useState<SearchScopeId>(
     initialParsed.searchScope
@@ -63,6 +68,7 @@ export function App() {
   const currentEntryRef = useRef<RouteHistoryEntry>({
     route: initialParsed.route,
     username: initialParsed.profileUsername,
+    profileTab: initialParsed.profileTab,
     searchScope: initialParsed.searchScope,
   });
 
@@ -71,10 +77,12 @@ export function App() {
       const parsed = parseLocationSearch(window.location.search);
       setActiveRoute(parsed.route);
       setProfileUsername(parsed.profileUsername);
+      setProfileTab(parsed.profileTab);
       setSearchScope(parsed.searchScope);
       currentEntryRef.current = {
         route: parsed.route,
         username: parsed.profileUsername,
+        profileTab: parsed.profileTab,
         searchScope: parsed.searchScope,
       };
     };
@@ -90,7 +98,11 @@ export function App() {
   const handleNavigate = useCallback(
     (
       route: ActiveRoute,
-      options?: { username?: string | null; searchScope?: SearchScopeId }
+      options?: {
+        username?: string | null;
+        profileTab?: ProfileTab | null;
+        searchScope?: SearchScopeId;
+      }
     ) => {
       const current = currentEntryRef.current;
       if (
@@ -105,21 +117,26 @@ export function App() {
         route === 'profile'
           ? options?.username?.trim().toLowerCase() ?? null
           : null;
+      const nextProfileTab =
+        route === 'profile' ? options?.profileTab ?? null : null;
       const nextSearchScope =
         route === 'search' ? options?.searchScope ?? 'home' : 'home';
 
       setActiveRoute(route);
       setProfileUsername(nextUsername);
+      setProfileTab(nextProfileTab);
       setSearchScope(nextSearchScope);
 
       currentEntryRef.current = {
         route,
         username: nextUsername,
+        profileTab: nextProfileTab,
         searchScope: nextSearchScope,
       };
 
       const nextUrl = buildSearchForRoute(route, {
         username: nextUsername,
+        profileTab: nextProfileTab,
         searchScope: route === 'search' ? nextSearchScope : undefined,
       });
       window.history.pushState(null, '', nextUrl);
@@ -132,6 +149,7 @@ export function App() {
     if (previousEntry.route && previousEntry.route !== 'profile') {
       handleNavigate(previousEntry.route, {
         username: previousEntry.username,
+        profileTab: previousEntry.profileTab,
         searchScope: previousEntry.searchScope,
       });
       return;
@@ -220,8 +238,9 @@ export function App() {
     if (activeRoute === 'profile') {
       return (
         <MemberProfilePage
-          key={`${profileUsername ?? 'none'}:${profileUsername ? 'set' : 'empty'}`}
+          key={`${profileUsername ?? 'none'}:${profileTab ?? 'posts'}`}
           username={profileUsername}
+          initialTab={profileTab}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
           onBack={handleBackFromProfile}

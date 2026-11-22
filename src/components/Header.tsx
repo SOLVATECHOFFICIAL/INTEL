@@ -1,15 +1,20 @@
 import React from 'react';
-import { Bell, Menu, Search, User as UserIcon } from 'lucide-react';
+import { Bell, Menu, Search } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
-import { ActiveRoute, SearchScopeId } from '../types/platform';
+import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
 import { getSearchScopeFromRoute, isFeedRoute } from '../utils/urlRouting';
 import { BrandLogo } from './BrandLogo';
+import { AvatarMedia } from './media/FirestoreImage';
 
 interface HeaderProps {
   activeRoute: ActiveRoute;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
   onOpenMobileDrawer: () => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -143,16 +148,29 @@ export const Header: React.FC<HeaderProps> = ({
           {user ? (
             <button
               type="button"
-              onClick={() => onNavigate('account')}
+              onClick={() =>
+                onNavigate(
+                  'profile',
+                  profile?.username ? { username: profile.username } : undefined
+                )
+              }
+              aria-label="Open my profile"
               className={`inline-flex min-h-[42px] items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors sm:text-sm ${
-                activeRoute === 'account'
+                activeRoute === 'profile' || activeRoute === 'account'
                   ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
                   : 'border-slate-200 bg-white text-[#0B1A2E] hover:bg-slate-50'
               }`}
             >
-              <UserIcon className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <AvatarMedia
+                fullName={profile?.fullName || user.displayName || 'Account'}
+                photoImageId={profile?.photoImageId}
+                photoUrl={profile?.photoUrl}
+                sizeClass="h-6 w-6"
+                roundedClass="rounded-full"
+                textClass="text-[10px]"
+              />
               <span className="max-w-[110px] truncate">
-                {profile?.fullName?.split(' ')[0] || 'Account'}
+                {profile?.fullName?.split(' ')[0] || 'Profile'}
               </span>
             </button>
           ) : (

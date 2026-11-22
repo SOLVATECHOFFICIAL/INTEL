@@ -21,5 +21,13 @@
 8. **Moderator Reading Anonymous Identity**: `moderator` issues `get` or `list` on `/anonymousIdentityMappings/{entryId}` -> **MUST DENY**.
 9. **Moderator Deleting Verified User's Post**: `moderator` deletes `/posts/{verifiedPostId}` where `authorRole == "verified"` -> **MUST DENY**.
 10. **Moderator Deleting Verified User's Anonymous Post**: `moderator` deletes `/anonymousPosts/{anonId}` where `anonymousIdentityMappings/{anonId}.authorRole == "verified"` -> **MUST DENY**.
-11. **Marketplace Double Approval**: `moderator` approves `/marketplaceListings/{id}` when `existing().approvalStatus == "approved"` -> **MUST DENY**.
-12. **Resource Poisoning via Oversized ID / String**: Authenticated user attempts write to `/posts/{150-char-invalid-id}` or 20KB `body` -> **MUST DENY**.
+10. **Marketplace Double Approval**: `moderator` approves `/marketplaceListings/{id}` when `existing().approvalStatus == "approved"` -> **MUST DENY**.
+11. **Base64 Image Size & Separation**: Client attempts to embed raw Base64 inside `/posts/{id}` or upload `base64Data` > 280,000 chars into `/mediaImages/{imageId}` -> **MUST DENY**.
+12. **Anonymous Image Identity Leakage**: Client creates `/mediaImages/{imageId}` for `targetCollection: "anonymousPosts"` with an `ownerUID` field, or non-author/unauthorized user deletes another user's `mediaImages` doc -> **MUST DENY**.
+13. **Moderator Scope Containment**: Moderator attempts to read `adminAuditLogs`, create `badgeAuditLogs`, delete `marketplaceListings`, moderate a Verified member's marketplace listing, or toggle `isPinned`/`isOfficial` on `/posts/{postId}` -> **MUST DENY**.
+14. **Admin Audit Log Immutability**: Supreme Admin attempts to update or delete an entry in `/adminAuditLogs/{logId}` -> **MUST DENY**.
+
+## 3. Prompt 6 Governance Additions
+1. **`/adminAuditLogs/{logId}`**: Immutable administrative & moderation log readable exclusively by Supreme Admin / Permanent Owner. Moderators may append strictly scoped marketplace decision (`marketplace_approved`, `marketplace_rejected`) and ordinary-member content deletion (`post_deleted`, `anonymous_post_deleted`, `post_comment_deleted`, `anonymous_comment_deleted`) entries matching their own UID and role.
+2. **Collaborative Supreme Admin Management**: `trustedContacts`, `opportunities`, and `events` preserve immutable initial creator (`createdByUid` / `ownerUID`) on `update` so any authorised Supreme Admin or Permanent Owner can edit or manage records created by another authorised Supreme Admin.
+3. **Platform Settings (`/platformSettings/{settingId}`)**: Readable by `get` so notice/policy flags apply cleanly across clients; writable strictly by Supreme Admin or Permanent Owner; deletable strictly by Permanent Owner.

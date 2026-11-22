@@ -1,20 +1,30 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
-  BadgeCheck,
+  Bookmark,
+  Briefcase,
   Building2,
-  Crown,
+  Camera,
+  Check,
   Edit3,
   GraduationCap,
+  Heart,
+  Layers,
   Loader2,
+  Lock,
   MessageCircle,
+  MoreHorizontal,
   Package,
+  Share2,
   Shield,
   ShieldAlert,
+  Trash2,
   UserCheck,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
+import { getAnonymousBackgroundTheme } from '../../config/anonymousBackgrounds';
 import { useFirebase } from '../../context/firebaseContext';
 import {
   fetchFollowersListByUsername,
@@ -22,100 +32,214 @@ import {
   fetchMemberProfileBundleByUsername,
   followMemberByUsername,
   unfollowMemberByUsername,
+  type CommunityPostWithAuthor,
   type MemberProfileBundle,
 } from '../../services/firestoreFoundation';
-import type { BadgeType, PublicProfileProjection } from '../../types/database';
-import type { ActiveRoute, SearchScopeId } from '../../types/platform';
-import { buildWhatsAppChatUrl } from '../../utils/authValidation';
+import {
+  removeProfileMediaImage,
+  saveProfileMediaImage,
+  type UploadProgressState,
+} from '../../services/mediaStorage';
+import {
+  deletePostCascading,
+  fetchMyAnonymousHistory,
+  fetchOwnedAnonymousEntries,
+  fetchOwnerSavedContentBundle,
+  fetchViewerLikedPostIds,
+  fetchViewerSavedPostIds,
+  type SavedContentBundle,
+} from '../../services/socialPosts';
+import type {
+  AnonymousPost,
+  CommunityPost,
+  PublicProfileProjection,
+  UserRole,
+} from '../../types/database';
+import type {
+  ActiveRoute,
+  ProfileTab,
+  SearchScopeId,
+} from '../../types/platform';
+import {
+  buildWhatsAppChatUrl,
+  formatFirestoreOrAppError,
+  toPublicProfileProjection,
+} from '../../utils/authValidation';
+import { extractTimestampMs } from '../../utils/contextualSearch';
+import {
+  compressImageFile,
+  type CompressedImageResult,
+} from '../../utils/imageCompression';
+import { mediaMetaToGridItems } from '../../utils/mediaGrid';
+import { RoleBadge } from '../RoleBadge';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { SquareImageGrid } from '../media/SquareImageGrid';
+import { PostCard } from '../posts/PostCard';
+import { PostComposer } from '../posts/PostComposer';
+import { EditProfileModal } from '../profile/EditProfileModal';
+import { ProfileMenuSheet } from '../profile/ProfileMenuSheet';
 
 interface MemberProfilePageProps {
   username: string | null;
+  initialTab?: ProfileTab | null;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
   onBack: () => void;
 }
 
-type ProfileTab = 'posts' | 'marketplace' | 'followers' | 'following';
+type DetailModalTarget =
+  | { kind: 'ordinary'; post: CommunityPost; author: PublicProfileProjection | null }
+  | { kind: 'anonymous'; post: AnonymousPost };
 
-function getInitials(fullName: string): string {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'LI';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+function formatHistoryTimestamp(value: unknown): string {
+  const ms = extractTimestampMs(value);
+  if (!ms) return 'Just now';
+  return new Date(ms).toLocaleString('en-NG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
-
-const RoleBadgePill: React.FC<{ badge: BadgeType }> = ({ badge }) => {
-  if (badge === 'supreme_admin') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-700 via-fuchsia-600 to-purple-800 px-2.5 py-1 text-xs font-bold text-white shadow-xs ring-1 ring-purple-300">
-        <Crown className="h-3.5 w-3.5" aria-hidden="true" />
-        Supreme Admin
-      </span>
-    );
-  }
-  if (badge === 'moderator') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white">
-        <Shield className="h-3.5 w-3.5" aria-hidden="true" />
-        Moderator
-      </span>
-    );
-  }
-  if (badge === 'verified') {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white">
-        <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
-        Verified
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
-      Campus Member
-    </span>
-  );
-};
 
 export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   username,
+  initialTab,
   onNavigate,
   onRequireAuth,
   onBack,
 }) => {
-  const { user, isSuspended, refreshAccountState } = useFirebase();
+  const {
+    authReady,
+    user,
+    profile: viewerProfile,
+    effectiveTier,
+    isSuspended,
+    refreshAccountState,
+  } = useFirebase();
+
+  const effectiveUsername =
+    username?.trim().toLowerCase() || viewerProfile?.username || null;
 
   const [bundle, setBundle] = useState<MemberProfileBundle | null>(null);
   const [loadState, setLoadState] = useState<
-    'loading' | 'ready' | 'not_found' | 'error'
-  >(() => (username ? 'loading' : 'not_found'));
+    'loading' | 'ready' | 'not_found' | 'needs_setup' | 'error'
+  >(() => (effectiveUsername ? 'loading' : 'not_found'));
   const [retryToken, setRetryToken] = useState(0);
 
-  const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
-  const [followersList, setFollowersList] = useState<PublicProfileProjection[]>(
-    []
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
+  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
+  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(new Set());
+  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(new Set());
+  const [ownedAnonCommentIds, setOwnedAnonCommentIds] = useState<Set<string>>(
+    new Set()
   );
-  const [followingList, setFollowingList] = useState<PublicProfileProjection[]>(
-    []
-  );
-  const [listLoading, setListLoading] = useState(false);
 
+  const [activeTab, setActiveTab] = useState<ProfileTab>(
+    initialTab ?? 'posts'
+  );
+
+  // Lazy owner-only data states
+  const [savedBundle, setSavedBundle] = useState<SavedContentBundle | null>(null);
+  const [anonHistory, setAnonHistory] = useState<AnonymousPost[] | null>(null);
+
+  // Followers / Following sheet
+  const [followModalKind, setFollowModalKind] = useState<
+    'followers' | 'following' | null
+  >(() =>
+    initialTab === 'followers' || initialTab === 'following'
+      ? initialTab
+      : null
+  );
+  const [followModalList, setFollowModalList] = useState<
+    PublicProfileProjection[] | null
+  >(null);
+
+  // Modals & sheets
+  const [detailTarget, setDetailTarget] = useState<DetailModalTarget | null>(
+    null
+  );
+  const [editingOrdinaryPost, setEditingOrdinaryPost] =
+    useState<CommunityPost | null>(null);
+  const [editingAnonPost, setEditingAnonPost] = useState<AnonymousPost | null>(
+    null
+  );
+  const [confirmDeleteAnonId, setConfirmDeleteAnonId] = useState<string | null>(
+    null
+  );
+  const [deletingAnonId, setDeletingAnonId] = useState<string | null>(null);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [menuSheetOpen, setMenuSheetOpen] = useState(false);
+
+  // Direct Cover & Avatar gallery pickers on header
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingCover, setPendingCover] =
+    useState<CompressedImageResult | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const [coverProgress, setCoverProgress] =
+    useState<UploadProgressState | null>(null);
+  const [pendingAvatar, setPendingAvatar] =
+    useState<CompressedImageResult | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+
+  // Feedback & actions
   const [isTogglingFollow, setIsTogglingFollow] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
 
+  // Fetch main profile bundle + viewer interaction flags
   useEffect(() => {
-    if (!username) {
+    if (!effectiveUsername) {
       return;
     }
 
     let active = true;
 
-    fetchMemberProfileBundleByUsername(username, user?.uid ?? null)
-      .then((result) => {
+    Promise.all([
+      fetchMemberProfileBundleByUsername(effectiveUsername, user?.uid ?? null),
+      user?.uid
+        ? fetchViewerLikedPostIds('posts', user.uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>()),
+      user?.uid
+        ? fetchViewerSavedPostIds('posts', user.uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>()),
+      user?.uid
+        ? fetchViewerLikedPostIds('anonymousPosts', user.uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>()),
+      user?.uid
+        ? fetchViewerSavedPostIds('anonymousPosts', user.uid).catch(
+            () => new Set<string>()
+          )
+        : Promise.resolve(new Set<string>()),
+      user?.uid
+        ? fetchOwnedAnonymousEntries(user.uid).catch(() => ({
+            postIds: new Set<string>(),
+            commentIds: new Set<string>(),
+          }))
+        : Promise.resolve({
+            postIds: new Set<string>(),
+            commentIds: new Set<string>(),
+          }),
+    ])
+      .then(([result, likedIds, savedIds, likedAnons, savedAnons, ownedAnon]) => {
         if (!active) return;
         if (!result) {
           setBundle(null);
@@ -123,6 +247,16 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           return;
         }
         setBundle(result);
+        setLikedPostIds(likedIds);
+        setSavedPostIds(savedIds);
+        setLikedAnonIds(likedAnons);
+        setSavedAnonIds(savedAnons);
+        setOwnedAnonCommentIds(ownedAnon.commentIds);
+
+        // Enforce strict owner-only boundary on private tabs
+        if (!result.isOwnProfile && (activeTab === 'saved' || activeTab === 'anonymous')) {
+          setActiveTab('posts');
+        }
         setLoadState('ready');
       })
       .catch(() => {
@@ -133,31 +267,146 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     return () => {
       active = false;
     };
-  }, [username, user?.uid, retryToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveUsername, user?.uid, authReady, viewerProfile?.username, retryToken]);
 
-  const handleSelectTab = (tab: ProfileTab) => {
-    setActiveTab(tab);
-    if (!bundle || (tab !== 'followers' && tab !== 'following')) {
+  const resolvedLoadState: typeof loadState = !effectiveUsername
+    ? !authReady
+      ? 'loading'
+      : user && !viewerProfile
+      ? 'needs_setup'
+      : 'not_found'
+    : loadState;
+
+  const savedLoading =
+    activeTab === 'saved' &&
+    Boolean(bundle?.isOwnProfile) &&
+    Boolean(user?.uid) &&
+    savedBundle === null;
+
+  const anonLoading =
+    activeTab === 'anonymous' &&
+    Boolean(bundle?.isOwnProfile) &&
+    Boolean(user?.uid) &&
+    anonHistory === null;
+
+  const followModalLoading =
+    followModalKind !== null && bundle !== null && followModalList === null;
+
+  // Keep own profile header synced immediately whenever viewerProfile updates via modal/menu
+  const displayedProfile: PublicProfileProjection | null = bundle
+    ? bundle.isOwnProfile && viewerProfile
+      ? toPublicProfileProjection(viewerProfile)
+      : bundle.profile
+    : null;
+
+  // Lazy load Saved tab ONLY for authenticated profile owner
+  useEffect(() => {
+    if (
+      !bundle?.isOwnProfile ||
+      !user?.uid ||
+      activeTab !== 'saved' ||
+      savedBundle !== null
+    ) {
       return;
     }
+    let active = true;
+    fetchOwnerSavedContentBundle(user.uid)
+      .then((res) => {
+        if (!active) return;
+        setSavedBundle(res);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setSavedBundle({
+          posts: [],
+          anonymousPosts: [],
+          listings: [],
+          opportunities: [],
+        });
+        setActionError(
+          formatFirestoreOrAppError(err, 'Unable to load saved content.')
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [bundle?.isOwnProfile, user?.uid, activeTab, savedBundle]);
 
-    setListLoading(true);
+  // Lazy load My Anonymous Posts tab ONLY for authenticated profile owner
+  useEffect(() => {
+    if (
+      !bundle?.isOwnProfile ||
+      !user?.uid ||
+      activeTab !== 'anonymous' ||
+      anonHistory !== null
+    ) {
+      return;
+    }
+    let active = true;
+    fetchMyAnonymousHistory(user.uid)
+      .then((posts) => {
+        if (!active) return;
+        setAnonHistory(posts);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setAnonHistory([]);
+        setActionError(
+          formatFirestoreOrAppError(
+            err,
+            'Unable to load your anonymous post history.'
+          )
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [bundle?.isOwnProfile, user?.uid, activeTab, anonHistory]);
+
+  // Load Followers / Following modal list when opened
+  useEffect(() => {
+    if (!followModalKind || !bundle) return;
+    let active = true;
     const loader =
-      tab === 'followers'
+      followModalKind === 'followers'
         ? fetchFollowersListByUsername(bundle.resolvedUsername)
         : fetchFollowingListByUsername(bundle.resolvedUsername);
 
     loader
       .then((items) => {
-        if (tab === 'followers') {
-          setFollowersList(items);
-        } else {
-          setFollowingList(items);
-        }
+        if (active) setFollowModalList(items);
       })
-      .finally(() => {
-        setListLoading(false);
+      .catch(() => {
+        if (active) setFollowModalList([]);
       });
+
+    return () => {
+      active = false;
+    };
+  }, [followModalKind, bundle]);
+
+  const openFollowModal = (kind: 'followers' | 'following') => {
+    setFollowModalList(null);
+    setFollowModalKind(kind);
+  };
+
+  const closeFollowModal = () => {
+    setFollowModalKind(null);
+    setFollowModalList(null);
+  };
+
+  const handleSelectTab = (tab: ProfileTab) => {
+    if (!bundle) return;
+    if (!bundle.isOwnProfile && (tab === 'saved' || tab === 'anonymous')) {
+      return;
+    }
+    if (tab === 'followers' || tab === 'following') {
+      openFollowModal(tab);
+      return;
+    }
+    setActiveTab(tab);
+    setActionError(null);
   };
 
   const handleToggleFollow = async () => {
@@ -172,9 +421,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
       setActionError('Suspended accounts cannot follow or unfollow members.');
       return;
     }
-    if (bundle.isOwnProfile) {
-      return;
-    }
+    if (bundle.isOwnProfile) return;
 
     setIsTogglingFollow(true);
     const wasFollowing = bundle.isFollowing;
@@ -204,27 +451,245 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
       await refreshAccountState();
     } catch (error) {
       setActionError(
-        error instanceof Error
-          ? error.message
-          : 'Unable to update follow status right now.'
+        formatFirestoreOrAppError(
+          error,
+          'Unable to update follow status right now.'
+        )
       );
     } finally {
       setIsTogglingFollow(false);
     }
   };
 
-  if (loadState === 'loading') {
+  const handleShareProfile = async () => {
+    if (!bundle || !displayedProfile) return;
+    const shareUrl = `${window.location.origin}${window.location.pathname}?view=profile&username=${encodeURIComponent(bundle.resolvedUsername)}`;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: `${displayedProfile.fullName} (@${displayedProfile.username}) — LASUED Intel`,
+          text:
+            displayedProfile.bio?.trim() ||
+            `View @${displayedProfile.username} on LASUED Intel`,
+          url: shareUrl,
+        });
+        setShareFeedback('Profile shared.');
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareFeedback(`Profile link copied (@${displayedProfile.username})`);
+      } else {
+        setShareFeedback(`Share link: ${shareUrl}`);
+      }
+    } catch {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl).catch(() => {});
+        setShareFeedback(`Profile link copied (@${displayedProfile.username})`);
+      }
+    }
+    window.setTimeout(() => setShareFeedback(null), 3200);
+  };
+
+  // Direct Header Cover Picker Handlers
+  const handleSelectCoverFile = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || coverBusy || isSuspended || !user) return;
+    setCoverBusy(true);
+    setActionError(null);
+    setCoverProgress({ percent: 20, label: 'Compressing cover...' });
+    try {
+      const compressed = await compressImageFile(file, 'cover');
+      setPendingCover(compressed);
+      setCoverProgress(null);
+    } catch (error) {
+      setCoverProgress(null);
+      setActionError(
+        formatFirestoreOrAppError(error, 'Could not process cover photograph.')
+      );
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
+  const handleSaveCoverDirect = async () => {
+    if (!pendingCover || !user || coverBusy || isSuspended) return;
+    setCoverBusy(true);
+    setActionError(null);
+    try {
+      await saveProfileMediaImage({
+        uid: user.uid,
+        slot: 'cover',
+        compressed: pendingCover,
+        previousImageId: viewerProfile?.coverImageId,
+        onProgress: setCoverProgress,
+      });
+      await refreshAccountState();
+      setPendingCover(null);
+      setCoverProgress(null);
+      setActionMessage('Cover photo updated.');
+      window.setTimeout(() => setActionMessage(null), 3000);
+    } catch (error) {
+      setCoverProgress(null);
+      setActionError(
+        formatFirestoreOrAppError(error, 'Could not save cover photo.')
+      );
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
+  const handleRemoveCoverDirect = async () => {
+    if (!user || coverBusy || isSuspended) return;
+    if (pendingCover) {
+      setPendingCover(null);
+      return;
+    }
+    setCoverBusy(true);
+    setActionError(null);
+    try {
+      await removeProfileMediaImage({
+        uid: user.uid,
+        slot: 'cover',
+        currentImageId: viewerProfile?.coverImageId,
+      });
+      await refreshAccountState();
+      setActionMessage('Cover photo removed.');
+      window.setTimeout(() => setActionMessage(null), 3000);
+    } catch (error) {
+      setActionError(
+        formatFirestoreOrAppError(error, 'Could not remove cover photo.')
+      );
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+
+  // Direct Header Avatar Picker Handlers
+  const handleSelectAvatarFile = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || avatarBusy || isSuspended || !user) return;
+    setAvatarBusy(true);
+    setActionError(null);
+    try {
+      const compressed = await compressImageFile(file, 'avatar');
+      setPendingAvatar(compressed);
+    } catch (error) {
+      setActionError(
+        formatFirestoreOrAppError(error, 'Could not process profile picture.')
+      );
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleSaveAvatarDirect = async () => {
+    if (!pendingAvatar || !user || avatarBusy || isSuspended) return;
+    setAvatarBusy(true);
+    setActionError(null);
+    try {
+      await saveProfileMediaImage({
+        uid: user.uid,
+        slot: 'avatar',
+        compressed: pendingAvatar,
+        previousImageId: viewerProfile?.photoImageId,
+      });
+      await refreshAccountState();
+      setPendingAvatar(null);
+      setActionMessage('Profile picture updated.');
+      window.setTimeout(() => setActionMessage(null), 3000);
+    } catch (error) {
+      setActionError(
+        formatFirestoreOrAppError(error, 'Could not save profile picture.')
+      );
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleDeleteOwnAnonPost = async (target: AnonymousPost) => {
+    if (!user || deletingAnonId) return;
+    setDeletingAnonId(target.id);
+    setActionError(null);
+    try {
+      await deletePostCascading({
+        kind: 'anonymousPosts',
+        post: target,
+        actorUid: user.uid,
+      });
+      setAnonHistory((prev) =>
+        prev ? prev.filter((item) => item.id !== target.id) : prev
+      );
+      setConfirmDeleteAnonId(null);
+      setActionMessage('Anonymous post permanently deleted.');
+      window.setTimeout(() => setActionMessage(null), 3000);
+    } catch (error) {
+      setActionError(
+        formatFirestoreOrAppError(
+          error,
+          'Unable to delete anonymous post right now.'
+        )
+      );
+    } finally {
+      setDeletingAnonId(null);
+    }
+  };
+
+  if (resolvedLoadState === 'loading') {
     return (
-      <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6">
-        <div className="h-36 w-full animate-pulse rounded-xl bg-slate-200" />
-        <div className="mt-4 h-7 w-52 animate-pulse rounded bg-slate-200" />
-        <div className="mt-2 h-4 w-36 animate-pulse rounded bg-slate-100" />
-        <div className="mt-6 h-24 w-full animate-pulse rounded-xl bg-slate-100" />
+      <section className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="h-56 w-full animate-pulse bg-[#0B1A2E]/20 sm:h-72" />
+        <div className="px-5 pb-6">
+          <div className="-mt-12 h-24 w-24 animate-pulse rounded-full border-4 border-white bg-slate-200 sm:-mt-16 sm:h-32 sm:w-32" />
+          <div className="mt-4 h-7 w-48 animate-pulse rounded bg-slate-200" />
+          <div className="mt-2 h-4 w-32 animate-pulse rounded bg-slate-100" />
+          <div className="mt-6 grid grid-cols-3 gap-2">
+            <div className="aspect-square animate-pulse rounded-xl bg-slate-100" />
+            <div className="aspect-square animate-pulse rounded-xl bg-slate-100" />
+            <div className="aspect-square animate-pulse rounded-xl bg-slate-100" />
+          </div>
+        </div>
       </section>
     );
   }
 
-  if (loadState === 'error') {
+  if (resolvedLoadState === 'needs_setup') {
+    return (
+      <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Back
+        </button>
+        <div className="mt-5 max-w-lg">
+          <h1 className="font-display text-2xl font-bold text-[#0B1A2E]">
+            Complete your LASUED Intel Profile
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Save your full name, unique @username, department, level, and
+            WhatsApp number in Account Settings to activate your public profile
+            card and visual content grid.
+          </p>
+          <button
+            type="button"
+            onClick={() => onNavigate('account')}
+            className="mt-5 inline-flex min-h-[44px] items-center rounded-lg bg-[#1E88E5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#1565C0]"
+          >
+            Set Up My Profile
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (resolvedLoadState === 'error') {
     return (
       <section className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6">
         <button
@@ -243,7 +708,10 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         </p>
         <button
           type="button"
-          onClick={() => setRetryToken((prev) => prev + 1)}
+          onClick={() => {
+            setLoadState('loading');
+            setRetryToken((prev) => prev + 1);
+          }}
           className="mt-4 inline-flex min-h-[42px] items-center rounded-lg bg-[#1E88E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1565C0]"
         >
           Try Again
@@ -252,7 +720,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     );
   }
 
-  if (loadState === 'not_found' || !bundle) {
+  if (resolvedLoadState === 'not_found' || !bundle || !displayedProfile) {
     return (
       <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6">
         <button
@@ -269,8 +737,8 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           </h1>
           <p className="mt-2 text-sm text-slate-600">
             No active public profile matches{' '}
-            {username ? `@${username.toLowerCase()}` : 'this link'}. It may have
-            been deleted or hidden from the directory.
+            {effectiveUsername ? `@${effectiveUsername}` : 'this link'}. It may
+            have been deleted or hidden from the directory.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <button
@@ -293,16 +761,201 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     );
   }
 
-  const { profile } = bundle;
-  const whatsappUrl = profile.publicWhatsapp
-    ? buildWhatsAppChatUrl(profile.publicWhatsapp)
-    : null;
+  const profile = displayedProfile;
+  const whatsappUrl =
+    profile.showWhatsappPublicly && profile.publicWhatsapp
+      ? buildWhatsAppChatUrl(profile.publicWhatsapp)
+      : null;
+  const hasCover = Boolean(
+    pendingCover || profile.coverImageId || profile.coverUrl
+  );
+  const hasAvatar = Boolean(
+    pendingAvatar || profile.photoImageId || profile.photoUrl
+  );
+
+  // Build visible tab list: public gets Posts + Liked (+ Listings if any), owner also gets Saved + My Anonymous
+  const tabs: { id: ProfileTab; label: string; count?: number; privateTab?: boolean }[] =
+    [
+      { id: 'posts', label: 'Posts', count: bundle.posts.length },
+      ...(bundle.isOwnProfile
+        ? [{ id: 'saved' as ProfileTab, label: 'Saved', privateTab: true }]
+        : []),
+      { id: 'liked', label: 'Liked', count: bundle.likedPosts.length },
+      ...(bundle.isOwnProfile
+        ? [
+            {
+              id: 'anonymous' as ProfileTab,
+              label: 'My Anonymous',
+              privateTab: true,
+            },
+          ]
+        : []),
+      ...(bundle.listings.length > 0
+        ? [
+            {
+              id: 'listings' as ProfileTab,
+              label: 'Listings',
+              count: bundle.listings.length,
+            },
+          ]
+        : []),
+    ];
+
+  const handleOrdinaryPostUpdated = (updated: CommunityPost | AnonymousPost) => {
+    const communityUpdated = updated as CommunityPost;
+    setBundle((prev) => {
+      if (!prev) return prev;
+      const nextPosts = prev.posts.map((item) =>
+        item.id === communityUpdated.id ? communityUpdated : item
+      );
+      const nextLikedPosts = prev.likedPosts.map((entry) =>
+        entry.post.id === communityUpdated.id
+          ? { ...entry, post: communityUpdated }
+          : entry
+      );
+      const nextTotalLikes = nextPosts.reduce(
+        (acc, p) => acc + (p.status === 'published' ? Math.max(0, p.likesCount) : 0),
+        0
+      );
+      return {
+        ...prev,
+        posts: nextPosts,
+        likedPosts: nextLikedPosts,
+        totalLikesReceived: nextTotalLikes,
+      };
+    });
+    setDetailTarget((prev) =>
+      prev && prev.kind === 'ordinary' && prev.post.id === communityUpdated.id
+        ? { ...prev, post: communityUpdated }
+        : prev
+    );
+  };
+
+  const handleOrdinaryPostDeleted = (deletedId: string) => {
+    setBundle((prev) => {
+      if (!prev) return prev;
+      const nextPosts = prev.posts.filter((item) => item.id !== deletedId);
+      const nextTotalLikes = nextPosts.reduce(
+        (acc, p) => acc + (p.status === 'published' ? Math.max(0, p.likesCount) : 0),
+        0
+      );
+      return {
+        ...prev,
+        posts: nextPosts,
+        likedPosts: prev.likedPosts.filter((e) => e.post.id !== deletedId),
+        totalLikesReceived: nextTotalLikes,
+      };
+    });
+    setSavedBundle((prev) =>
+      prev
+        ? {
+            ...prev,
+            posts: prev.posts.filter((e) => e.post.id !== deletedId),
+          }
+        : prev
+    );
+    setDetailTarget(null);
+  };
+
+  const renderPostVisualGrid = (
+    items: CommunityPostWithAuthor[],
+    emptyTitle: string,
+    emptySubtitle: string
+  ) => {
+    if (items.length === 0) {
+      return (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
+          <p className="font-display text-sm font-bold text-[#0B1A2E]">
+            {emptyTitle}
+          </p>
+          <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600">
+            {emptySubtitle}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className="grid grid-cols-3 gap-1.5 sm:gap-2.5"
+        data-testid="profile-visual-grid"
+      >
+        {items.map(({ post, author: tileAuthor }) => {
+          const media = post.mediaItems ?? [];
+          const firstPhoto = media[0];
+          const hasPhoto = Boolean(firstPhoto);
+
+          return (
+            <button
+              key={post.id}
+              type="button"
+              onClick={() =>
+                setDetailTarget({
+                  kind: 'ordinary',
+                  post,
+                  author: tileAuthor,
+                })
+              }
+              aria-label={`Open post: ${post.title || post.body.slice(0, 48) || post.category}`}
+              className="group relative aspect-square w-full overflow-hidden rounded-xl bg-[#0B1A2E] text-left focus-visible:outline-2 focus-visible:outline-[#1E88E5]"
+            >
+              {hasPhoto ? (
+                <FirestoreImage
+                  imageId={firstPhoto.imageId}
+                  alt={post.title || post.body.slice(0, 60) || 'Post media'}
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  placeholderClassName="bg-[#0B1A2E]"
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col justify-between bg-gradient-to-br from-[#0B1A2E] via-[#132944] to-[#1E88E5]/80 p-2.5 sm:p-3.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#90CAF9] sm:text-[11px]">
+                    {post.category}
+                  </span>
+                  <p className="line-clamp-4 text-[11px] font-semibold leading-snug text-white sm:text-xs">
+                    {post.title || post.body}
+                  </p>
+                  <span aria-hidden="true" />
+                </div>
+              )}
+
+              {/* Subtle bottom gradient for metric legibility */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-[#0B1A2E]/85 via-[#0B1A2E]/40 to-transparent"
+              />
+
+              {/* Multi-image indicator */}
+              {media.length > 1 && (
+                <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-md bg-[#0B1A2E]/80 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-xs">
+                  <Layers className="h-3 w-3" aria-hidden="true" />
+                  {media.length}
+                </span>
+              )}
+
+              {/* Likes & Comments overlay metrics */}
+              <div className="absolute right-2 bottom-1.5 left-2 flex items-center gap-2.5 text-[11px] font-semibold text-white">
+                <span className="inline-flex items-center gap-1 tabular-nums">
+                  <Heart className="h-3 w-3 fill-white/90" aria-hidden="true" />
+                  {post.likesCount}
+                </span>
+                <span className="inline-flex items-center gap-1 tabular-nums">
+                  <MessageCircle className="h-3 w-3" aria-hidden="true" />
+                  {post.commentsCount}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <section
       aria-labelledby="member-profile-heading"
       className="min-w-0 flex-1 space-y-5"
     >
+      {/* Top Bar */}
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
@@ -320,92 +973,301 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         )}
       </div>
 
-      {/* Main Public Profile Card */}
+      {/* Main Profile Header Card (TikTok-inspired Layout with Large Cover + Overlapping Circular Avatar) */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        {/* Cover Photo */}
-        <div className="relative h-36 w-full bg-gradient-to-r from-[#0B1A2E] via-[#122D4F] to-[#1E88E5] sm:h-44">
-          {profile.coverUrl && (
-            <img
-              src={profile.coverUrl}
+        {/* 1. LARGE COVER PHOTO (~75% of profile header visual area) */}
+        <div
+          className="relative h-56 w-full overflow-hidden bg-[#0B1A2E] sm:h-72"
+          data-testid="profile-cover-area"
+        >
+          {hasCover ? (
+            <FirestoreImage
+              directSrc={pendingCover?.dataUrl}
+              imageId={pendingCover ? null : profile.coverImageId}
+              fallbackUrl={pendingCover ? null : profile.coverUrl}
               alt={`${profile.fullName}'s cover banner`}
-              loading="lazy"
-              className="h-full w-full object-cover"
+              eager
+              className="h-full w-full object-cover object-center"
+              placeholderClassName="bg-[#0B1A2E]"
             />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#0B1A2E] via-[#132944] to-[#1E88E5]/60">
+              <div className="text-center opacity-70">
+                <p className="font-display text-xs font-semibold tracking-wider text-white/80 uppercase">
+                  LASUED Intel
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Subtle gradient at bottom for crisp overlap */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-[#0B1A2E]/65 to-transparent"
+          />
+
+          {/* Owner-Only Cover Controls */}
+          {bundle.isOwnProfile && !isSuspended && (
+            <>
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleSelectCoverFile}
+                className="sr-only"
+                data-testid="profile-header-cover-input"
+              />
+
+              <div className="absolute top-3 right-3 flex flex-wrap items-center gap-2">
+                {pendingCover ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={coverBusy}
+                      onClick={() => void handleSaveCoverDirect()}
+                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-3 py-1.5 text-xs font-semibold text-white shadow-md hover:bg-[#1565C0] disabled:opacity-60"
+                    >
+                      {coverBusy ? (
+                        <Loader2
+                          className="h-3.5 w-3.5 animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      Save Cover
+                    </button>
+                    <button
+                      type="button"
+                      disabled={coverBusy}
+                      onClick={() => setPendingCover(null)}
+                      className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] shadow-md hover:bg-white"
+                    >
+                      Discard
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={coverBusy}
+                      onClick={() => coverInputRef.current?.click()}
+                      aria-label="Edit cover photo"
+                      className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E]/80 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/25 backdrop-blur-xs hover:bg-[#0B1A2E]"
+                    >
+                      {coverBusy ? (
+                        <Loader2
+                          className="h-3.5 w-3.5 animate-spin"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      <span>{hasCover ? 'Change Cover' : 'Add Cover'}</span>
+                    </button>
+
+                    {hasCover && (
+                      <button
+                        type="button"
+                        disabled={coverBusy}
+                        onClick={() => void handleRemoveCoverDirect()}
+                        aria-label="Remove cover photo"
+                        className="inline-flex min-h-[38px] min-w-[38px] items-center justify-center rounded-lg bg-[#0B1A2E]/80 text-white ring-1 ring-white/25 backdrop-blur-xs hover:bg-red-700"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {coverProgress && (
+                <div className="absolute right-4 bottom-3 left-4 rounded-lg bg-[#0B1A2E]/90 px-3 py-2 text-xs text-white">
+                  {coverProgress.label} ({coverProgress.percent}%)
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        <div className="px-5 pb-6 sm:px-6">
-          {/* Avatar + Top CTA Row */}
-          <div className="-mt-12 flex flex-col justify-between gap-4 sm:-mt-14 sm:flex-row sm:items-end">
-            <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-4 border-white bg-[#0B1A2E] text-2xl font-bold text-white shadow-sm sm:h-28 sm:w-28">
-              {profile.photoUrl ? (
-                <img
-                  src={profile.photoUrl}
-                  alt={profile.fullName}
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span>{getInitials(profile.fullName)}</span>
+        {/* 2. OVERLAPPING CIRCULAR PROFILE PICTURE & INFO */}
+        <div className="px-4 pb-6 sm:px-6">
+          <div className="-mt-12 flex flex-col justify-between gap-4 sm:-mt-16 sm:flex-row sm:items-end">
+            {/* Large Circular Avatar with Independent Owner Camera Control */}
+            <div className="relative inline-block w-fit">
+              <div
+                className="relative h-24 w-24 overflow-hidden rounded-full bg-[#0B1A2E] ring-4 ring-white shadow-md sm:h-32 sm:w-32"
+                data-testid="profile-avatar-circle"
+              >
+                {pendingAvatar ? (
+                  <img
+                    src={pendingAvatar.dataUrl}
+                    alt={`${profile.fullName} preview`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <AvatarMedia
+                    fullName={profile.fullName}
+                    photoImageId={profile.photoImageId}
+                    photoUrl={profile.photoUrl}
+                    sizeClass="h-full w-full"
+                    roundedClass="rounded-full"
+                    textClass="text-2xl sm:text-3xl"
+                  />
+                )}
+              </div>
+
+              {bundle.isOwnProfile && !isSuspended && (
+                <>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleSelectAvatarFile}
+                    className="sr-only"
+                    data-testid="profile-header-avatar-input"
+                  />
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => avatarInputRef.current?.click()}
+                    aria-label="Change profile picture"
+                    className="absolute right-0 bottom-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#1E88E5] text-white ring-2 ring-white shadow-sm hover:bg-[#1565C0] disabled:opacity-60"
+                  >
+                    {avatarBusy ? (
+                      <Loader2
+                        className="h-4 w-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Camera className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </>
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
+            {/* Action Buttons Row */}
+            <div className="flex flex-wrap items-center gap-2">
               {bundle.isOwnProfile ? (
-                <button
-                  type="button"
-                  onClick={() => onNavigate('account')}
-                  className="inline-flex min-h-[42px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
-                >
-                  <Edit3 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                  Edit Profile Settings
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={isTogglingFollow || bundle.isSuspended}
-                  onClick={() => void handleToggleFollow()}
-                  className={`inline-flex min-h-[42px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
-                    bundle.isFollowing
-                      ? 'border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
-                      : 'bg-[#1E88E5] text-white hover:bg-[#1565C0]'
-                  }`}
-                >
-                  {isTogglingFollow ? (
-                    <Loader2
-                      className="h-4 w-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : bundle.isFollowing ? (
-                    <UserCheck
-                      className="h-4 w-4 text-[#1E88E5]"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <UserPlus className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  <span>{bundle.isFollowing ? 'Following' : 'Follow'}</span>
-                </button>
-              )}
+                <>
+                  <button
+                    type="button"
+                    disabled={isSuspended}
+                    onClick={() => setEditProfileOpen(true)}
+                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60 sm:text-sm"
+                  >
+                    <Edit3 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                    Edit Profile
+                  </button>
 
-              {whatsappUrl && (
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#0B1A2E] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#132844]"
-                >
-                  <MessageCircle
-                    className="h-4 w-4 text-[#1E88E5]"
-                    aria-hidden="true"
-                  />
-                  <span>Message on WhatsApp</span>
-                </a>
+                  <button
+                    type="button"
+                    onClick={() => void handleShareProfile()}
+                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
+                  >
+                    <Share2 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                    Share Profile
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMenuSheetOpen(true)}
+                    aria-label="Open profile menu and settings"
+                    className="inline-flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50"
+                  >
+                    <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={isTogglingFollow || bundle.isSuspended}
+                    onClick={() => void handleToggleFollow()}
+                    className={`inline-flex min-h-[42px] items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-60 sm:text-sm ${
+                      bundle.isFollowing
+                        ? 'border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
+                        : 'bg-[#1E88E5] text-white hover:bg-[#1565C0]'
+                    }`}
+                  >
+                    {isTogglingFollow ? (
+                      <Loader2
+                        className="h-4 w-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : bundle.isFollowing ? (
+                      <UserCheck
+                        className="h-4 w-4 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <UserPlus className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    <span>{bundle.isFollowing ? 'Following' : 'Follow'}</span>
+                  </button>
+
+                  {whatsappUrl && (
+                    <a
+                      href={whatsappUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
+                    >
+                      <MessageCircle
+                        className="h-4 w-4 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                      WhatsApp
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => void handleShareProfile()}
+                    aria-label="Share profile"
+                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
+                  >
+                    <Share2 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                    <span>Share</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
 
-          {/* Member Identity & Badges */}
+          {/* Pending Direct Avatar Save/Discard Bar */}
+          {pendingAvatar && bundle.isOwnProfile && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/5 px-3.5 py-2.5 text-xs">
+              <span className="font-medium text-[#0B1A2E]">
+                New profile picture preview ready.
+              </span>
+              <button
+                type="button"
+                disabled={avatarBusy}
+                onClick={() => void handleSaveAvatarDirect()}
+                className="inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-[#1E88E5] px-3 py-1 font-semibold text-white hover:bg-[#1565C0]"
+              >
+                {avatarBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                Save Photo
+              </button>
+              <button
+                type="button"
+                disabled={avatarBusy}
+                onClick={() => setPendingAvatar(null)}
+                className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+              >
+                Discard
+              </button>
+              {hasAvatar && !pendingAvatar && null}
+            </div>
+          )}
+
+          {/* Full Name, Badge, Username */}
           <div className="mt-4">
             <div className="flex flex-wrap items-center gap-2.5">
               <h1
@@ -414,7 +1276,9 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               >
                 {profile.fullName}
               </h1>
-              <RoleBadgePill badge={profile.badge} />
+              {profile.badge !== 'none' && (
+                <RoleBadge badge={profile.badge} size="md" />
+              )}
               {bundle.isSuspended && (
                 <span className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
                   <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
@@ -427,15 +1291,63 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               @{profile.username}
             </p>
 
+            {/* TikTok-Inspired Stats Row: Following · Followers · Likes */}
+            <div className="mt-4 flex flex-wrap items-center gap-6 border-y border-slate-100 py-3 text-sm">
+              <button
+                type="button"
+                onClick={() => openFollowModal('following')}
+                className="inline-flex items-baseline gap-1.5 text-left hover:text-[#1E88E5]"
+              >
+                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                  {profile.followingCount}
+                </span>
+                <span className="text-xs font-medium text-slate-600 sm:text-sm">
+                  Following
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openFollowModal('followers')}
+                className="inline-flex items-baseline gap-1.5 text-left hover:text-[#1E88E5]"
+              >
+                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                  {profile.followersCount}
+                </span>
+                <span className="text-xs font-medium text-slate-600 sm:text-sm">
+                  Followers
+                </span>
+              </button>
+
+              <div className="inline-flex items-baseline gap-1.5">
+                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                  {bundle.totalLikesReceived}
+                </span>
+                <span className="text-xs font-medium text-slate-600 sm:text-sm">
+                  Likes
+                </span>
+              </div>
+            </div>
+
+            {/* Bio */}
             {profile.bio?.trim() && (
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-700">
+              <p className="mt-3.5 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
                 {profile.bio}
               </p>
             )}
 
-            {/* Academic / Campus Metadata */}
-            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-600 sm:text-sm">
-              {profile.level && (
+            {/* Academic & Category Details (Zero Private Email / Zero UID) */}
+            <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-600 sm:text-sm">
+              {profile.accountCategory?.trim() && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Briefcase
+                    className="h-4 w-4 text-[#1E88E5]"
+                    aria-hidden="true"
+                  />
+                  {profile.accountCategory}
+                </span>
+              )}
+              {profile.level?.trim() && (
                 <span className="inline-flex items-center gap-1.5">
                   <GraduationCap
                     className="h-4 w-4 text-[#1E88E5]"
@@ -444,7 +1356,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   {profile.level}
                 </span>
               )}
-              {profile.department && (
+              {profile.department?.trim() && (
                 <span className="inline-flex items-center gap-1.5">
                   <Building2
                     className="h-4 w-4 text-[#1E88E5]"
@@ -459,36 +1371,30 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 </span>
               )}
             </div>
-
-            {/* Follower / Following Counts */}
-            <div className="mt-4 flex flex-wrap items-center gap-5 border-t border-slate-100 pt-4 text-sm">
-              <button
-                type="button"
-                onClick={() => handleSelectTab('followers')}
-                className="inline-flex items-center gap-1.5 font-medium text-[#0B1A2E] hover:text-[#1E88E5]"
-              >
-                <span className="font-bold tabular-nums">
-                  {profile.followersCount}
-                </span>
-                <span className="text-slate-600">Followers</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectTab('following')}
-                className="inline-flex items-center gap-1.5 font-medium text-[#0B1A2E] hover:text-[#1E88E5]"
-              >
-                <span className="font-bold tabular-nums">
-                  {profile.followingCount}
-                </span>
-                <span className="text-slate-600">Following</span>
-              </button>
-            </div>
           </div>
+
+          {shareFeedback && (
+            <div
+              role="status"
+              className="mt-4 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/10 px-3.5 py-2.5 text-xs font-medium text-[#0B1A2E]"
+            >
+              {shareFeedback}
+            </div>
+          )}
+
+          {actionMessage && (
+            <div
+              role="status"
+              className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-medium text-emerald-900"
+            >
+              {actionMessage}
+            </div>
+          )}
 
           {actionError && (
             <div
               role="alert"
-              className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+              className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800 sm:text-sm"
             >
               {actionError}
             </div>
@@ -508,30 +1414,14 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         </div>
       </div>
 
-      {/* Profile Content Tabs */}
+      {/* 3. SEPARATED CONTENT TABS & TIKTOK-STYLE 3-COLUMN GRID */}
       <div className="rounded-2xl border border-slate-200 bg-white">
         <div
           role="tablist"
-          aria-label="Member profile tabs"
-          className="grid grid-cols-4 border-b border-slate-200"
+          aria-label="Member profile content tabs"
+          className="flex overflow-x-auto border-b border-slate-200"
         >
-          {(
-            [
-              { id: 'posts', label: `Posts (${bundle.posts.length})` },
-              {
-                id: 'marketplace',
-                label: `Listings (${bundle.listings.length})`,
-              },
-              {
-                id: 'followers',
-                label: `Followers (${profile.followersCount})`,
-              },
-              {
-                id: 'following',
-                label: `Following (${profile.followingCount})`,
-              },
-            ] as { id: ProfileTab; label: string }[]
-          ).map((tab) => {
+          {tabs.map((tab) => {
             const isSelected = activeTab === tab.id;
             return (
               <button
@@ -540,13 +1430,21 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 role="tab"
                 aria-selected={isSelected}
                 onClick={() => handleSelectTab(tab.id)}
-                className={`relative min-h-[46px] px-2 py-2.5 text-xs font-semibold whitespace-nowrap transition-colors sm:text-sm ${
+                className={`relative flex min-h-[48px] shrink-0 items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold whitespace-nowrap transition-colors sm:flex-1 sm:text-sm ${
                   isSelected
                     ? 'text-[#1E88E5]'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]'
                 }`}
               >
-                {tab.label}
+                {tab.privateTab && (
+                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                <span>{tab.label}</span>
+                {typeof tab.count === 'number' && (
+                  <span className="text-[11px] font-medium opacity-80 tabular-nums">
+                    ({tab.count})
+                  </span>
+                )}
                 {isSelected && (
                   <span
                     aria-hidden="true"
@@ -558,46 +1456,440 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           })}
         </div>
 
-        <div className="p-5 sm:p-6">
+        <div className="p-3 sm:p-5">
+          {/* TAB 1: PUBLIC ORDINARY POSTS (3-Column Grid) */}
           {activeTab === 'posts' && (
-            <div className="space-y-4">
-              {!bundle.canPublishOrdinaryPosts ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  Ordinary community feed updates are reserved for Verified
-                  members, Moderators, and Administrators. Anonymous campus
-                  activity never appears on member profiles.
-                </div>
-              ) : bundle.posts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
-                  No published public posts from @{profile.username} yet.
+            <div>
+              {!bundle.canPublishOrdinaryPosts && bundle.posts.length === 0 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
+                  Ordinary public feed updates are reserved for Verified
+                  members, Moderators, and Administrators. Anonymous posts are
+                  strictly separated and never shown here.
                 </div>
               ) : (
-                bundle.posts.map((post) => (
-                  <article
-                    key={post.id}
-                    className="rounded-xl border border-slate-200 bg-white p-4"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
-                      <span>{post.category}</span>
-                      <span>
-                        {post.isOfficial ? 'Official Update' : 'Public Post'}
-                      </span>
-                    </div>
-                    {post.title && (
-                      <h2 className="mt-1.5 font-display text-base font-bold text-[#0B1A2E]">
-                        {post.title}
-                      </h2>
-                    )}
-                    <p className="mt-1.5 text-sm leading-relaxed text-slate-700">
-                      {post.body}
-                    </p>
-                  </article>
-                ))
+                renderPostVisualGrid(
+                  bundle.posts.map((post) => ({ post, author: profile })),
+                  `No public posts from @${profile.username} yet`,
+                  'Published updates and campus photographs will appear here in a clean 3-column grid.'
+                )
               )}
             </div>
           )}
 
-          {activeTab === 'marketplace' && (
+          {/* TAB 2: SAVED CONTENT (Strictly Private to Owner) */}
+          {activeTab === 'saved' && bundle.isOwnProfile && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
+                <Lock
+                  className="h-4 w-4 shrink-0 text-[#1E88E5]"
+                  aria-hidden="true"
+                />
+                <span>
+                  Only you can see your Saved posts and bookmarks. Visitors never
+                  have access to this tab.
+                </span>
+              </div>
+
+              {savedLoading ? (
+                <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+                  <Loader2
+                    className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
+                    aria-hidden="true"
+                  />
+                  Loading your saved content...
+                </div>
+              ) : !savedBundle ||
+                (savedBundle.posts.length === 0 &&
+                  savedBundle.anonymousPosts.length === 0 &&
+                  savedBundle.listings.length === 0 &&
+                  savedBundle.opportunities.length === 0) ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
+                  <Bookmark
+                    className="mx-auto mb-2 h-6 w-6 text-slate-400"
+                    aria-hidden="true"
+                  />
+                  <p className="font-display text-sm font-bold text-[#0B1A2E]">
+                    No saved content yet
+                  </p>
+                  <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600">
+                    Tap Save on any campus update or anonymous post to bookmark
+                    it here privately.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {savedBundle.posts.length > 0 && (
+                    <div className="space-y-3">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        Saved Updates ({savedBundle.posts.length})
+                      </h2>
+                      {renderPostVisualGrid(
+                        savedBundle.posts,
+                        '',
+                        ''
+                      )}
+                    </div>
+                  )}
+
+                  {savedBundle.anonymousPosts.length > 0 && (
+                    <div className="space-y-3">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        Saved Anonymous Posts ({savedBundle.anonymousPosts.length})
+                      </h2>
+                      <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
+                        {savedBundle.anonymousPosts.map((anonPost) => {
+                          const firstPhoto = anonPost.mediaItems?.[0];
+                          const theme = getAnonymousBackgroundTheme(
+                            anonPost.backgroundStyle
+                          );
+                          return (
+                            <button
+                              key={anonPost.id}
+                              type="button"
+                              onClick={() =>
+                                setDetailTarget({
+                                  kind: 'anonymous',
+                                  post: anonPost,
+                                })
+                              }
+                              className="group relative aspect-square w-full overflow-hidden rounded-xl bg-[#0B1A2E] text-left"
+                            >
+                              {firstPhoto ? (
+                                <FirestoreImage
+                                  imageId={firstPhoto.imageId}
+                                  alt="Saved anonymous post"
+                                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                />
+                              ) : (
+                                <div
+                                  className="flex h-full w-full flex-col justify-between p-2.5 sm:p-3.5"
+                                  style={{ background: theme.backgroundCss }}
+                                >
+                                  <span
+                                    className={`text-[10px] font-semibold uppercase ${theme.textColorClass} opacity-80`}
+                                  >
+                                    Anonymous
+                                  </span>
+                                  <p
+                                    className={`line-clamp-4 text-[11px] font-semibold sm:text-xs ${theme.textColorClass}`}
+                                  >
+                                    {anonPost.body}
+                                  </p>
+                                  <span aria-hidden="true" />
+                                </div>
+                              )}
+                              <div
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#0B1A2E]/85 to-transparent"
+                              />
+                              <div className="absolute right-2 bottom-1.5 left-2 flex items-center gap-2 text-[11px] font-semibold text-white">
+                                <span className="inline-flex items-center gap-1 tabular-nums">
+                                  <Heart
+                                    className="h-3 w-3 fill-white/90"
+                                    aria-hidden="true"
+                                  />
+                                  {anonPost.likesCount}
+                                </span>
+                                <span className="inline-flex items-center gap-1 tabular-nums">
+                                  <MessageCircle
+                                    className="h-3 w-3"
+                                    aria-hidden="true"
+                                  />
+                                  {anonPost.commentsCount}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {savedBundle.listings.length > 0 && (
+                    <div className="space-y-2.5">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        Saved Marketplace Listings ({savedBundle.listings.length})
+                      </h2>
+                      {savedBundle.listings.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                              {item.title}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {item.category} · ₦{item.price.toLocaleString()}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('marketplace')}
+                            className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                          >
+                            View
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {savedBundle.opportunities.length > 0 && (
+                    <div className="space-y-2.5">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        Saved Opportunities ({savedBundle.opportunities.length})
+                      </h2>
+                      {savedBundle.opportunities.map((opp) => (
+                        <div
+                          key={opp.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                              {opp.title}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {opp.organisation}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('opportunities')}
+                            className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: LIKED ORDINARY POSTS (Public Ordinary Content Only, Zero Anonymous Exposure) */}
+          {activeTab === 'liked' &&
+            renderPostVisualGrid(
+              bundle.likedPosts,
+              `No liked public posts yet`,
+              `Public community updates liked by @${profile.username} will appear here. Anonymous likes are never shown.`
+            )}
+
+          {/* TAB 4: MY ANONYMOUS POSTS (Strictly Private Owner History & Management) */}
+          {activeTab === 'anonymous' && bundle.isOwnProfile && (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2.5 rounded-xl border border-[#1E88E5]/25 bg-[#0B1A2E] p-3.5 text-xs leading-relaxed text-white">
+                <Shield
+                  className="mt-0.5 h-4 w-4 shrink-0 text-[#1E88E5]"
+                  aria-hidden="true"
+                />
+                <span>
+                  <strong>Private Author History:</strong> Only you can view,
+                  edit, or delete your anonymous posts here. Your public
+                  profile, followers, and search never reveal any link to these
+                  entries.
+                </span>
+              </div>
+
+              {anonLoading ? (
+                <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+                  <Loader2
+                    className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
+                    aria-hidden="true"
+                  />
+                  Loading your private anonymous posts...
+                </div>
+              ) : !anonHistory || anonHistory.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
+                  <Shield
+                    className="mx-auto mb-2 h-6 w-6 text-slate-400"
+                    aria-hidden="true"
+                  />
+                  <p className="font-display text-sm font-bold text-[#0B1A2E]">
+                    You haven&apos;t published any anonymous posts yet
+                  </p>
+                  <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600">
+                    When you post in the Anonymous section, your posts appear
+                    privately here so you can manage, edit, or delete them
+                    anytime.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('anonymous')}
+                    className="mt-4 inline-flex min-h-[40px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+                  >
+                    Go to Anonymous Feed
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {anonHistory.map((anonPost) => {
+                    const gridItems = mediaMetaToGridItems(anonPost.mediaItems);
+                    const isStyledText =
+                      gridItems.length === 0 &&
+                      Boolean(anonPost.backgroundStyle) &&
+                      anonPost.backgroundStyle !== 'plain';
+                    const theme = isStyledText
+                      ? getAnonymousBackgroundTheme(anonPost.backgroundStyle)
+                      : null;
+
+                    return (
+                      <article
+                        key={anonPost.id}
+                        className="rounded-2xl border border-slate-200 bg-white p-4"
+                        data-testid={`private-anon-card-${anonPost.id}`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-xs text-slate-500">
+                            <span className="font-semibold text-[#0B1A2E]">
+                              {anonPost.category}
+                            </span>
+                            <span aria-hidden="true"> · </span>
+                            <span>
+                              {formatHistoryTimestamp(anonPost.createdAt)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDetailTarget({
+                                  kind: 'anonymous',
+                                  post: anonPost,
+                                })
+                              }
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                            >
+                              <MessageCircle
+                                className="h-3.5 w-3.5 text-[#1E88E5]"
+                                aria-hidden="true"
+                              />
+                              View Thread
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSuspended}
+                              onClick={() => setEditingAnonPost(anonPost)}
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                isSuspended || deletingAnonId === anonPost.id
+                              }
+                              onClick={() =>
+                                setConfirmDeleteAnonId((prev) =>
+                                  prev === anonPost.id ? null : anonPost.id
+                                )
+                              }
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+
+                        {confirmDeleteAnonId === anonPost.id && (
+                          <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center">
+                            <span>
+                              Permanently delete this anonymous post, its
+                              replies, likes, and images?
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={deletingAnonId === anonPost.id}
+                                onClick={() =>
+                                  void handleDeleteOwnAnonPost(anonPost)
+                                }
+                                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-red-700 px-3 py-1 font-semibold text-white hover:bg-red-800"
+                              >
+                                {deletingAnonId === anonPost.id && (
+                                  <Loader2
+                                    className="h-3 w-3 animate-spin"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                Confirm Delete
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteAnonId(null)}
+                                className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {gridItems.length > 0 && (
+                          <div className="mt-3">
+                            <SquareImageGrid
+                              items={gridItems}
+                              postLabel="Your anonymous post"
+                              onImageClick={() =>
+                                setDetailTarget({
+                                  kind: 'anonymous',
+                                  post: anonPost,
+                                })
+                              }
+                            />
+                          </div>
+                        )}
+
+                        {isStyledText && theme ? (
+                          <div
+                            className="mt-3 flex min-h-[128px] items-center justify-center rounded-xl p-5 text-center"
+                            style={{ background: theme.backgroundCss }}
+                          >
+                            <p
+                              className={`whitespace-pre-wrap text-sm font-semibold sm:text-base ${theme.textColorClass}`}
+                            >
+                              {anonPost.body}
+                            </p>
+                          </div>
+                        ) : (
+                          anonPost.body.trim().length > 0 && (
+                            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                              {anonPost.body}
+                            </p>
+                          )
+                        )}
+
+                        <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-2.5 text-xs font-semibold text-slate-600">
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <Heart
+                              className="h-3.5 w-3.5 text-[#1E88E5]"
+                              aria-hidden="true"
+                            />
+                            {anonPost.likesCount} likes
+                          </span>
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <MessageCircle
+                              className="h-3.5 w-3.5 text-[#1E88E5]"
+                              aria-hidden="true"
+                            />
+                            {anonPost.commentsCount} replies
+                          </span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: MARKETPLACE LISTINGS */}
+          {activeTab === 'listings' && (
             <div className="space-y-3">
               {bundle.listings.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
@@ -648,58 +1940,87 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               )}
             </div>
           )}
+        </div>
+      </div>
 
-          {(activeTab === 'followers' || activeTab === 'following') && (
-            <div>
-              {listLoading ? (
+      {/* FOLLOWERS / FOLLOWING INTERACTIVE MODAL */}
+      {followModalKind && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/60 backdrop-blur-xs sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="follow-modal-title"
+          onClick={closeFollowModal}
+        >
+          <div
+            className="max-h-[82vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2
+                id="follow-modal-title"
+                className="font-display text-base font-bold text-[#0B1A2E]"
+              >
+                {followModalKind === 'followers'
+                  ? `Followers (${profile.followersCount})`
+                  : `Following (${profile.followingCount})`}
+              </h2>
+              <button
+                type="button"
+                onClick={closeFollowModal}
+                aria-label="Close list"
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="mt-4">
+              {followModalLoading ? (
                 <div className="flex items-center justify-center py-8 text-sm text-slate-600">
                   <Loader2
                     className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
                     aria-hidden="true"
                   />
-                  Loading {activeTab}...
+                  Loading {followModalKind}...
                 </div>
-              ) : (activeTab === 'followers' ? followersList : followingList)
-                  .length === 0 ? (
+              ) : !followModalList || followModalList.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
                   <Users
                     className="mx-auto mb-2 h-5 w-5 text-slate-400"
                     aria-hidden="true"
                   />
-                  {activeTab === 'followers'
+                  {followModalKind === 'followers'
                     ? `@${profile.username} does not have any followers yet.`
                     : `@${profile.username} is not following anyone yet.`}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {(activeTab === 'followers'
-                    ? followersList
-                    : followingList
-                  ).map((member) => (
+                <div className="space-y-2.5">
+                  {followModalList.map((member) => (
                     <button
                       key={member.username}
                       type="button"
-                      onClick={() =>
-                        onNavigate('profile', { username: member.username })
-                      }
-                      className="flex min-h-[64px] items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition-colors hover:border-[#1E88E5] hover:bg-slate-50"
+                      onClick={() => {
+                        closeFollowModal();
+                        onNavigate('profile', { username: member.username });
+                      }}
+                      className="flex min-h-[60px] w-full items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition-colors hover:border-[#1E88E5] hover:bg-slate-50"
                     >
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0B1A2E] text-xs font-bold text-white">
-                        {member.photoUrl ? (
-                          <img
-                            src={member.photoUrl}
-                            alt={member.fullName}
-                            loading="lazy"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span>{getInitials(member.fullName)}</span>
-                        )}
-                      </div>
+                      <AvatarMedia
+                        fullName={member.fullName}
+                        photoImageId={member.photoImageId}
+                        photoUrl={member.photoUrl}
+                        sizeClass="h-11 w-11"
+                        roundedClass="rounded-full"
+                        textClass="text-xs"
+                      />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                          {member.fullName}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                            {member.fullName}
+                          </p>
+                          <RoleBadge badge={member.badge} size="xs" />
+                        </div>
                         <p className="truncate text-xs text-slate-600">
                           @{member.username}
                           {member.department ? ` · ${member.department}` : ''}
@@ -710,9 +2031,262 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 </div>
               )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* POST DETAIL MODAL (Opens when tapping any visual grid tile or View Thread) */}
+      {detailTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/70 backdrop-blur-xs sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Post details"
+          onClick={() => setDetailTarget(null)}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-slate-50 p-4 shadow-2xl sm:rounded-2xl sm:p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <span className="font-display text-sm font-bold text-[#0B1A2E]">
+                {detailTarget.kind === 'anonymous'
+                  ? 'Anonymous Post Thread'
+                  : 'Campus Update'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setDetailTarget(null)}
+                aria-label="Close post details"
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl bg-white text-slate-600 shadow-xs hover:text-[#0B1A2E]"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            {detailTarget.kind === 'ordinary' ? (
+              <PostCard
+                key={detailTarget.post.id}
+                kind="ordinary"
+                post={detailTarget.post}
+                author={detailTarget.author}
+                viewerUid={user?.uid ?? null}
+                viewerTier={effectiveTier}
+                viewerSuspended={isSuspended}
+                isLiked={likedPostIds.has(detailTarget.post.id)}
+                isSaved={savedPostIds.has(detailTarget.post.id)}
+                defaultCommentsOpen
+                onNavigateProfile={(uname) => {
+                  setDetailTarget(null);
+                  onNavigate('profile', { username: uname });
+                }}
+                onRequireAuth={(authRoute, returnTo) => {
+                  setDetailTarget(null);
+                  onRequireAuth(authRoute, returnTo);
+                }}
+                returnRoute="profile"
+                onEditPost={(targetPost) => {
+                  setDetailTarget(null);
+                  setEditingOrdinaryPost(targetPost as CommunityPost);
+                }}
+                onPostUpdated={handleOrdinaryPostUpdated}
+                onPostDeleted={handleOrdinaryPostDeleted}
+                onSaveChanged={(postId, saved) => {
+                  setSavedPostIds((prev) => {
+                    const next = new Set(prev);
+                    if (saved) next.add(postId);
+                    else next.delete(postId);
+                    return next;
+                  });
+                  if (!saved) {
+                    setSavedBundle((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            posts: prev.posts.filter((e) => e.post.id !== postId),
+                          }
+                        : prev
+                    );
+                  } else {
+                    setSavedBundle(null);
+                  }
+                }}
+              />
+            ) : (
+              <PostCard
+                key={detailTarget.post.id}
+                kind="anonymous"
+                post={detailTarget.post}
+                viewerUid={user?.uid ?? null}
+                viewerTier={effectiveTier}
+                viewerSuspended={isSuspended}
+                isLiked={likedAnonIds.has(detailTarget.post.id)}
+                isSaved={savedAnonIds.has(detailTarget.post.id)}
+                defaultCommentsOpen
+                isOwnedAnonymous={bundle.isOwnProfile}
+                ownedAnonymousCommentIds={ownedAnonCommentIds}
+                onRequireAuth={(authRoute, returnTo) => {
+                  setDetailTarget(null);
+                  onRequireAuth(authRoute, returnTo);
+                }}
+                returnRoute="profile"
+                onEditPost={(targetPost) => {
+                  setDetailTarget(null);
+                  setEditingAnonPost(targetPost as AnonymousPost);
+                }}
+                onPostUpdated={(updated) => {
+                  const anonUpdated = updated as AnonymousPost;
+                  setAnonHistory((prev) =>
+                    prev
+                      ? prev.map((item) =>
+                          item.id === anonUpdated.id ? anonUpdated : item
+                        )
+                      : prev
+                  );
+                  setDetailTarget((prev) =>
+                    prev &&
+                    prev.kind === 'anonymous' &&
+                    prev.post.id === anonUpdated.id
+                      ? { ...prev, post: anonUpdated }
+                      : prev
+                  );
+                }}
+                onPostDeleted={(deletedId) => {
+                  setAnonHistory((prev) =>
+                    prev ? prev.filter((item) => item.id !== deletedId) : prev
+                  );
+                  setSavedBundle((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          anonymousPosts: prev.anonymousPosts.filter(
+                            (p) => p.id !== deletedId
+                          ),
+                        }
+                      : prev
+                  );
+                  setDetailTarget(null);
+                }}
+                onSaveChanged={(postId, saved) => {
+                  setSavedAnonIds((prev) => {
+                    const next = new Set(prev);
+                    if (saved) next.add(postId);
+                    else next.delete(postId);
+                    return next;
+                  });
+                  if (!saved) {
+                    setSavedBundle((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            anonymousPosts: prev.anonymousPosts.filter(
+                              (p) => p.id !== postId
+                            ),
+                          }
+                        : prev
+                    );
+                  } else {
+                    setSavedBundle(null);
+                  }
+                }}
+                onAnonymousCommentTracked={(commentId, action) =>
+                  setOwnedAnonCommentIds((prev) => {
+                    const next = new Set(prev);
+                    if (action === 'add') next.add(commentId);
+                    else next.delete(commentId);
+                    return next;
+                  })
+                }
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* EDIT PROFILE MODAL */}
+      {editProfileOpen && user && bundle.isOwnProfile && (
+        <EditProfileModal
+          uid={user.uid}
+          authEmail={user.email ?? ''}
+          profile={viewerProfile}
+          isSuspended={isSuspended}
+          onRefreshAccount={refreshAccountState}
+          onSaved={(updatedUsername) => {
+            setEditProfileOpen(false);
+            setActionMessage('Your profile changes have been saved.');
+            window.setTimeout(() => setActionMessage(null), 3200);
+            if (updatedUsername !== bundle.resolvedUsername) {
+              onNavigate('profile', {
+                username: updatedUsername,
+                profileTab: activeTab,
+              });
+            }
+          }}
+          onClose={() => setEditProfileOpen(false)}
+        />
+      )}
+
+      {/* PROFILE MENU / SETTINGS SHEET */}
+      {menuSheetOpen && user && bundle.isOwnProfile && (
+        <ProfileMenuSheet
+          uid={user.uid}
+          username={profile.username}
+          showWhatsappPublicly={profile.showWhatsappPublicly}
+          isSuspended={isSuspended}
+          onEditProfile={() => setEditProfileOpen(true)}
+          onOpenAccountSettings={() => onNavigate('account')}
+          onSelectSavedTab={() => handleSelectTab('saved')}
+          onSelectAnonymousTab={() => handleSelectTab('anonymous')}
+          onPrivacyUpdated={async () => {
+            await refreshAccountState();
+          }}
+          onSignedOut={() => onNavigate('for-you')}
+          onClose={() => setMenuSheetOpen(false)}
+        />
+      )}
+
+      {/* ORDINARY POST COMPOSER (Edit) */}
+      {editingOrdinaryPost && user && (
+        <PostComposer
+          mode="ordinary"
+          actorUid={user.uid}
+          actorRole={
+            (effectiveTier === 'guest' ? 'member' : effectiveTier) as UserRole
+          }
+          actorName={viewerProfile?.fullName || user.displayName || undefined}
+          actorUsername={viewerProfile?.username}
+          initialPost={editingOrdinaryPost}
+          onSuccess={(updated) => {
+            handleOrdinaryPostUpdated(updated);
+            setEditingOrdinaryPost(null);
+          }}
+          onClose={() => setEditingOrdinaryPost(null)}
+        />
+      )}
+
+      {/* ANONYMOUS POST COMPOSER (Edit from My Anonymous Posts) */}
+      {editingAnonPost && user && (
+        <PostComposer
+          mode="anonymous"
+          actorUid={user.uid}
+          actorRole={
+            (effectiveTier === 'guest' ? 'member' : effectiveTier) as UserRole
+          }
+          initialPost={editingAnonPost}
+          onSuccess={(updated) => {
+            const anonUpdated = updated as AnonymousPost;
+            setAnonHistory((prev) =>
+              prev
+                ? prev.map((item) =>
+                    item.id === anonUpdated.id ? anonUpdated : item
+                  )
+                : prev
+            );
+            setEditingAnonPost(null);
+          }}
+          onClose={() => setEditingAnonPost(null)}
+        />
+      )}
     </section>
   );
 };

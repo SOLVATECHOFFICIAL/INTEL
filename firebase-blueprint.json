@@ -13,8 +13,11 @@
         "department": { "type": "string", "maxLength": 120 },
         "faculty": { "type": "string", "maxLength": 120 },
         "level": { "type": "string", "maxLength": 32 },
+        "accountCategory": { "type": "string", "maxLength": 64 },
         "photoUrl": { "type": "string", "maxLength": 512 },
         "coverUrl": { "type": "string", "maxLength": 512 },
+        "photoImageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "coverImageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "publicEmail": { "type": "string", "maxLength": 160 },
         "publicWhatsapp": { "type": "string", "maxLength": 24 },
         "showWhatsappPublicly": { "type": "boolean" },
@@ -30,7 +33,7 @@
     },
     "PrivateUserData": {
       "title": "PrivateUserData",
-      "description": "Strictly private user account metadata, private contact details, notification preferences, and background recommendation signals.",
+      "description": "Strictly private user account metadata, private contact details, notification preferences, owned anonymous entry IDs, and background recommendation signals.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -40,9 +43,21 @@
         "notificationPrefs": { "type": "object" },
         "interestCategories": { "type": "array" },
         "ownedUsernames": { "type": "array" },
+        "ownedAnonymousPostIds": { "type": "array" },
+        "ownedAnonymousCommentIds": { "type": "array" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "authEmail", "updatedAt"]
+    },
+    "PrivateAnonymousHistoryEntry": {
+      "title": "PrivateAnonymousHistoryEntry",
+      "description": "Owner-only pointer enabling authenticated authors to view, edit, and delete their own anonymous posts in private history without exposing authorship publicly.",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "createdAt"]
     },
     "UserRoleRecord": {
       "title": "UserRoleRecord",
@@ -75,7 +90,7 @@
     },
     "CommunityPost": {
       "title": "CommunityPost",
-      "description": "Ordinary community feed post (For You, Following, Latest). Publishable only by verified, moderator, supreme_admin, or owner.",
+      "description": "Ordinary community feed post (For You, Following, Latest). Publishable only by verified, moderator, supreme_admin, or owner. Image metadata stored here; Base64 bytes live in /mediaImages/{imageId}.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -83,8 +98,9 @@
         "authorRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified"] },
         "category": { "type": "string", "minLength": 2, "maxLength": 64 },
         "title": { "type": "string", "maxLength": 180 },
-        "body": { "type": "string", "minLength": 1, "maxLength": 5000 },
+        "body": { "type": "string", "maxLength": 5000 },
         "mediaUrls": { "type": "array" },
+        "mediaItems": { "type": "array" },
         "isOfficial": { "type": "boolean" },
         "isPinned": { "type": "boolean" },
         "status": { "type": "string", "enum": ["published", "deleted"] },
@@ -138,12 +154,14 @@
     },
     "AnonymousPost": {
       "title": "AnonymousPost",
-      "description": "Public anonymous post in The Unfiltered. Must NEVER contain author UID, email, phone, or profile identifiers.",
+      "description": "Public anonymous post in The Unfiltered. Must NEVER contain author UID, email, phone, or profile identifiers. Supports background styles for text-only posts and lightweight mediaItems metadata referencing /mediaImages/{imageId}.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "category": { "type": "string", "minLength": 2, "maxLength": 64 },
-        "body": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "body": { "type": "string", "maxLength": 3000 },
+        "backgroundStyle": { "type": "string", "maxLength": 32 },
+        "mediaItems": { "type": "array" },
         "status": { "type": "string", "enum": ["published", "deleted"] },
         "visibility": { "type": "string", "enum": ["public"] },
         "likesCount": { "type": "integer" },
@@ -225,6 +243,7 @@
         "approvalStatus": { "type": "string", "enum": ["pending_approval", "approved", "rejected"] },
         "status": { "type": "string", "enum": ["pending_approval", "active", "sold", "expired", "rejected"] },
         "approvedByUid": { "type": "string", "maxLength": 128 },
+        "approvedAt": { "type": "string", "format": "date-time" },
         "visibility": { "type": "string", "enum": ["public", "owner_and_admins"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
@@ -340,9 +359,111 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "updatedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pinnedAnnouncementPostId": { "type": "string", "maxLength": 128 },
+        "maintenanceNotice": { "type": "string", "maxLength": 400 },
+        "marketplaceSubmissionsOpen": { "type": "boolean" },
+        "anonymousPostingOpen": { "type": "boolean" },
+        "newRegistrationsOpen": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "updatedByUid", "updatedAt"]
+    },
+    "MediaImage": {
+      "title": "MediaImage",
+      "description": "Separate Firestore document holding one client-compressed Base64 image (~100 KB target, hard-capped far below 1 MiB). Anonymous post images strictly omit ownerUID and filename metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetCollection": { "type": "string", "enum": ["users_avatar", "users_cover", "posts", "anonymousPosts", "marketplaceListings"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "mimeType": { "type": "string", "enum": ["image/webp", "image/jpeg"] },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "byteSize": { "type": "integer" },
+        "base64Data": { "type": "string", "minLength": 24, "maxLength": 280000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "targetCollection", "targetId", "mimeType", "width", "height", "byteSize", "base64Data", "createdAt"]
+    },
+    "BadgeAuditLog": {
+      "title": "BadgeAuditLog",
+      "description": "Immutable internal audit log recording every badge/role assignment, promotion, demotion, removal, and account suspension action by Supreme Admin or Owner.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetUsername": { "type": "string", "maxLength": 32 },
+        "action": {
+          "type": "string",
+          "enum": [
+            "grant_verified",
+            "remove_verified",
+            "grant_moderator",
+            "promote_verified_to_moderator",
+            "demote_moderator_to_verified",
+            "demote_moderator_to_member",
+            "remove_moderator",
+            "grant_supreme_admin",
+            "remove_supreme_admin",
+            "suspend_account",
+            "restore_account"
+          ]
+        },
+        "previousRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
+        "previousBadge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
+        "nextRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
+        "nextBadge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
+        "performedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "performedByRole": { "type": "string", "enum": ["owner", "supreme_admin"] },
+        "reason": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "targetUid", "action", "previousRole", "previousBadge", "nextRole", "nextBadge", "performedByUid", "performedByRole", "createdAt"]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Immutable administrative and moderation audit trail covering marketplace reviews, content deletions, opportunities, events, trusted circle contacts, and platform settings.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": {
+          "type": "string",
+          "enum": [
+            "marketplace_approved",
+            "marketplace_rejected",
+            "marketplace_removed",
+            "marketplace_status_updated",
+            "post_deleted",
+            "anonymous_post_deleted",
+            "post_comment_deleted",
+            "anonymous_comment_deleted",
+            "post_pinned",
+            "post_unpinned",
+            "post_official_toggled",
+            "opportunity_created",
+            "opportunity_updated",
+            "opportunity_expired",
+            "opportunity_deleted",
+            "event_created",
+            "event_updated",
+            "event_cancelled",
+            "event_deleted",
+            "trusted_contact_created",
+            "trusted_contact_updated",
+            "trusted_contact_deleted",
+            "settings_updated"
+          ]
+        },
+        "targetCollection": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetLabel": { "type": "string", "maxLength": 180 },
+        "performedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "performedByRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator"] },
+        "details": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "action", "targetCollection", "targetId", "performedByUid", "performedByRole", "createdAt"]
     }
   },
   "firestore": {
@@ -353,6 +474,10 @@
     "/privateUserData/{userId}": {
       "schema": { "$ref": "#/entities/PrivateUserData" },
       "description": "Private user email, phone, notification settings, and feed recommendation signals."
+    },
+    "/privateUserData/{userId}/anonymousHistory/{postId}": {
+      "schema": { "$ref": "#/entities/PrivateAnonymousHistoryEntry" },
+      "description": "Strictly owner-only private history pointers for anonymous posts authored by {userId}."
     },
     "/userRoles/{userId}": {
       "schema": { "$ref": "#/entities/UserRoleRecord" },
@@ -425,6 +550,18 @@
     "/platformSettings/{settingId}": {
       "schema": { "$ref": "#/entities/PlatformSetting" },
       "description": "System-wide configuration documents."
+    },
+    "/mediaImages/{imageId}": {
+      "schema": { "$ref": "#/entities/MediaImage" },
+      "description": "Isolated compressed Base64 image documents (single-field indexing disabled on base64Data)."
+    },
+    "/badgeAuditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/BadgeAuditLog" },
+      "description": "Immutable internal audit trail of all badge/role changes performed by Supreme Admin or Permanent Owner."
+    },
+    "/adminAuditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AdminAuditLog" },
+      "description": "Immutable administrative and moderation audit trail readable only by Supreme Admin or Permanent Owner."
     }
   }
 }

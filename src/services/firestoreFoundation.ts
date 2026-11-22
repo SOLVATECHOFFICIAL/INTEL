@@ -16,6 +16,8 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
+  SUBCOLLECTION_NAMES,
+  computeTotalOrdinaryPostLikes,
   isSafeMediaUrl,
   isValidFirestoreId,
   isValidUsername,
@@ -28,6 +30,7 @@ import {
   type MarketplaceListing,
   type NotificationItem,
   type Opportunity,
+  type PostReaction,
   type PrivateUserData,
   type PublicProfileProjection,
   type PublicUserProfile,
@@ -85,7 +88,9 @@ export interface MemberProfileBundle {
   isFollowing: boolean;
   isSuspended: boolean;
   canPublishOrdinaryPosts: boolean;
+  totalLikesReceived: number;
   posts: CommunityPost[];
+  likedPosts: CommunityPostWithAuthor[];
   listings: MarketplaceListing[];
 }
 
@@ -368,6 +373,9 @@ export async function updateMemberAccountProfileAndUsername(
     .slice(0, BLUEPRINT_LIMITS.departmentMax);
   const cleanFaculty = input.faculty.trim().slice(0, BLUEPRINT_LIMITS.facultyMax);
   const cleanLevel = input.level.trim().slice(0, BLUEPRINT_LIMITS.levelMax);
+  const cleanAccountCategory = input.accountCategory
+    .trim()
+    .slice(0, BLUEPRINT_LIMITS.accountCategoryMax);
   const cleanWhatsapp = input.publicWhatsapp
     .trim()
     .slice(0, BLUEPRINT_LIMITS.phoneMax);
@@ -443,6 +451,13 @@ export async function updateMemberAccountProfileAndUsername(
         });
       }
 
+      const nextShowWhatsappPublicly =
+        typeof input.showWhatsappPublicly === 'boolean'
+          ? input.showWhatsappPublicly
+          : existingPublic
+          ? existingPublic.showWhatsappPublicly
+          : true;
+
       if (!existingPublic) {
         const createPayload: Record<string, unknown> = {
           uid,
@@ -452,7 +467,7 @@ export async function updateMemberAccountProfileAndUsername(
           department: cleanDepartment,
           level: cleanLevel,
           publicWhatsapp: cleanWhatsapp,
-          showWhatsappPublicly: true,
+          showWhatsappPublicly: nextShowWhatsappPublicly,
           badge: 'none' satisfies BadgeType,
           accountStatus: 'active',
           isHiddenFromDirectory: false,
@@ -463,6 +478,9 @@ export async function updateMemberAccountProfileAndUsername(
         };
         if (cleanBio) createPayload.bio = cleanBio;
         if (cleanFaculty) createPayload.faculty = cleanFaculty;
+        if (cleanAccountCategory) {
+          createPayload.accountCategory = cleanAccountCategory;
+        }
         if (cleanPhotoUrl) createPayload.photoUrl = cleanPhotoUrl;
         if (cleanCoverUrl) createPayload.coverUrl = cleanCoverUrl;
 
@@ -475,10 +493,11 @@ export async function updateMemberAccountProfileAndUsername(
           department: cleanDepartment,
           faculty: cleanFaculty,
           level: cleanLevel,
+          accountCategory: cleanAccountCategory,
           photoUrl: cleanPhotoUrl,
           coverUrl: cleanCoverUrl,
           publicWhatsapp: cleanWhatsapp,
-          showWhatsappPublicly: true,
+          showWhatsappPublicly: nextShowWhatsappPublicly,
           updatedAt: serverTimestamp(),
         });
       }
@@ -522,6 +541,29 @@ export async function updateMemberAccountProfileAndUsername(
       throw error;
     }
     handleFirestoreError(error, OperationType.UPDATE, txPath);
+  }
+}
+
+export async function updateMemberPrivacySettings(
+  uid: string,
+  input: { showWhatsappPublicly: boolean }
+): Promise<void> {
+  if (!isValidFirestoreId(uid)) {
+    throw new DomainValidationError('Invalid user UID.');
+  }
+
+  const publicRef = doc(db, COLLECTION_NAMES.users, uid);
+  const path = `${COLLECTION_NAMES.users}/${uid}`;
+
+  try {
+    const batch = writeBatch(db);
+    batch.update(publicRef, {
+      showWhatsappPublicly: Boolean(input.showWhatsappPublicly),
+      updatedAt: serverTimestamp(),
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
@@ -682,6 +724,11 @@ export async function fetchMemberProfileBundleByUsername(
     handleFirestoreError(error, OperationType.LIST, listingsPath);
   }
 
+  const likedPosts = await fetchLikedOrdinaryPostsByUid(profileDoc.uid).catch(
+    () => [] as CommunityPostWithAuthor[]
+  );
+  const totalLikesReceived = computeTotalOrdinaryPostLikes(posts);
+
   return {
     profile: toPublicProfileProjection(profileDoc),
     resolvedUsername: profileDoc.username,
@@ -694,9 +741,74 @@ export async function fetchMemberProfileBundleByUsername(
     isFollowing,
     isSuspended: profileDoc.accountStatus === 'suspended',
     canPublishOrdinaryPosts,
+    totalLikesReceived,
     posts,
+    likedPosts,
     listings,
   };
+}
+
+/**
+ * Fetches ONLY public ordinary posts liked by the specified user.
+ * Strictly filters targetCollection == 'posts' so anonymous likes never leak.
+ */
+export async function fetchLikedOrdinaryPostsByUid(
+  targetUid: string,
+  maxItems = 45
+): Promise<CommunityPostWithAuthor[]> {
+  if (!isValidFirestoreId(targetUid)) {
+    return [];
+  }
+
+  const q = query(
+    collection(db, COLLECTION_NAMES.postReactions),
+    where('ownerUID', '==', targetUid),
+    where('targetCollection', '==', 'posts'),
+    limit(Math.max(maxItems, 60))
+  );
+  const reactionSnap = await getDocs(q);
+  const reactionEntries = reactionSnap.docs
+    .map((item) => item.data() as PostReaction)
+    .sort((a, b) => {
+      const aMs = extractTimestampMs(a.createdAt) ?? 0;
+      const bMs = extractTimestampMs(b.createdAt) ?? 0;
+      return bMs - aMs;
+    })
+    .slice(0, maxItems);
+
+  const uniquePostIds = Array.from(
+    new Set(
+      reactionEntries
+        .map((entry) => entry.targetId)
+        .filter(isValidFirestoreId)
+    )
+  );
+  if (uniquePostIds.length === 0) {
+    return [];
+  }
+
+  const postSnaps = await Promise.allSettled(
+    uniquePostIds.map((postId) => getDoc(doc(db, COLLECTION_NAMES.posts, postId)))
+  );
+
+  const posts: CommunityPost[] = [];
+  for (const res of postSnaps) {
+    if (res.status === 'fulfilled' && res.value.exists()) {
+      const data = res.value.data() as CommunityPost;
+      if (data.status === 'published') {
+        posts.push(data);
+      }
+    }
+  }
+
+  const authorMap = await fetchPublicProfileProjectionsByUids(
+    posts.map((post) => post.ownerUID)
+  );
+
+  return posts.map((post) => ({
+    post,
+    author: authorMap.get(post.ownerUID) ?? null,
+  }));
 }
 
 export async function followMemberByUsername(
@@ -1383,6 +1495,19 @@ export async function createAnonymousPostAtomically(
       entryType: 'anonymousPosts',
       authorUid: input.authorUid,
       authorRole: input.authorRole,
+      createdAt: serverTimestamp(),
+    }
+  );
+  batch.set(
+    doc(
+      db,
+      COLLECTION_NAMES.privateUserData,
+      input.authorUid,
+      SUBCOLLECTION_NAMES.anonymousHistory,
+      input.postId
+    ),
+    {
+      postId: input.postId,
       createdAt: serverTimestamp(),
     }
   );

@@ -1,8 +1,10 @@
 import React from 'react';
 import {
   Bell,
+  Bookmark,
   ChevronRight,
   ExternalLink,
+  Lock,
   LogIn,
   LogOut,
   Search,
@@ -14,8 +16,11 @@ import {
 import { PLATFORM_SECTIONS } from '../config/sections';
 import { useFirebase } from '../context/firebaseContext';
 import { signOutCurrentUser } from '../services/auth';
-import { ActiveRoute, SearchScopeId } from '../types/platform';
-import { canAccessAdminDashboard } from '../utils/authValidation';
+import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
+import {
+  canAccessAdminDashboard,
+  canAccessFullAdminDashboard,
+} from '../utils/authValidation';
 import { getSearchScopeFromRoute } from '../utils/urlRouting';
 import { SectionIcon } from './SectionIcon';
 
@@ -24,7 +29,11 @@ interface MobileSectionDrawerProps {
   activeRoute: ActiveRoute;
   onSelectRoute: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
   onClose: () => void;
@@ -45,7 +54,11 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
 
   const handlePick = (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => {
     onSelectRoute(route, options);
     onClose();
@@ -63,6 +76,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
   };
 
   const showAdminLink = canAccessAdminDashboard(effectiveTier, isSuspended);
+  const isFullAdmin = canAccessFullAdminDashboard(effectiveTier, isSuspended);
 
   return (
     <div
@@ -109,26 +123,79 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
         <div className="mt-3 space-y-1.5 border-b border-slate-100 pb-3">
           {user ? (
             <>
-              {profile?.username && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    handlePick('profile', { username: profile.username })
-                  }
-                  className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
-                >
-                  <span className="flex items-center gap-3">
-                    <ExternalLink
-                      className="h-4 w-4 text-[#1E88E5]"
-                      aria-hidden="true"
-                    />
-                    My Public Profile (@{profile.username})
-                  </span>
-                  <ChevronRight
-                    className="h-4 w-4 text-slate-400"
+              <button
+                type="button"
+                onClick={() =>
+                  handlePick(
+                    'profile',
+                    profile?.username ? { username: profile.username } : undefined
+                  )
+                }
+                className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+              >
+                <span className="flex items-center gap-3">
+                  <ExternalLink
+                    className="h-4 w-4 text-[#1E88E5]"
                     aria-hidden="true"
                   />
-                </button>
+                  {profile?.username
+                    ? `My Profile (@${profile.username})`
+                    : 'My Profile'}
+                </span>
+                <ChevronRight
+                  className="h-4 w-4 text-slate-400"
+                  aria-hidden="true"
+                />
+              </button>
+
+              {profile?.username && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePick('profile', {
+                        username: profile.username,
+                        profileTab: 'saved',
+                      })
+                    }
+                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Bookmark
+                        className="h-4 w-4 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                      Saved Content
+                    </span>
+                    <ChevronRight
+                      className="h-4 w-4 text-slate-400"
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handlePick('profile', {
+                        username: profile.username,
+                        profileTab: 'anonymous',
+                      })
+                    }
+                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Lock
+                        className="h-4 w-4 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                      My Anonymous Posts
+                    </span>
+                    <ChevronRight
+                      className="h-4 w-4 text-slate-400"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </>
               )}
 
               <button
@@ -151,7 +218,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 >
                   <span className="flex items-center gap-3">
                     <ShieldCheck className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                    Administrator Dashboard
+                    {isFullAdmin ? 'Administrator Dashboard' : 'Moderation Console'}
                   </span>
                   <ChevronRight className="h-4 w-4 opacity-70" aria-hidden="true" />
                 </button>

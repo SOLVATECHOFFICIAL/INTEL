@@ -2,17 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { User } from 'firebase/auth';
 import {
+  ACCOUNT_CATEGORY_OPTIONS,
   buildWhatsAppChatUrl,
   CAMPUS_STATUS_OPTIONS,
   canAccessAdminDashboard,
+  canAccessFullAdminDashboard,
   canCreateAnonymousEntry,
   canPublishOrdinaryFeedUpdate,
   formatFirestoreOrAppError,
   isAccountSuspended,
+  isPermanentOwnerUser,
   isReservedUsername,
   isValidEmailAddress,
   mapFirebaseAuthError,
   normalizeUsername,
+  PERMANENT_OWNER_EMAIL,
   resolveEffectiveAccountTier,
   toPublicProfileProjection,
   validatePasswordChangeForm,
@@ -72,7 +76,10 @@ test('validateRegistrationForm requires all compulsory fields and enforces uniqu
   assert.ok(CAMPUS_STATUS_OPTIONS.includes('Lecturer / Academic Staff'));
 });
 
-test('validateProfileSettingsForm validates username, bio, department, faculty, media URLs, level, and public WhatsApp updates', () => {
+test('validateProfileSettingsForm validates username, bio, department, faculty, accountCategory, media URLs, level, and public WhatsApp updates', () => {
+  assert.ok(ACCOUNT_CATEGORY_OPTIONS.includes('Undergraduate Student'));
+  assert.ok(ACCOUNT_CATEGORY_OPTIONS.includes('Lecturer / Academic Staff'));
+
   assert.deepEqual(
     validateProfileSettingsForm({
       fullName: 'Dr. Tunde Bakare',
@@ -81,6 +88,7 @@ test('validateProfileSettingsForm validates username, bio, department, faculty, 
       department: 'Computer Science',
       faculty: 'Science and Technology Education',
       level: 'Lecturer / Academic Staff',
+      accountCategory: 'Lecturer / Academic Staff',
       publicWhatsapp: '08012345678',
       photoUrl: 'https://example.com/avatar.jpg',
       coverUrl: 'https://example.com/cover.jpg',
@@ -95,6 +103,7 @@ test('validateProfileSettingsForm validates username, bio, department, faculty, 
     department: '',
     faculty: 'f'.repeat(121),
     level: '',
+    accountCategory: 'c'.repeat(65),
     publicWhatsapp: '12',
     photoUrl: 'data:image/png;base64,AAA',
     coverUrl: 'blob:https://example.com/123',
@@ -106,6 +115,7 @@ test('validateProfileSettingsForm validates username, bio, department, faculty, 
   assert.ok(invalid.department);
   assert.ok(invalid.faculty);
   assert.ok(invalid.level);
+  assert.ok(invalid.accountCategory);
   assert.ok(invalid.publicWhatsapp);
   assert.ok(invalid.photoUrl);
   assert.ok(invalid.coverUrl);
@@ -130,7 +140,7 @@ test('validatePasswordChangeForm enforces current password, length, and confirma
   assert.ok(invalid.confirmNewPassword);
 });
 
-test('toPublicProfileProjection strictly strips uid, memberId, publicEmail, and directory visibility flags', () => {
+test('toPublicProfileProjection strictly strips uid, memberId, publicEmail, hidden WhatsApp, and directory visibility flags while preserving accountCategory', () => {
   const projected = toPublicProfileProjection({
     uid: 'secret_firebase_uid_999',
     memberId: 'LI-secret_member',
@@ -140,6 +150,7 @@ test('toPublicProfileProjection strictly strips uid, memberId, publicEmail, and 
     department: 'Computer Science',
     faculty: 'Science',
     level: 'Finalist',
+    accountCategory: 'Finalist Student',
     publicEmail: 'private@lasued.edu.ng',
     publicWhatsapp: '+2348012345678',
     showWhatsappPublicly: true,
@@ -157,7 +168,26 @@ test('toPublicProfileProjection strictly strips uid, memberId, publicEmail, and 
   assert.equal('publicEmail' in projected, false);
   assert.equal('isHiddenFromDirectory' in projected, false);
   assert.equal(projected.username, 'solomon');
+  assert.equal(projected.accountCategory, 'Finalist Student');
+  assert.equal(projected.publicWhatsapp, '+2348012345678');
   assert.equal(projected.followersCount, 12);
+
+  const hiddenWhatsapp = toPublicProfileProjection({
+    uid: 'secret_2',
+    memberId: 'LI-secret_2',
+    fullName: 'Private Member',
+    username: 'private_member',
+    publicWhatsapp: '+2348012345678',
+    showWhatsappPublicly: false,
+    badge: 'none',
+    accountStatus: 'active',
+    isHiddenFromDirectory: false,
+    followersCount: 0,
+    followingCount: 0,
+    createdAt: 1000,
+    updatedAt: 2000,
+  });
+  assert.equal(hiddenWhatsapp.publicWhatsapp, undefined);
 });
 
 test('buildWhatsAppChatUrl formats Nigerian local and international numbers cleanly', () => {
@@ -224,14 +254,47 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
     'owner'
   );
 
-  // Admin dashboard guard
+  assert.equal(
+    resolveEffectiveAccountTier(
+      { uid: 'owner_uid', email: PERMANENT_OWNER_EMAIL, emailVerified: true } as User,
+      null
+    ),
+    'owner'
+  );
+  assert.equal(
+    isPermanentOwnerUser({
+      uid: 'owner_uid',
+      email: PERMANENT_OWNER_EMAIL,
+      emailVerified: false,
+    } as User),
+    false
+  );
+  assert.equal(
+    isPermanentOwnerUser({
+      uid: 'owner_uid',
+      email: PERMANENT_OWNER_EMAIL.toUpperCase(),
+      emailVerified: true,
+    } as User),
+    true
+  );
+
+  // Admin dashboard guard (Moderators enter scoped console; full admin requires Supreme Admin / Owner)
   assert.equal(canAccessAdminDashboard('guest', false), false);
   assert.equal(canAccessAdminDashboard('member', false), false);
   assert.equal(canAccessAdminDashboard('verified', false), false);
-  assert.equal(canAccessAdminDashboard('moderator', false), false);
+  assert.equal(canAccessAdminDashboard('moderator', false), true);
+  assert.equal(canAccessAdminDashboard('moderator', true), false);
   assert.equal(canAccessAdminDashboard('supreme_admin', false), true);
   assert.equal(canAccessAdminDashboard('owner', false), true);
   assert.equal(canAccessAdminDashboard('owner', true), false);
+
+  assert.equal(canAccessFullAdminDashboard('guest', false), false);
+  assert.equal(canAccessFullAdminDashboard('member', false), false);
+  assert.equal(canAccessFullAdminDashboard('verified', false), false);
+  assert.equal(canAccessFullAdminDashboard('moderator', false), false);
+  assert.equal(canAccessFullAdminDashboard('supreme_admin', false), true);
+  assert.equal(canAccessFullAdminDashboard('owner', false), true);
+  assert.equal(canAccessFullAdminDashboard('owner', true), false);
 
   // Ordinary feed publish vs anonymous creation
   assert.equal(canPublishOrdinaryFeedUpdate('member', false), false);

@@ -67,10 +67,16 @@ export const FIRESTORE_SEARCH_SCOPE_NOTE =
 export function sanitizeAnonymousPostForSearch(
   raw: Record<string, unknown>
 ): AnonymousPost {
+  const rawMedia = Array.isArray(raw.mediaItems) ? raw.mediaItems : undefined;
   return {
     id: String(raw.id ?? ''),
     category: String(raw.category ?? ''),
     body: String(raw.body ?? ''),
+    backgroundStyle:
+      typeof raw.backgroundStyle === 'string'
+        ? (raw.backgroundStyle as AnonymousPost['backgroundStyle'])
+        : undefined,
+    mediaItems: rawMedia as AnonymousPost['mediaItems'],
     status: raw.status === 'deleted' ? 'deleted' : 'published',
     visibility: 'public',
     likesCount: typeof raw.likesCount === 'number' ? raw.likesCount : 0,
@@ -92,6 +98,8 @@ export function sanitizePublicProfileProjection(
     level: profile.level,
     photoUrl: profile.photoUrl,
     coverUrl: profile.coverUrl,
+    photoImageId: profile.photoImageId,
+    coverImageId: profile.coverImageId,
     publicWhatsapp: profile.showWhatsappPublicly
       ? profile.publicWhatsapp
       : undefined,

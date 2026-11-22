@@ -29,6 +29,15 @@ export type UtilityRouteId =
 
 export type ActiveRoute = SectionId | UtilityRouteId;
 
+export type ProfileTab =
+  | 'posts'
+  | 'saved'
+  | 'liked'
+  | 'anonymous'
+  | 'listings'
+  | 'followers'
+  | 'following';
+
 export type ViewState = 'empty' | 'loading' | 'error';
 
 export type SectionGroup = 'Feeds' | 'Campus Hub';

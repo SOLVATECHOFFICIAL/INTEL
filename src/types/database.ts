@@ -11,6 +11,26 @@ export type AccountStatus = 'active' | 'suspended';
 
 export type PostStatus = 'published' | 'deleted';
 
+export type MediaTargetCollection =
+  | 'users_avatar'
+  | 'users_cover'
+  | 'posts'
+  | 'anonymousPosts'
+  | 'marketplaceListings';
+
+export type SupportedImageMimeType = 'image/webp' | 'image/jpeg';
+
+export type AnonymousBackgroundId =
+  | 'plain'
+  | 'navy_slate'
+  | 'ocean_blue'
+  | 'cobalt_indigo'
+  | 'midnight_emerald'
+  | 'sunset_amber'
+  | 'crimson_rose'
+  | 'royal_plum'
+  | 'warm_charcoal';
+
 export type MarketplaceListingKind = 'product' | 'service' | 'accommodation';
 
 export type MarketplaceApprovalStatus =
@@ -68,6 +88,19 @@ export const BLUEPRINT_PATTERNS = {
   username: /^[a-z0-9_]+$/,
 } as const;
 
+export const ALLOWED_ANONYMOUS_BACKGROUND_IDS: readonly AnonymousBackgroundId[] =
+  [
+    'plain',
+    'navy_slate',
+    'ocean_blue',
+    'cobalt_indigo',
+    'midnight_emerald',
+    'sunset_amber',
+    'crimson_rose',
+    'royal_plum',
+    'warm_charcoal',
+  ] as const;
+
 export const BLUEPRINT_LIMITS = {
   idMin: 1,
   idMax: 128,
@@ -82,15 +115,16 @@ export const BLUEPRINT_LIMITS = {
   departmentMax: 120,
   facultyMax: 120,
   levelMax: 32,
+  accountCategoryMax: 64,
   urlMax: 512,
   emailMax: 160,
   phoneMax: 24,
   categoryMin: 2,
   categoryMax: 64,
   postTitleMax: 180,
-  postBodyMin: 1,
+  postBodyMin: 0,
   postBodyMax: 5000,
-  anonymousBodyMin: 1,
+  anonymousBodyMin: 0,
   anonymousBodyMax: 3000,
   commentBodyMin: 1,
   commentBodyMax: 1500,
@@ -101,6 +135,13 @@ export const BLUEPRINT_LIMITS = {
   marketplaceWhatsappMin: 7,
   marketplaceWhatsappMax: 24,
   mediaMaxCount: 6,
+  mediaPostMaxCount: 4,
+  imageCaptionMax: 300,
+  mediaTargetBytes: 102400,
+  mediaMaxBytes: 250000,
+  mediaBase64MinChars: 24,
+  mediaBase64MaxChars: 280000,
+  backgroundStyleMax: 32,
   opportunityTitleMin: 3,
   opportunityTitleMax: 180,
   organisationMin: 2,
@@ -115,6 +156,8 @@ export const COLLECTION_NAMES = {
   users: 'users',
   privateUserData: 'privateUserData',
   userRoles: 'userRoles',
+  badgeAuditLogs: 'badgeAuditLogs',
+  adminAuditLogs: 'adminAuditLogs',
   usernames: 'usernames',
   posts: 'posts',
   postComments: 'postComments',
@@ -124,6 +167,7 @@ export const COLLECTION_NAMES = {
   anonymousComments: 'anonymousComments',
   anonymousIdentityMappings: 'anonymousIdentityMappings',
   anonymousAuditLogs: 'anonymousAuditLogs',
+  mediaImages: 'mediaImages',
   savedPosts: 'savedPosts',
   marketplaceListings: 'marketplaceListings',
   trustedContacts: 'trustedContacts',
@@ -134,6 +178,33 @@ export const COLLECTION_NAMES = {
   platformSettings: 'platformSettings',
 } as const;
 
+export const SUBCOLLECTION_NAMES = {
+  anonymousHistory: 'anonymousHistory',
+} as const;
+
+export interface PostMediaMeta {
+  imageId: string;
+  caption?: string;
+  width: number;
+  height: number;
+  byteSize: number;
+  mimeType: SupportedImageMimeType;
+  order: number;
+}
+
+export interface MediaImage {
+  id: string;
+  targetCollection: MediaTargetCollection;
+  targetId: string;
+  ownerUID?: string;
+  mimeType: SupportedImageMimeType;
+  width: number;
+  height: number;
+  byteSize: number;
+  base64Data: string;
+  createdAt: unknown;
+}
+
 export interface PublicUserProfile {
   uid: string;
   memberId: string;
@@ -143,8 +214,11 @@ export interface PublicUserProfile {
   department?: string;
   faculty?: string;
   level?: string;
+  accountCategory?: string;
   photoUrl?: string;
   coverUrl?: string;
+  photoImageId?: string;
+  coverImageId?: string;
   publicEmail?: string;
   publicWhatsapp?: string;
   showWhatsappPublicly: boolean;
@@ -167,14 +241,22 @@ export interface PublicProfileProjection {
   department?: string;
   faculty?: string;
   level?: string;
+  accountCategory?: string;
   photoUrl?: string;
   coverUrl?: string;
+  photoImageId?: string;
+  coverImageId?: string;
   publicWhatsapp?: string;
   showWhatsappPublicly: boolean;
   badge: BadgeType;
   accountStatus: AccountStatus;
   followersCount: number;
   followingCount: number;
+  createdAt: unknown;
+}
+
+export interface PrivateAnonymousHistoryEntry {
+  postId: string;
   createdAt: unknown;
 }
 
@@ -186,6 +268,8 @@ export interface PrivateUserData {
   notificationPrefs?: Record<string, boolean>;
   interestCategories?: string[];
   ownedUsernames?: string[];
+  ownedAnonymousPostIds?: string[];
+  ownedAnonymousCommentIds?: string[];
   updatedAt: unknown;
 }
 
@@ -197,6 +281,71 @@ export interface UserRoleRecord {
   isHiddenFromDirectory: boolean;
   grantedBy?: string;
   updatedAt: unknown;
+}
+
+export type BadgeAuditAction =
+  | 'grant_verified'
+  | 'remove_verified'
+  | 'grant_moderator'
+  | 'promote_verified_to_moderator'
+  | 'demote_moderator_to_verified'
+  | 'demote_moderator_to_member'
+  | 'remove_moderator'
+  | 'grant_supreme_admin'
+  | 'remove_supreme_admin'
+  | 'suspend_account'
+  | 'restore_account';
+
+export interface BadgeAuditLog {
+  id: string;
+  targetUid: string;
+  targetUsername?: string;
+  action: BadgeAuditAction;
+  previousRole: UserRole;
+  previousBadge: BadgeType;
+  nextRole: UserRole;
+  nextBadge: BadgeType;
+  performedByUid: string;
+  performedByRole: 'owner' | 'supreme_admin';
+  reason?: string;
+  createdAt: unknown;
+}
+
+export type AdminAuditAction =
+  | 'marketplace_approved'
+  | 'marketplace_rejected'
+  | 'marketplace_removed'
+  | 'marketplace_status_updated'
+  | 'post_deleted'
+  | 'anonymous_post_deleted'
+  | 'post_comment_deleted'
+  | 'anonymous_comment_deleted'
+  | 'post_pinned'
+  | 'post_unpinned'
+  | 'post_official_toggled'
+  | 'opportunity_created'
+  | 'opportunity_updated'
+  | 'opportunity_expired'
+  | 'opportunity_deleted'
+  | 'event_created'
+  | 'event_updated'
+  | 'event_cancelled'
+  | 'event_deleted'
+  | 'trusted_contact_created'
+  | 'trusted_contact_updated'
+  | 'trusted_contact_deleted'
+  | 'settings_updated';
+
+export interface AdminAuditLog {
+  id: string;
+  action: AdminAuditAction;
+  targetCollection: string;
+  targetId: string;
+  targetLabel?: string;
+  performedByUid: string;
+  performedByRole: 'owner' | 'supreme_admin' | 'moderator';
+  details?: string;
+  createdAt: unknown;
 }
 
 export interface UsernameReservation {
@@ -216,6 +365,7 @@ export interface CommunityPost {
   title?: string;
   body: string;
   mediaUrls?: string[];
+  mediaItems?: PostMediaMeta[];
   isOfficial: boolean;
   isPinned: boolean;
   status: PostStatus;
@@ -255,6 +405,8 @@ export interface AnonymousPost {
   id: string;
   category: string;
   body: string;
+  backgroundStyle?: AnonymousBackgroundId;
+  mediaItems?: PostMediaMeta[];
   status: PostStatus;
   visibility: 'public';
   likesCount: number;
@@ -315,6 +467,7 @@ export interface MarketplaceListing {
   approvalStatus: MarketplaceApprovalStatus;
   status: MarketplaceStatus;
   approvedByUid?: string;
+  approvedAt?: unknown;
   visibility: 'public' | 'owner_and_admins';
   createdAt: unknown;
   updatedAt: unknown;
@@ -402,6 +555,9 @@ export interface PlatformSetting {
   updatedByUid: string;
   pinnedAnnouncementPostId?: string;
   maintenanceNotice?: string;
+  marketplaceSubmissionsOpen?: boolean;
+  anonymousPostingOpen?: boolean;
+  newRegistrationsOpen?: boolean;
   updatedAt: unknown;
 }
 
@@ -463,7 +619,7 @@ export function isValidUsername(username: string): boolean {
 }
 
 /**
- * Prevents storing Base64 images/videos or oversized URLs directly inside Firestore.
+ * Prevents storing Base64 images/videos or oversized URLs directly inside post/user documents.
  */
 export function isSafeMediaUrl(url: string): boolean {
   const trimmed = url.trim();
@@ -492,6 +648,145 @@ export function validateMediaUrls(urls: string[] | undefined): void {
   }
 }
 
+export function validatePostMediaItems(items: PostMediaMeta[] | undefined): void {
+  if (!items) return;
+  if (items.length > BLUEPRINT_LIMITS.mediaPostMaxCount) {
+    throw new Error(
+      `Maximum ${BLUEPRINT_LIMITS.mediaPostMaxCount} images are allowed per post.`
+    );
+  }
+  items.forEach((item, index) => {
+    if (!isValidFirestoreId(item.imageId)) {
+      throw new Error(`Invalid image reference at position ${index + 1}.`);
+    }
+    if (
+      item.mimeType !== 'image/webp' &&
+      item.mimeType !== 'image/jpeg'
+    ) {
+      throw new Error(`Unsupported image format at position ${index + 1}.`);
+    }
+    if (
+      !Number.isInteger(item.width) ||
+      item.width < 1 ||
+      item.width > 4096 ||
+      !Number.isInteger(item.height) ||
+      item.height < 1 ||
+      item.height > 4096
+    ) {
+      throw new Error(`Invalid image dimensions at position ${index + 1}.`);
+    }
+    if (
+      !Number.isInteger(item.byteSize) ||
+      item.byteSize < 1 ||
+      item.byteSize > BLUEPRINT_LIMITS.mediaMaxBytes
+    ) {
+      throw new Error(
+        `Compressed image at position ${index + 1} exceeds the Firestore safety threshold.`
+      );
+    }
+    if (
+      item.caption !== undefined &&
+      item.caption.trim().length > BLUEPRINT_LIMITS.imageCaptionMax
+    ) {
+      throw new Error(
+        `Image caption at position ${index + 1} must be ${BLUEPRINT_LIMITS.imageCaptionMax} characters or fewer.`
+      );
+    }
+  });
+}
+
+export function validateMediaImagePayload(
+  payload: Record<string, unknown>
+): void {
+  const id = String(payload.id ?? '');
+  const targetCollection = String(payload.targetCollection ?? '');
+  const targetId = String(payload.targetId ?? '');
+  const mimeType = String(payload.mimeType ?? '');
+  const base64Data = String(payload.base64Data ?? '');
+  const byteSize = Number(payload.byteSize ?? 0);
+  const width = Number(payload.width ?? 0);
+  const height = Number(payload.height ?? 0);
+
+  if (!isValidFirestoreId(id) || !isValidFirestoreId(targetId)) {
+    throw new Error('Invalid image document identifiers.');
+  }
+  if (
+    targetCollection === 'anonymousPosts' &&
+    ('ownerUID' in payload || 'authorUid' in payload || 'filename' in payload)
+  ) {
+    throw new Error(
+      'Anonymous image documents must never store ownerUID or filename metadata.'
+    );
+  }
+  if (mimeType !== 'image/webp' && mimeType !== 'image/jpeg') {
+    throw new Error('Only WebP and JPEG compressed images are accepted.');
+  }
+  if (
+    !Number.isInteger(width) ||
+    width < 1 ||
+    width > 4096 ||
+    !Number.isInteger(height) ||
+    height < 1 ||
+    height > 4096
+  ) {
+    throw new Error('Image dimensions must be within 1–4096 pixels.');
+  }
+  if (
+    !Number.isInteger(byteSize) ||
+    byteSize < 1 ||
+    byteSize > BLUEPRINT_LIMITS.mediaMaxBytes
+  ) {
+    throw new Error(
+      'Compressed image size exceeds the safe per-document limit.'
+    );
+  }
+  if (
+    base64Data.length < BLUEPRINT_LIMITS.mediaBase64MinChars ||
+    base64Data.length > BLUEPRINT_LIMITS.mediaBase64MaxChars
+  ) {
+    throw new Error(
+      'Encoded image data exceeds the safe Firestore Base64 document ceiling.'
+    );
+  }
+}
+
+export function validateCommunityPostPayload(
+  payload: Record<string, unknown>
+): void {
+  const id = String(payload.id ?? '');
+  const ownerUID = String(payload.ownerUID ?? '');
+  const category = String(payload.category ?? '').trim();
+  const title = payload.title === undefined ? '' : String(payload.title).trim();
+  const body = String(payload.body ?? '').trim();
+  const mediaItems = Array.isArray(payload.mediaItems)
+    ? (payload.mediaItems as PostMediaMeta[])
+    : [];
+
+  if (!isValidFirestoreId(id) || !isValidFirestoreId(ownerUID)) {
+    throw new Error('Invalid community post identifiers.');
+  }
+  if (
+    category.length < BLUEPRINT_LIMITS.categoryMin ||
+    category.length > BLUEPRINT_LIMITS.categoryMax
+  ) {
+    throw new Error('Post category must be between 2 and 64 characters.');
+  }
+  if (title.length > BLUEPRINT_LIMITS.postTitleMax) {
+    throw new Error(
+      `Post title must be ${BLUEPRINT_LIMITS.postTitleMax} characters or fewer.`
+    );
+  }
+  validatePostMediaItems(mediaItems);
+  if (body.length === 0 && mediaItems.length === 0) {
+    throw new Error('Write a caption or attach at least one photograph.');
+  }
+  if (body.length > BLUEPRINT_LIMITS.postBodyMax) {
+    throw new Error(
+      `Post text must be ${BLUEPRINT_LIMITS.postBodyMax} characters or fewer.`
+    );
+  }
+}
+
 export function validateAnonymousPostPayload(
   payload: Record<string, unknown>
 ): void {
@@ -505,6 +800,8 @@ export function validateAnonymousPostPayload(
     'whatsappNumber',
     'username',
     'fullName',
+    'filename',
+    'originalFileName',
   ];
 
   for (const key of forbiddenIdentityKeys) {
@@ -518,6 +815,10 @@ export function validateAnonymousPostPayload(
   const id = String(payload.id ?? '');
   const category = String(payload.category ?? '').trim();
   const body = String(payload.body ?? '').trim();
+  const backgroundStyle = payload.backgroundStyle;
+  const mediaItems = Array.isArray(payload.mediaItems)
+    ? (payload.mediaItems as PostMediaMeta[])
+    : [];
 
   if (!isValidFirestoreId(id)) {
     throw new Error('Invalid anonymous post ID.');
@@ -529,9 +830,21 @@ export function validateAnonymousPostPayload(
     throw new Error('Anonymous post category violates blueprint length bounds.');
   }
   if (
-    body.length < BLUEPRINT_LIMITS.anonymousBodyMin ||
-    body.length > BLUEPRINT_LIMITS.anonymousBodyMax
+    backgroundStyle !== undefined &&
+    !ALLOWED_ANONYMOUS_BACKGROUND_IDS.includes(
+      backgroundStyle as AnonymousBackgroundId
+    )
   ) {
+    throw new Error('Invalid anonymous post background style.');
+  }
+  validatePostMediaItems(mediaItems);
+
+  if (body.length === 0 && mediaItems.length === 0) {
+    throw new Error(
+      'Write your anonymous post or attach at least one photograph.'
+    );
+  }
+  if (body.length > BLUEPRINT_LIMITS.anonymousBodyMax) {
     throw new Error('Anonymous post body violates blueprint length bounds.');
   }
 }
@@ -559,6 +872,21 @@ export function validateTrustedContactPayload(contact: TrustedContact): void {
   }
 }
 
+export function resolveBadgeForRole(role: UserRole): BadgeType {
+  switch (role) {
+    case 'owner':
+    case 'supreme_admin':
+      return 'supreme_admin';
+    case 'moderator':
+      return 'moderator';
+    case 'verified':
+      return 'verified';
+    case 'member':
+    default:
+      return 'none';
+  }
+}
+
 export function canRolePublishCommunityFeed(role: UserRole): boolean {
   return (
     role === 'owner' ||
@@ -569,25 +897,107 @@ export function canRolePublishCommunityFeed(role: UserRole): boolean {
 }
 
 /**
- * Enforces the Part 5 / Part 7 permission boundary:
+ * Enforces the permission boundary:
  * Moderators can only moderate/delete ordinary members' content (including anonymous posts).
+ * Verified, Moderator, Supreme Admin, and Owner content is protected from Moderator deletion.
  */
 export function canModeratorDeleteTargetRole(targetRole: UserRole): boolean {
   return targetRole === 'member';
 }
 
+export function canModeratorDeleteByBadge(targetBadge: BadgeType): boolean {
+  return targetBadge === 'none';
+}
+
+export function canActorDeleteOrdinaryPost(input: {
+  viewerUid: string | null;
+  viewerTier: UserRole | 'guest';
+  viewerSuspended: boolean;
+  postOwnerUid: string;
+  authorBadge?: BadgeType | null;
+  authorRole?: UserRole;
+}): boolean {
+  if (input.viewerSuspended || !input.viewerUid || input.viewerTier === 'guest') {
+    return false;
+  }
+  if (input.postOwnerUid === input.viewerUid) {
+    return true;
+  }
+  if (input.viewerTier === 'owner' || input.viewerTier === 'supreme_admin') {
+    return true;
+  }
+  if (input.viewerTier === 'moderator') {
+    if (input.authorRole !== undefined) {
+      return canModeratorDeleteTargetRole(input.authorRole);
+    }
+    if (input.authorBadge !== undefined && input.authorBadge !== null) {
+      return canModeratorDeleteByBadge(input.authorBadge);
+    }
+  }
+  return false;
+}
+
 export function canActorUpdateTargetRoleRecord(
   actorRole: UserRole,
   targetIsPermanentOwner: boolean,
-  currentTargetRole: UserRole
+  currentTargetRole: UserRole,
+  nextTargetRole?: UserRole,
+  actorUid?: string,
+  targetUid?: string
 ): boolean {
+  if (targetIsPermanentOwner || currentTargetRole === 'owner') {
+    return false;
+  }
+  if (actorUid && targetUid && actorUid === targetUid) {
+    return false;
+  }
   if (actorRole === 'owner') {
-    return true;
+    return nextTargetRole !== 'owner';
   }
   if (actorRole === 'supreme_admin') {
-    return !targetIsPermanentOwner && currentTargetRole !== 'owner' && currentTargetRole !== 'supreme_admin';
+    if (currentTargetRole === 'supreme_admin') {
+      return false;
+    }
+    if (
+      nextTargetRole &&
+      (nextTargetRole === 'owner' || nextTargetRole === 'supreme_admin')
+    ) {
+      return false;
+    }
+    return true;
   }
   return false;
+}
+
+export function resolveBadgeAuditAction(
+  previousRole: UserRole,
+  nextRole: UserRole
+): BadgeAuditAction {
+  if (previousRole === 'member' && nextRole === 'verified') {
+    return 'grant_verified';
+  }
+  if (previousRole === 'verified' && nextRole === 'member') {
+    return 'remove_verified';
+  }
+  if (previousRole === 'member' && nextRole === 'moderator') {
+    return 'grant_moderator';
+  }
+  if (previousRole === 'verified' && nextRole === 'moderator') {
+    return 'promote_verified_to_moderator';
+  }
+  if (previousRole === 'moderator' && nextRole === 'verified') {
+    return 'demote_moderator_to_verified';
+  }
+  if (previousRole === 'moderator' && nextRole === 'member') {
+    return 'demote_moderator_to_member';
+  }
+  if (nextRole === 'supreme_admin') {
+    return 'grant_supreme_admin';
+  }
+  if (previousRole === 'supreme_admin') {
+    return 'remove_supreme_admin';
+  }
+  return 'remove_moderator';
 }
 
 export function canApproveMarketplaceListing(
@@ -629,6 +1039,56 @@ export function resolveMarketplaceUpdateFromQuantity(
   return { quantity, status: 'active' };
 }
 
+export type MarketplaceFilterBucket =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'expired'
+  | 'sold';
+
+export function classifyMarketplaceListingBucket(
+  listing: Pick<
+    MarketplaceListing,
+    'approvalStatus' | 'status' | 'quantity' | 'expiresAt'
+  >,
+  expiresAtMs: number | null,
+  nowMs: number = Date.now()
+): MarketplaceFilterBucket {
+  if (
+    listing.approvalStatus === 'rejected' ||
+    listing.status === 'rejected'
+  ) {
+    return 'rejected';
+  }
+  if (listing.approvalStatus === 'pending_approval' || listing.status === 'pending_approval') {
+    return 'pending';
+  }
+  if (listing.status === 'sold' || listing.quantity === 0) {
+    return 'sold';
+  }
+  if (
+    listing.status === 'expired' ||
+    (expiresAtMs !== null && isMarketplaceListingExpired(expiresAtMs, nowMs))
+  ) {
+    return 'expired';
+  }
+  return 'approved';
+}
+
+export function resolveOpportunityEffectiveStatus(
+  opp: Pick<Opportunity, 'status'>,
+  expiresAtMs: number | null,
+  nowMs: number = Date.now()
+): 'active' | 'expired' {
+  if (opp.status === 'expired') {
+    return 'expired';
+  }
+  if (expiresAtMs !== null && expiresAtMs <= nowMs) {
+    return 'expired';
+  }
+  return 'active';
+}
+
 export function categorizeEventByDate(
   eventDateMs: number,
   nowMs: number = Date.now(),
@@ -639,3 +1099,57 @@ export function categorizeEventByDate(
   }
   return eventDateMs < nowMs ? 'past' : 'upcoming';
 }
+
+/**
+ * Computes total likes received across a user's eligible public ordinary posts.
+ * Anonymous post likes are strictly excluded from public profiles.
+ */
+export function computeTotalOrdinaryPostLikes(
+  posts: readonly Pick<CommunityPost, 'likesCount' | 'status'>[]
+): number {
+  let total = 0;
+  for (const post of posts) {
+    if (post.status === 'published' && Number.isFinite(post.likesCount)) {
+      total += Math.max(0, Math.floor(post.likesCount));
+    }
+  }
+  return total;
+}
+
+/**
+ * Recursively gathers a comment's ID and all descendant nested reply IDs
+ * so deleting a parent thread never leaves orphaned replies behind.
+ */
+export function collectCommentTreeIds(
+  comments: readonly { id: string; parentCommentId?: string }[],
+  rootCommentId: string
+): string[] {
+  const byParent = new Map<string, string[]>();
+  for (const item of comments) {
+    if (!item.parentCommentId) continue;
+    const list = byParent.get(item.parentCommentId) ?? [];
+    list.push(item.id);
+    byParent.set(item.parentCommentId, list);
+  }
+
+  const collected: string[] = [];
+  const visited = new Set<string>();
+  const queue: string[] = [rootCommentId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+    collected.push(currentId);
+
+    const children = byParent.get(currentId) ?? [];
+    for (const childId of children) {
+      if (!visited.has(childId)) {
+        queue.push(childId);
+      }
+    }
+  }
+
+  return collected;
+}
+

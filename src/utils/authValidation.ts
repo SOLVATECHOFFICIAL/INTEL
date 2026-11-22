@@ -23,6 +23,17 @@ export const CAMPUS_STATUS_OPTIONS = [
   'Non-Teaching Staff',
 ] as const;
 
+export const ACCOUNT_CATEGORY_OPTIONS = [
+  'Undergraduate Student',
+  'Finalist Student',
+  'Postgraduate Student',
+  'Graduate / Alumni',
+  'Lecturer / Academic Staff',
+  'Non-Teaching Staff',
+  'Course Rep / Student Leader',
+  'Campus Creator / Vendor',
+] as const;
+
 export const RESERVED_USERNAMES = [
   'admin',
   'administrator',
@@ -102,7 +113,9 @@ export interface ProfileSettingsFormInput {
   department: string;
   faculty: string;
   level: string;
+  accountCategory: string;
   publicWhatsapp: string;
+  showWhatsappPublicly?: boolean;
   photoUrl: string;
   coverUrl: string;
 }
@@ -114,6 +127,7 @@ export type ProfileSettingsField =
   | 'department'
   | 'faculty'
   | 'level'
+  | 'accountCategory'
   | 'publicWhatsapp'
   | 'photoUrl'
   | 'coverUrl';
@@ -269,6 +283,11 @@ export function validateProfileSettingsForm(
     errors.level = 'Select your academic level or campus status.';
   }
 
+  const accountCategory = input.accountCategory.trim();
+  if (accountCategory.length > BLUEPRINT_LIMITS.accountCategoryMax) {
+    errors.accountCategory = `Account category must be ${BLUEPRINT_LIMITS.accountCategoryMax} characters or fewer.`;
+  }
+
   const whatsapp = input.publicWhatsapp.trim();
   if (!PHONE_PATTERN.test(whatsapp)) {
     errors.publicWhatsapp =
@@ -325,12 +344,25 @@ export function isAccountSuspended(
   return profile?.accountStatus === 'suspended';
 }
 
+export const PERMANENT_OWNER_EMAIL = 'estheriawoyinfa52@gmail.com';
+
+export function isPermanentOwnerUser(user: User | null): boolean {
+  return Boolean(
+    user &&
+      user.emailVerified &&
+      user.email?.trim().toLowerCase() === PERMANENT_OWNER_EMAIL
+  );
+}
+
 export function resolveEffectiveAccountTier(
   user: User | null,
   roleRecord: UserRoleRecord | null
 ): EffectiveAccountTier {
   if (!user) {
     return 'guest';
+  }
+  if (isPermanentOwnerUser(user)) {
+    return 'owner';
   }
   if (!roleRecord) {
     return 'member';
@@ -341,12 +373,20 @@ export function resolveEffectiveAccountTier(
   return roleRecord.role;
 }
 
-export function canAccessAdminDashboard(
+export function canAccessFullAdminDashboard(
   tier: EffectiveAccountTier,
   suspended: boolean
 ): boolean {
   if (suspended) return false;
   return tier === 'supreme_admin' || tier === 'owner';
+}
+
+export function canAccessAdminDashboard(
+  tier: EffectiveAccountTier,
+  suspended: boolean
+): boolean {
+  if (suspended) return false;
+  return tier === 'supreme_admin' || tier === 'owner' || tier === 'moderator';
 }
 
 export function canPublishOrdinaryFeedUpdate(
@@ -397,8 +437,11 @@ export function toPublicProfileProjection(
     department: profile.department,
     faculty: profile.faculty,
     level: profile.level,
+    accountCategory: profile.accountCategory,
     photoUrl: profile.photoUrl,
     coverUrl: profile.coverUrl,
+    photoImageId: profile.photoImageId,
+    coverImageId: profile.coverImageId,
     publicWhatsapp: profile.showWhatsappPublicly
       ? profile.publicWhatsapp
       : undefined,

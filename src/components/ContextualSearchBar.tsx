@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  BadgeCheck,
   Building2,
   Calendar,
   ExternalLink,
+  Image as ImageIcon,
   Loader2,
   MessageCircle,
   Search,
@@ -13,6 +13,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
+import { getAnonymousBackgroundTheme } from '../config/anonymousBackgrounds';
 import { useFirebase } from '../context/firebaseContext';
 import {
   fetchViewerFollowingUsernames,
@@ -39,7 +40,9 @@ import {
   FIRESTORE_SEARCH_SCOPE_NOTE,
   SEARCH_SCOPE_CONFIG,
 } from '../utils/contextualSearch';
+import { RoleBadge } from './RoleBadge';
 import { GuestPromptCard } from './auth/GuestPromptCard';
+import { AvatarMedia, FirestoreImage } from './media/FirestoreImage';
 
 interface ContextualSearchBarProps {
   scope: SearchScopeId;
@@ -371,31 +374,20 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                             }
                             className="flex min-w-0 flex-1 items-center gap-3 text-left"
                           >
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0B1A2E] text-xs font-bold text-white">
-                              {member.photoUrl ? (
-                                <img
-                                  src={member.photoUrl}
-                                  alt={member.fullName}
-                                  loading="lazy"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <span>
-                                  {member.fullName.slice(0, 2).toUpperCase()}
-                                </span>
-                              )}
-                            </div>
+                            <AvatarMedia
+                              fullName={member.fullName}
+                              photoImageId={member.photoImageId}
+                              photoUrl={member.photoUrl}
+                              sizeClass="h-11 w-11"
+                              roundedClass="rounded-xl"
+                              textClass="text-xs"
+                            />
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
                                   {member.fullName}
                                 </span>
-                                {member.badge !== 'none' && (
-                                  <BadgeCheck
-                                    className="h-4 w-4 shrink-0 text-[#1E88E5]"
-                                    aria-hidden="true"
-                                  />
-                                )}
+                                <RoleBadge badge={member.badge} size="xs" />
                               </div>
                               <p className="truncate text-xs text-slate-600">
                                 @{member.username}
@@ -459,30 +451,59 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
                           {author ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onNavigate('profile', {
-                                  username: author.username,
-                                })
-                              }
-                              className="font-semibold text-[#0B1A2E] hover:text-[#1E88E5]"
-                            >
-                              {author.fullName} (@{author.username})
-                            </button>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onNavigate('profile', {
+                                    username: author.username,
+                                  })
+                                }
+                                className="font-semibold text-[#0B1A2E] hover:text-[#1E88E5]"
+                              >
+                                {author.fullName} (@{author.username})
+                              </button>
+                              <RoleBadge badge={author.badge} size="xs" />
+                            </div>
                           ) : (
                             <span>Campus Contributor</span>
                           )}
-                          <span>{post.category}</span>
+                          <div className="flex items-center gap-2">
+                            {post.mediaItems && post.mediaItems.length > 0 && (
+                              <span className="inline-flex items-center gap-1 font-medium text-[#1E88E5]">
+                                <ImageIcon className="h-3 w-3" aria-hidden="true" />
+                                {post.mediaItems.length}
+                              </span>
+                            )}
+                            <span>{post.category}</span>
+                          </div>
                         </div>
                         {post.title && (
                           <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
                             {post.title}
                           </h3>
                         )}
-                        <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-700 sm:text-sm">
-                          {post.body}
-                        </p>
+                        {post.mediaItems && post.mediaItems.length > 0 && (
+                          <div className="mt-2 grid grid-cols-4 gap-1.5">
+                            {post.mediaItems.slice(0, 4).map((media) => (
+                              <div
+                                key={media.imageId}
+                                className="aspect-square overflow-hidden rounded-lg bg-[#0B1A2E]"
+                              >
+                                <FirestoreImage
+                                  imageId={media.imageId}
+                                  alt={media.caption || post.title || 'Post photograph'}
+                                  className="h-full w-full object-cover"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {post.body && (
+                          <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-700 sm:text-sm">
+                            {post.body}
+                          </p>
+                        )}
                       </article>
                     ))}
                   </div>
@@ -493,20 +514,68 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
           {scope === 'anonymous' && (
             <div className="space-y-2.5">
-              {anonymousResults.map((post) => (
-                <article
-                  key={post.id}
-                  className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5"
-                >
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>Anonymous · {post.category}</span>
-                    <span>Identity hidden</span>
-                  </div>
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-700">
-                    {post.body}
-                  </p>
-                </article>
-              ))}
+              {anonymousResults.map((post) => {
+                const hasMedia =
+                  Boolean(post.mediaItems) && post.mediaItems!.length > 0;
+                const theme = getAnonymousBackgroundTheme(
+                  hasMedia ? 'plain' : post.backgroundStyle
+                );
+                const isStyledTextOnly = !hasMedia && theme.isDark;
+
+                return (
+                  <article
+                    key={post.id}
+                    style={
+                      isStyledTextOnly
+                        ? { background: theme.backgroundCss }
+                        : undefined
+                    }
+                    className={`rounded-xl border p-3.5 ${
+                      isStyledTextOnly
+                        ? theme.borderClass
+                        : 'border-slate-200 bg-slate-50/50'
+                    }`}
+                  >
+                    <div
+                      className={`flex items-center justify-between text-xs ${
+                        isStyledTextOnly
+                          ? theme.metaColorClass
+                          : 'text-slate-500'
+                      }`}
+                    >
+                      <span>Anonymous · {post.category}</span>
+                      <span>Identity hidden</span>
+                    </div>
+                    {hasMedia && (
+                      <div className="mt-2 grid grid-cols-4 gap-1.5">
+                        {post.mediaItems!.slice(0, 4).map((media) => (
+                          <div
+                            key={media.imageId}
+                            className="aspect-square overflow-hidden rounded-lg bg-[#0B1A2E]"
+                          >
+                            <FirestoreImage
+                              imageId={media.imageId}
+                              alt={media.caption || 'Anonymous photograph'}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {post.body && (
+                      <p
+                        className={`mt-2 text-sm leading-relaxed ${
+                          isStyledTextOnly
+                            ? `${theme.textColorClass} font-semibold`
+                            : 'text-slate-700'
+                        }`}
+                      >
+                        {post.body}
+                      </p>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           )}
 

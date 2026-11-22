@@ -2,9 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { MessageSquare, ShieldAlert } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import { fetchPublicAnonymousFeed } from '../services/firestoreFoundation';
-import type { AnonymousPost } from '../types/database';
+import {
+  fetchOwnedAnonymousEntries,
+  fetchViewerLikedPostIds,
+  fetchViewerSavedPostIds,
+} from '../services/socialPosts';
+import type { AnonymousPost, UserRole } from '../types/database';
 import {
   ActiveRoute,
+  ProfileTab,
   SearchScopeId,
   SectionId,
   ViewState,
@@ -12,15 +18,25 @@ import {
 import { getSectionById } from '../utils/sectionState';
 import { ContextualSearchBar } from './ContextualSearchBar';
 import { GuestPromptCard } from './auth/GuestPromptCard';
+import { PostCard } from './posts/PostCard';
+import { PostComposer } from './posts/PostComposer';
 import { SectionIcon } from './SectionIcon';
 import { EmptyState, ErrorState, LoadingState } from './StateViews';
+import { EventsSection } from './sections/EventsSection';
+import { MarketplaceSection } from './sections/MarketplaceSection';
+import { OpportunitiesSection } from './sections/OpportunitiesSection';
+import { TrustedCircleSection } from './sections/TrustedCircleSection';
 
 interface SectionWorkspaceProps {
   sectionId: Exclude<SectionId, 'for-you' | 'following' | 'latest'>;
   sectionStates: Record<SectionId, ViewState>;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
   onRetry: (sectionId: SectionId) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -33,18 +49,30 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   onRetry,
   onRequireAuth,
 }) => {
-  const { user, isSuspended } = useFirebase();
+  const { user, effectiveTier, isSuspended } = useFirebase();
   const activeSection = getSectionById(sectionId);
   const fallbackState = sectionStates[activeSection.id];
 
   const [anonymousPosts, setAnonymousPosts] = useState<AnonymousPost[]>([]);
+  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(new Set());
+  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(new Set());
+  const [ownedAnonPostIds, setOwnedAnonPostIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [ownedAnonCommentIds, setOwnedAnonCommentIds] = useState<Set<string>>(
+    new Set()
+  );
   const [anonLoadState, setAnonLoadState] = useState<
     'loading' | 'ready' | 'error'
   >('loading');
   const [retryToken, setRetryToken] = useState(0);
   const [actionPrompt, setActionPrompt] = useState<
-    'none' | 'guest' | 'suspended' | 'member_ready'
+    'none' | 'guest' | 'suspended'
   >('none');
+  const [composerModal, setComposerModal] = useState<{
+    open: boolean;
+    editPost?: AnonymousPost;
+  }>({ open: false });
 
   useEffect(() => {
     if (sectionId !== 'anonymous') {
@@ -52,10 +80,42 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     }
 
     let active = true;
-    fetchPublicAnonymousFeed(15)
-      .then((items) => {
+
+    const likedPromise = user?.uid
+      ? fetchViewerLikedPostIds('anonymousPosts', user.uid).catch(
+          () => new Set<string>()
+        )
+      : Promise.resolve(new Set<string>());
+
+    const savedPromise = user?.uid
+      ? fetchViewerSavedPostIds('anonymousPosts', user.uid).catch(
+          () => new Set<string>()
+        )
+      : Promise.resolve(new Set<string>());
+
+    const ownedPromise = user?.uid
+      ? fetchOwnedAnonymousEntries(user.uid).catch(() => ({
+          postIds: new Set<string>(),
+          commentIds: new Set<string>(),
+        }))
+      : Promise.resolve({
+          postIds: new Set<string>(),
+          commentIds: new Set<string>(),
+        });
+
+    Promise.all([
+      fetchPublicAnonymousFeed(20),
+      likedPromise,
+      savedPromise,
+      ownedPromise,
+    ])
+      .then(([items, likedIds, savedIds, owned]) => {
         if (!active) return;
         setAnonymousPosts(items);
+        setLikedAnonIds(likedIds);
+        setSavedAnonIds(savedIds);
+        setOwnedAnonPostIds(owned.postIds);
+        setOwnedAnonCommentIds(owned.commentIds);
         setAnonLoadState('ready');
       })
       .catch(() => {
@@ -66,7 +126,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     return () => {
       active = false;
     };
-  }, [sectionId, retryToken]);
+  }, [sectionId, user?.uid, retryToken]);
 
   const loadAnonymous = () => {
     setAnonLoadState('loading');
@@ -82,8 +142,13 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
       setActionPrompt('suspended');
       return;
     }
-    setActionPrompt('member_ready');
+    setActionPrompt('none');
+    setComposerModal({ open: true });
   };
+
+  const actorRole: UserRole = (
+    effectiveTier === 'guest' ? 'member' : effectiveTier
+  ) as UserRole;
 
   return (
     <section
@@ -167,17 +232,6 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           </div>
         )}
 
-        {actionPrompt === 'member_ready' && (
-          <div
-            role="status"
-            className="mt-5 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/5 p-4 text-sm text-[#0B1A2E]"
-          >
-            Your authenticated account is verified for anonymous contributions.
-            The full anonymous publishing composer will be enabled in the next
-            feature prompt while keeping author identities strictly isolated.
-          </div>
-        )}
-
         <div className="mt-6">
           {sectionId === 'anonymous' ? (
             anonLoadState === 'loading' ? (
@@ -192,21 +246,75 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
             ) : (
               <div className="space-y-4">
                 {anonymousPosts.map((item) => (
-                  <article
+                  <PostCard
                     key={item.id}
-                    className="rounded-xl border border-slate-200 bg-white p-4"
-                  >
-                    <div className="flex items-center justify-between text-xs text-slate-500">
-                      <span>Anonymous · {item.category}</span>
-                      <span>Identity hidden</span>
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                      {item.body}
-                    </p>
-                  </article>
+                    kind="anonymous"
+                    post={item}
+                    viewerUid={user?.uid ?? null}
+                    viewerTier={effectiveTier}
+                    viewerSuspended={isSuspended}
+                    isLiked={likedAnonIds.has(item.id)}
+                    isSaved={savedAnonIds.has(item.id)}
+                    onSaveChanged={(postId, saved) =>
+                      setSavedAnonIds((prev) => {
+                        const next = new Set(prev);
+                        if (saved) next.add(postId);
+                        else next.delete(postId);
+                        return next;
+                      })
+                    }
+                    isOwnedAnonymous={ownedAnonPostIds.has(item.id)}
+                    ownedAnonymousCommentIds={ownedAnonCommentIds}
+                    onRequireAuth={onRequireAuth}
+                    returnRoute="anonymous"
+                    onEditPost={(targetPost) =>
+                      setComposerModal({
+                        open: true,
+                        editPost: targetPost as AnonymousPost,
+                      })
+                    }
+                    onPostUpdated={(updated) =>
+                      setAnonymousPosts((prev) =>
+                        prev.map((existing) =>
+                          existing.id === updated.id
+                            ? (updated as AnonymousPost)
+                            : existing
+                        )
+                      )
+                    }
+                    onPostDeleted={(deletedId) => {
+                      setAnonymousPosts((prev) =>
+                        prev.filter((existing) => existing.id !== deletedId)
+                      );
+                      setOwnedAnonPostIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(deletedId);
+                        return next;
+                      });
+                    }}
+                    onAnonymousCommentTracked={(commentId, action) =>
+                      setOwnedAnonCommentIds((prev) => {
+                        const next = new Set(prev);
+                        if (action === 'add') {
+                          next.add(commentId);
+                        } else {
+                          next.delete(commentId);
+                        }
+                        return next;
+                      })
+                    }
+                  />
                 ))}
               </div>
             )
+          ) : sectionId === 'marketplace' ? (
+            <MarketplaceSection onRequireAuth={onRequireAuth} />
+          ) : sectionId === 'opportunities' ? (
+            <OpportunitiesSection onRequireAuth={onRequireAuth} />
+          ) : sectionId === 'upcoming-events' ? (
+            <EventsSection />
+          ) : sectionId === 'trusted-circle' ? (
+            <TrustedCircleSection onNavigate={onNavigate} />
           ) : (
             <>
               {fallbackState === 'loading' && (
@@ -225,6 +333,32 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           )}
         </div>
       </div>
+
+      {composerModal.open && user && (
+        <PostComposer
+          mode="anonymous"
+          actorUid={user.uid}
+          actorRole={actorRole}
+          initialPost={composerModal.editPost ?? null}
+          onSuccess={(saved) => {
+            const savedAnon = saved as AnonymousPost;
+            if (composerModal.editPost) {
+              setAnonymousPosts((prev) =>
+                prev.map((item) => (item.id === savedAnon.id ? savedAnon : item))
+              );
+            } else {
+              setAnonymousPosts((prev) => [savedAnon, ...prev]);
+              setOwnedAnonPostIds((prev) => {
+                const next = new Set(prev);
+                next.add(savedAnon.id);
+                return next;
+              });
+            }
+            setComposerModal({ open: false });
+          }}
+          onClose={() => setComposerModal({ open: false })}
+        />
+      )}
     </section>
   );
 };

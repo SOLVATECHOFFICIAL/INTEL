@@ -1,11 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
-  BadgeCheck,
-  Bookmark,
-  Heart,
+  CheckCircle2,
   ImagePlus,
-  MessageCircle,
   MessageSquare,
   PenSquare,
   Search,
@@ -20,26 +17,39 @@ import {
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
 import {
+  fetchViewerLikedPostIds,
+  fetchViewerSavedPostIds,
+} from '../services/socialPosts';
+import type { CommunityPost, UserRole } from '../types/database';
+import {
   ActiveRoute,
   FeedTabId,
+  ProfileTab,
   SearchScopeId,
   SectionId,
 } from '../types/platform';
 import {
   canCreateAnonymousEntry,
   canPublishOrdinaryFeedUpdate,
+  toPublicProfileProjection,
 } from '../utils/authValidation';
 import { getSectionById } from '../utils/sectionState';
 import { ContextualSearchBar } from './ContextualSearchBar';
 import { EmptyState, ErrorState, LoadingState } from './StateViews';
 import { GuestPromptCard } from './auth/GuestPromptCard';
+import { PostCard } from './posts/PostCard';
+import { PostComposer } from './posts/PostComposer';
 
 interface HomeFeedWorkspaceProps {
   activeFeedTab: FeedTabId;
   onSelectFeedTab: (tab: FeedTabId) => void;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
 }
@@ -56,8 +66,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   onNavigate,
   onRequireAuth,
 }) => {
-  const { user, effectiveTier, isSuspended, authReady } = useFirebase();
+  const { user, profile, effectiveTier, isSuspended, authReady } = useFirebase();
   const [postItems, setPostItems] = useState<CommunityPostWithAuthor[]>([]);
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
+  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
   const [followingCount, setFollowingCount] = useState<number>(0);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
     'loading'
@@ -67,17 +79,26 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     kind:
       | 'guest'
       | 'ordinary_restricted'
-      | 'anonymous_ready'
-      | 'verified_ready'
+      | 'anonymous_published'
+      | 'ordinary_published'
       | 'suspended';
     message?: string;
   } | null>(null);
-  const [interactionGuestPrompt, setInteractionGuestPrompt] = useState<
-    string | null
-  >(null);
+  const [composerModal, setComposerModal] = useState<{
+    mode: 'ordinary' | 'anonymous';
+    editPost?: CommunityPost;
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
+
+    const likedPromise = user?.uid
+      ? fetchViewerLikedPostIds('posts', user.uid).catch(() => new Set<string>())
+      : Promise.resolve(new Set<string>());
+
+    const savedPromise = user?.uid
+      ? fetchViewerSavedPostIds('posts', user.uid).catch(() => new Set<string>())
+      : Promise.resolve(new Set<string>());
 
     if (activeFeedTab === 'following') {
       if (!user) {
@@ -86,11 +107,17 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         };
       }
 
-      fetchFollowingFeedPosts(user.uid, 20)
-        .then((res) => {
+      Promise.all([
+        fetchFollowingFeedPosts(user.uid, 20),
+        likedPromise,
+        savedPromise,
+      ])
+        .then(([res, likedIds, savedIds]) => {
           if (!active) return;
           setFollowingCount(res.followingCount);
           setPostItems(res.items);
+          setLikedPostIds(likedIds);
+          setSavedPostIds(savedIds);
           setLoadState('ready');
         })
         .catch(() => {
@@ -103,10 +130,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       };
     }
 
-    fetchPublicCommunityFeedWithAuthors(20)
-      .then((items) => {
+    Promise.all([
+      fetchPublicCommunityFeedWithAuthors(20),
+      likedPromise,
+      savedPromise,
+    ])
+      .then(([items, likedIds, savedIds]) => {
         if (!active) return;
         setPostItems(items);
+        setLikedPostIds(likedIds);
+        setSavedPostIds(savedIds);
         setLoadState('ready');
       })
       .catch(() => {
@@ -130,9 +163,12 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     isSuspended
   );
   const canPostAnonymously = canCreateAnonymousEntry(effectiveTier, isSuspended);
+  const actorRole: UserRole = (
+    effectiveTier === 'guest' ? 'member' : effectiveTier
+  ) as UserRole;
 
   const handleComposerAction = (action: 'write' | 'photo' | 'anonymous') => {
-    setInteractionGuestPrompt(null);
+    setComposerFeedback(null);
 
     if (!user) {
       setComposerFeedback({ kind: 'guest' });
@@ -150,11 +186,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
     if (action === 'anonymous') {
       if (canPostAnonymously) {
-        setComposerFeedback({
-          kind: 'anonymous_ready',
-          message:
-            'Your authenticated account is eligible to publish in Anonymous. The full anonymous composer opens in the dedicated Anonymous rollout.',
-        });
+        setComposerModal({ mode: 'anonymous' });
       }
       return;
     }
@@ -168,28 +200,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       return;
     }
 
-    setComposerFeedback({
-      kind: 'verified_ready',
-      message:
-        'Your account holds publishing permissions for ordinary community updates. Full post publishing workflows will be connected in the feed publishing phase.',
-    });
-  };
-
-  const handlePostInteraction = (actionName: string) => {
-    if (!user) {
-      setInteractionGuestPrompt(
-        `Sign in or create a free LASUED Intel account to ${actionName}.`
-      );
-      return;
-    }
-    if (isSuspended) {
-      setComposerFeedback({
-        kind: 'suspended',
-        message:
-          'Your account is currently suspended and restricted from post interactions.',
-      });
-      return;
-    }
+    setComposerModal({ mode: 'ordinary' });
   };
 
   return (
@@ -245,7 +256,6 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 aria-selected={isSelected}
                 onClick={() => {
                   setComposerFeedback(null);
-                  setInteractionGuestPrompt(null);
                   if (tab.id !== activeFeedTab && !(tab.id === 'following' && !user)) {
                     setLoadState('loading');
                   }
@@ -307,7 +317,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844]"
             >
               <MessageSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-              Anonymous
+              Post Anonymously
             </button>
           </div>
 
@@ -329,21 +339,32 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               className={`mt-4 flex flex-col justify-between gap-3 rounded-xl border p-3.5 text-sm sm:flex-row sm:items-center ${
                 composerFeedback.kind === 'suspended'
                   ? 'border-red-200 bg-red-50 text-red-900'
+                  : composerFeedback.kind === 'anonymous_published' ||
+                    composerFeedback.kind === 'ordinary_published'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
                   : 'border-slate-200 bg-slate-50 text-slate-700'
               }`}
             >
               <div className="flex items-start gap-2.5">
-                <ShieldAlert
-                  className={`mt-0.5 h-4 w-4 shrink-0 ${
-                    composerFeedback.kind === 'suspended'
-                      ? 'text-red-700'
-                      : 'text-[#1E88E5]'
-                  }`}
-                  aria-hidden="true"
-                />
+                {composerFeedback.kind === 'anonymous_published' ||
+                composerFeedback.kind === 'ordinary_published' ? (
+                  <CheckCircle2
+                    className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <ShieldAlert
+                    className={`mt-0.5 h-4 w-4 shrink-0 ${
+                      composerFeedback.kind === 'suspended'
+                        ? 'text-red-700'
+                        : 'text-[#1E88E5]'
+                    }`}
+                    aria-hidden="true"
+                  />
+                )}
                 <span>{composerFeedback.message}</span>
               </div>
-              {composerFeedback.kind === 'anonymous_ready' && (
+              {composerFeedback.kind === 'anonymous_published' && (
                 <button
                   type="button"
                   onClick={() => onNavigate('anonymous')}
@@ -378,18 +399,6 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             <span className="text-xs text-slate-500">Checking account...</span>
           )}
         </div>
-
-        {interactionGuestPrompt && (
-          <div className="mt-4">
-            <GuestPromptCard
-              title="Account required for this action"
-              description={interactionGuestPrompt}
-              returnRoute={activeFeedTab}
-              onRequireAuth={onRequireAuth}
-              onDismiss={() => setInteractionGuestPrompt(null)}
-            />
-          </div>
-        )}
 
         <div className="mt-5">
           {activeFeedTab === 'following' && !user ? (
@@ -431,119 +440,117 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               </button>
             </div>
           ) : postItems.length === 0 ? (
-            <div className="space-y-4">
-              <EmptyState section={activeSection} />
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                <p className="text-xs text-slate-600">
-                  {user
-                    ? 'Community reactions, comments, and saves activate as verified updates are published.'
-                    : 'Browsing as a guest. Sign in to like, comment, save posts, or follow members.'}
-                </p>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handlePostInteraction('like posts')}
-                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Heart className="h-3.5 w-3.5" aria-hidden="true" />
-                    Like
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePostInteraction('comment on posts')}
-                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                    Comment
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePostInteraction('save posts')}
-                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    <Bookmark className="h-3.5 w-3.5" aria-hidden="true" />
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
+            <EmptyState section={activeSection} />
           ) : (
             <div className="space-y-4">
-              {postItems.map(({ post, author }) => (
-                <article
-                  key={post.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                    {author ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onNavigate('profile', { username: author.username })
-                        }
-                        className="inline-flex items-center gap-1.5 font-semibold text-[#0B1A2E] hover:text-[#1E88E5]"
-                      >
-                        <span>{author.fullName}</span>
-                        {author.badge !== 'none' && (
-                          <BadgeCheck
-                            className="h-3.5 w-3.5 text-[#1E88E5]"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span className="font-normal text-slate-500">
-                          @{author.username}
-                        </span>
-                      </button>
-                    ) : (
-                      <span>Campus Contributor</span>
-                    )}
-                    <span>
-                      {post.category} ·{' '}
-                      {post.isOfficial ? 'Official Update' : 'Community'}
-                    </span>
-                  </div>
-                  {post.title && (
-                    <h2 className="mt-1.5 font-display text-base font-bold text-[#0B1A2E]">
-                      {post.title}
-                    </h2>
-                  )}
-                  <p className="mt-1.5 text-sm leading-relaxed text-slate-700">
-                    {post.body}
-                  </p>
-                  <div className="mt-3 flex items-center gap-3 border-t border-slate-100 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => handlePostInteraction('like this post')}
-                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                    >
-                      <Heart className="h-4 w-4" aria-hidden="true" />
-                      <span>{post.likesCount}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handlePostInteraction('comment on this post')
-                      }
-                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                    >
-                      <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                      <span>{post.commentsCount}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handlePostInteraction('save this post')}
-                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                    >
-                      <Bookmark className="h-4 w-4" aria-hidden="true" />
-                      <span>Save</span>
-                    </button>
-                  </div>
-                </article>
-              ))}
+              {postItems.map(({ post, author }) => {
+                const resolvedAuthor =
+                  profile && post.ownerUID === profile.uid
+                    ? toPublicProfileProjection(profile)
+                    : author;
+
+                return (
+                  <PostCard
+                    key={post.id}
+                    kind="ordinary"
+                    post={post}
+                    author={resolvedAuthor}
+                    viewerUid={user?.uid ?? null}
+                    viewerTier={effectiveTier}
+                    viewerSuspended={isSuspended}
+                    isLiked={likedPostIds.has(post.id)}
+                    isSaved={savedPostIds.has(post.id)}
+                    onSaveChanged={(postId, saved) =>
+                      setSavedPostIds((prev) => {
+                        const next = new Set(prev);
+                        if (saved) next.add(postId);
+                        else next.delete(postId);
+                        return next;
+                      })
+                    }
+                    onNavigateProfile={(uname) =>
+                      onNavigate('profile', { username: uname })
+                    }
+                    onRequireAuth={onRequireAuth}
+                    returnRoute={activeFeedTab}
+                    onEditPost={(targetPost) =>
+                      setComposerModal({
+                        mode: 'ordinary',
+                        editPost: targetPost as CommunityPost,
+                      })
+                    }
+                    onPostUpdated={(updated) =>
+                      setPostItems((prev) =>
+                        prev.map((item) =>
+                          item.post.id === updated.id
+                            ? { ...item, post: updated as CommunityPost }
+                            : item
+                        )
+                      )
+                    }
+                    onPostDeleted={(deletedId) =>
+                      setPostItems((prev) =>
+                        prev.filter((item) => item.post.id !== deletedId)
+                      )
+                    }
+                  />
+                );
+              })}
             </div>
           )}
         </div>
       </section>
+
+      {composerModal && user && (
+        <PostComposer
+          mode={composerModal.mode}
+          actorUid={user.uid}
+          actorRole={actorRole}
+          actorName={profile?.fullName || user.displayName || undefined}
+          actorUsername={profile?.username}
+          initialPost={composerModal.editPost ?? null}
+          onSuccess={(saved) => {
+            if (composerModal.mode === 'anonymous') {
+              setComposerModal(null);
+              setComposerFeedback({
+                kind: 'anonymous_published',
+                message:
+                  'Your anonymous post was published safely with zero identity links.',
+              });
+              return;
+            }
+
+            const savedCommunity = saved as CommunityPost;
+            if (composerModal.editPost) {
+              setPostItems((prev) =>
+                prev.map((item) =>
+                  item.post.id === savedCommunity.id
+                    ? { ...item, post: savedCommunity }
+                    : item
+                )
+              );
+              setComposerFeedback({
+                kind: 'ordinary_published',
+                message: 'Your community update has been updated.',
+              });
+            } else {
+              const authorProjection = profile
+                ? toPublicProfileProjection(profile)
+                : null;
+              setPostItems((prev) => [
+                { post: savedCommunity, author: authorProjection },
+                ...prev,
+              ]);
+              setComposerFeedback({
+                kind: 'ordinary_published',
+                message: 'Your community update is now live.',
+              });
+            }
+            setComposerModal(null);
+          }}
+          onClose={() => setComposerModal(null)}
+        />
+      )}
     </div>
   );
 };

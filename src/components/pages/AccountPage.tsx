@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
-  BadgeCheck,
   CheckCircle2,
-  Crown,
   ExternalLink,
   KeyRound,
   Loader2,
@@ -30,13 +28,16 @@ import {
   checkUsernameAvailability,
   deleteOwnMemberFirestoreData,
   updateMemberAccountProfileAndUsername,
+  updateMemberPrivacySettings,
 } from '../../services/firestoreFoundation';
 import { BLUEPRINT_LIMITS } from '../../types/database';
-import type { ActiveRoute, SearchScopeId } from '../../types/platform';
+import type { ActiveRoute, ProfileTab, SearchScopeId } from '../../types/platform';
 import {
+  ACCOUNT_CATEGORY_OPTIONS,
   buildWhatsAppChatUrl,
   CAMPUS_STATUS_OPTIONS,
   canAccessAdminDashboard,
+  canAccessFullAdminDashboard,
   formatFirestoreOrAppError,
   getAccountTierDisplayLabel,
   isValidEmailAddress,
@@ -49,12 +50,19 @@ import {
   type ProfileSettingsFormInput,
   type ProfileSettingsValidationErrors,
 } from '../../utils/authValidation';
+import { RoleBadge } from '../RoleBadge';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { AvatarMedia } from '../media/FirestoreImage';
+import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
 
 interface AccountPageProps {
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
 }
@@ -95,6 +103,9 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   const [emailChangePassword, setEmailChangePassword] = useState('');
   const [nextEmail, setNextEmail] = useState('');
   const [isChangingEmail, setIsChangingEmail] = useState(false);
+
+  // Section C: Privacy toggle state
+  const [togglingWhatsapp, setTogglingWhatsapp] = useState(false);
 
   // Section D: Account Deletion state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -243,6 +254,34 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     }
   };
 
+  const handleTogglePublicWhatsapp = async () => {
+    if (!user || !profile || isSuspended || togglingWhatsapp) return;
+    setTogglingWhatsapp(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      const nextShow = !(profile.showWhatsappPublicly ?? true);
+      await updateMemberPrivacySettings(user.uid, {
+        showWhatsappPublicly: nextShow,
+      });
+      await refreshAccountState();
+      setStatusMessage(
+        nextShow
+          ? 'WhatsApp contact button is now visible on your public profile.'
+          : 'WhatsApp contact button is now hidden from your public profile.'
+      );
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(
+          error,
+          'Unable to update your WhatsApp visibility preference right now.'
+        )
+      );
+    } finally {
+      setTogglingWhatsapp(false);
+    }
+  };
+
   const handleDeleteAccount = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
@@ -294,18 +333,14 @@ export const AccountPage: React.FC<AccountPageProps> = ({
       <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div className="flex items-start gap-3.5">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#0B1A2E] text-white">
-              {profile?.photoUrl ? (
-                <img
-                  src={profile.photoUrl}
-                  alt={profile.fullName}
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <UserIcon className="h-6 w-6 text-[#1E88E5]" aria-hidden="true" />
-              )}
-            </div>
+            <AvatarMedia
+              fullName={profile?.fullName || user.displayName || 'LASUED Member'}
+              photoImageId={profile?.photoImageId}
+              photoUrl={profile?.photoUrl}
+              sizeClass="h-14 w-14"
+              roundedClass="rounded-xl"
+              textClass="text-base"
+            />
             <div>
               <h1
                 id="account-heading"
@@ -331,21 +366,24 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 {effectiveTier === 'supreme_admin' ||
-                effectiveTier === 'owner' ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-700 via-fuchsia-600 to-purple-800 px-3 py-1 text-xs font-bold text-white shadow-sm ring-2 ring-purple-300">
-                    <Crown className="h-3.5 w-3.5" aria-hidden="true" />
-                    {tierLabel}
-                  </span>
-                ) : effectiveTier === 'moderator' ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white">
-                    <Shield className="h-3.5 w-3.5" aria-hidden="true" />
-                    Moderator
-                  </span>
-                ) : effectiveTier === 'verified' ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white">
-                    <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                    Verified
-                  </span>
+                effectiveTier === 'owner' ||
+                effectiveTier === 'moderator' ||
+                effectiveTier === 'verified' ? (
+                  <>
+                    <RoleBadge
+                      badge={
+                        effectiveTier === 'owner'
+                          ? 'supreme_admin'
+                          : effectiveTier
+                      }
+                      size="md"
+                    />
+                    {effectiveTier === 'owner' && (
+                      <span className="text-xs font-medium text-slate-500">
+                        ({tierLabel})
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <span className="text-xs font-medium text-slate-600">
                     Role: Ordinary Member
@@ -462,7 +500,9 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
             >
               <ShieldCheck className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-              Open Administrator Dashboard
+              {canAccessFullAdminDashboard(effectiveTier, isSuspended)
+                ? 'Open Administrator Dashboard'
+                : 'Open Moderation Console'}
             </button>
           </div>
         )}
@@ -517,10 +557,13 @@ export const AccountPage: React.FC<AccountPageProps> = ({
           {/* PART A: PROFILE INFORMATION */}
           {activeTab === 'profile' && (
             <ProfileInformationForm
-              key={`${user.uid}:${profile?.username ?? ''}:${profile?.fullName ?? ''}:${profile?.bio ?? ''}:${profile?.department ?? ''}:${profile?.faculty ?? ''}:${profile?.level ?? ''}:${profile?.publicWhatsapp ?? ''}:${profile?.photoUrl ?? ''}:${profile?.coverUrl ?? ''}`}
+              key={`${user.uid}:${profile?.username ?? ''}:${profile?.fullName ?? ''}:${profile?.bio ?? ''}:${profile?.department ?? ''}:${profile?.faculty ?? ''}:${profile?.level ?? ''}:${profile?.accountCategory ?? ''}:${profile?.publicWhatsapp ?? ''}:${profile?.showWhatsappPublicly ?? true}:${profile?.photoImageId ?? ''}:${profile?.coverImageId ?? ''}`}
               uid={user.uid}
+              hasInitializedProfile={Boolean(profile)}
               authEmail={user.email || ''}
               currentUsername={profile?.username ?? ''}
+              currentPhotoImageId={profile?.photoImageId}
+              currentCoverImageId={profile?.coverImageId}
               initialValues={{
                 fullName: profile?.fullName || user.displayName || '',
                 username: profile?.username || '',
@@ -528,7 +571,9 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                 department: profile?.department || '',
                 faculty: profile?.faculty || '',
                 level: profile?.level || '',
+                accountCategory: profile?.accountCategory || '',
                 publicWhatsapp: profile?.publicWhatsapp || '',
+                showWhatsappPublicly: profile?.showWhatsappPublicly ?? true,
                 photoUrl: profile?.photoUrl || '',
                 coverUrl: profile?.coverUrl || '',
               }}
@@ -770,20 +815,55 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
               <div className="space-y-3">
                 <div className="rounded-xl border border-slate-200 p-4">
-                  <h3 className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
-                    <MessageCircle
-                      className="h-4 w-4 text-[#1E88E5]"
-                      aria-hidden="true"
-                    />
-                    Public WhatsApp Contact
-                  </h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    Your registered WhatsApp number ({profile?.publicWhatsapp || 'not set'})
-                    powers the &ldquo;Message on WhatsApp&rdquo; button on your public
-                    profile. LASUED Intel does not provide an in-app private
-                    chat inbox; conversations open directly in WhatsApp.
-                  </p>
-                  {whatsappChatUrl && (
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                    <div>
+                      <h3 className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
+                        <MessageCircle
+                          className="h-4 w-4 text-[#1E88E5]"
+                          aria-hidden="true"
+                        />
+                        Public WhatsApp Contact
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Your registered WhatsApp number ({profile?.publicWhatsapp || 'not set'})
+                        powers the &ldquo;Message on WhatsApp&rdquo; button on your public
+                        profile when enabled. LASUED Intel does not provide an in-app
+                        private chat inbox.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={profile ? (profile.showWhatsappPublicly ?? true) : true}
+                      aria-label="Show WhatsApp contact button on public profile"
+                      disabled={!profile || isSuspended || togglingWhatsapp}
+                      onClick={() => void handleTogglePublicWhatsapp()}
+                      className={`inline-flex min-h-[40px] shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
+                        (profile?.showWhatsappPublicly ?? true)
+                          ? 'border-[#1E88E5]/40 bg-[#1E88E5]/10 text-[#0B1A2E]'
+                          : 'border-slate-300 bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {togglingWhatsapp ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className={`inline-block h-2.5 w-2.5 rounded-full ${
+                            (profile?.showWhatsappPublicly ?? true)
+                              ? 'bg-[#1E88E5]'
+                              : 'bg-slate-400'
+                          }`}
+                        />
+                      )}
+                      {(profile?.showWhatsappPublicly ?? true)
+                        ? 'Visible on Profile'
+                        : 'Hidden on Profile'}
+                    </button>
+                  </div>
+
+                  {whatsappChatUrl && (profile?.showWhatsappPublicly ?? true) && (
                     <a
                       href={whatsappChatUrl}
                       target="_blank"
@@ -947,8 +1027,11 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
 interface ProfileInformationFormProps {
   uid: string;
+  hasInitializedProfile: boolean;
   authEmail: string;
   currentUsername: string;
+  currentPhotoImageId?: string;
+  currentCoverImageId?: string;
   initialValues: ProfileSettingsFormInput;
   isSuspended: boolean;
   onRefreshAccount: () => Promise<void>;
@@ -958,8 +1041,11 @@ interface ProfileInformationFormProps {
 
 const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
   uid,
+  hasInitializedProfile,
   authEmail,
   currentUsername,
+  currentPhotoImageId,
+  currentCoverImageId,
   initialValues,
   isSuspended,
   onRefreshAccount,
@@ -974,11 +1060,12 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
   );
   const [editFaculty, setEditFaculty] = useState(initialValues.faculty);
   const [editLevel, setEditLevel] = useState(initialValues.level);
+  const [editAccountCategory, setEditAccountCategory] = useState(
+    initialValues.accountCategory
+  );
   const [editWhatsapp, setEditWhatsapp] = useState(
     initialValues.publicWhatsapp
   );
-  const [editPhotoUrl, setEditPhotoUrl] = useState(initialValues.photoUrl);
-  const [editCoverUrl, setEditCoverUrl] = useState(initialValues.coverUrl);
 
   const [profileErrors, setProfileErrors] =
     useState<ProfileSettingsValidationErrors>({});
@@ -1054,9 +1141,11 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
       department: editDepartment,
       faculty: editFaculty,
       level: editLevel,
+      accountCategory: editAccountCategory,
       publicWhatsapp: editWhatsapp,
-      photoUrl: editPhotoUrl,
-      coverUrl: editCoverUrl,
+      showWhatsappPublicly: initialValues.showWhatsappPublicly,
+      photoUrl: initialValues.photoUrl,
+      coverUrl: initialValues.coverUrl,
     };
 
     const validationErrors = validateProfileSettingsForm(payload);
@@ -1101,10 +1190,31 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
           A. Profile Information
         </h2>
         <p className="text-xs text-slate-600">
-          Update your public profile details, unique @username, photos,
-          biography, and WhatsApp contact.
+          Upload your profile and cover photographs directly from your device,
+          or update your public profile details, unique @username, biography,
+          and WhatsApp contact.
         </p>
       </div>
+
+      {hasInitializedProfile ? (
+        <ProfileMediaUploaders
+          uid={uid}
+          fullName={editFullName || 'LASUED Member'}
+          currentPhotoImageId={currentPhotoImageId}
+          currentPhotoUrl={initialValues.photoUrl}
+          currentCoverImageId={currentCoverImageId}
+          currentCoverUrl={initialValues.coverUrl}
+          isSuspended={isSuspended}
+          onUpdated={onRefreshAccount}
+          onStatus={onStatus}
+          onError={onError}
+        />
+      ) : (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+          Save your profile details below first to initialize your member
+          record before uploading a profile picture or cover photograph.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
@@ -1248,75 +1358,55 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
 
         <div>
           <label
-            htmlFor="settings-whatsapp"
+            htmlFor="settings-account-category"
             className="block text-sm font-medium text-[#0B1A2E]"
           >
-            Public WhatsApp number <span className="text-red-600">*</span>
+            Account Category (optional)
           </label>
-          <input
-            id="settings-whatsapp"
-            type="tel"
-            required
+          <select
+            id="settings-account-category"
             disabled={isSuspended}
-            value={editWhatsapp}
-            onChange={(e) => setEditWhatsapp(e.target.value)}
-            placeholder="+234 800 000 0000"
-            className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
-          />
-          {profileErrors.publicWhatsapp && (
+            value={editAccountCategory}
+            onChange={(e) => setEditAccountCategory(e.target.value)}
+            className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+          >
+            <option value="">Select category</option>
+            {ACCOUNT_CATEGORY_OPTIONS.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          {profileErrors.accountCategory && (
             <p className="mt-1 text-xs text-red-700">
-              {profileErrors.publicWhatsapp}
+              {profileErrors.accountCategory}
             </p>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label
-            htmlFor="settings-photourl"
-            className="block text-sm font-medium text-[#0B1A2E]"
-          >
-            Profile picture URL (optional)
-          </label>
-          <input
-            id="settings-photourl"
-            type="url"
-            disabled={isSuspended}
-            value={editPhotoUrl}
-            onChange={(e) => setEditPhotoUrl(e.target.value)}
-            placeholder="https://example.com/avatar.jpg"
-            className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
-          />
-          {profileErrors.photoUrl && (
-            <p className="mt-1 text-xs text-red-700">
-              {profileErrors.photoUrl}
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label
-            htmlFor="settings-coverurl"
-            className="block text-sm font-medium text-[#0B1A2E]"
-          >
-            Cover photo URL (optional)
-          </label>
-          <input
-            id="settings-coverurl"
-            type="url"
-            disabled={isSuspended}
-            value={editCoverUrl}
-            onChange={(e) => setEditCoverUrl(e.target.value)}
-            placeholder="https://example.com/cover.jpg"
-            className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
-          />
-          {profileErrors.coverUrl && (
-            <p className="mt-1 text-xs text-red-700">
-              {profileErrors.coverUrl}
-            </p>
-          )}
-        </div>
+      <div>
+        <label
+          htmlFor="settings-whatsapp"
+          className="block text-sm font-medium text-[#0B1A2E]"
+        >
+          Public WhatsApp number <span className="text-red-600">*</span>
+        </label>
+        <input
+          id="settings-whatsapp"
+          type="tel"
+          required
+          disabled={isSuspended}
+          value={editWhatsapp}
+          onChange={(e) => setEditWhatsapp(e.target.value)}
+          placeholder="+234 800 000 0000"
+          className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+        />
+        {profileErrors.publicWhatsapp && (
+          <p className="mt-1 text-xs text-red-700">
+            {profileErrors.publicWhatsapp}
+          </p>
+        )}
       </div>
 
       <div>

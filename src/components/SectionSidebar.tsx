@@ -1,23 +1,32 @@
 import React from 'react';
 import {
   Bell,
+  Bookmark,
   ExternalLink,
+  Lock,
   Search,
   ShieldCheck,
   User as UserIcon,
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
-import { canAccessAdminDashboard } from '../utils/authValidation';
+import {
+  canAccessAdminDashboard,
+  canAccessFullAdminDashboard,
+} from '../utils/authValidation';
 import { getSectionsByGroup } from '../utils/sectionState';
 import { getSearchScopeFromRoute } from '../utils/urlRouting';
-import { ActiveRoute, SearchScopeId } from '../types/platform';
+import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
 import { SectionIcon } from './SectionIcon';
 
 interface SectionSidebarProps {
   activeRoute: ActiveRoute;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      profileTab?: ProfileTab;
+      searchScope?: SearchScopeId;
+    }
   ) => void;
 }
 
@@ -30,6 +39,7 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
   const feeds = getSectionsByGroup('Feeds');
   const hub = getSectionsByGroup('Campus Hub');
   const showAdmin = canAccessAdminDashboard(effectiveTier, isSuspended);
+  const isFullAdmin = canAccessFullAdminDashboard(effectiveTier, isSuspended);
   const currentSearchScope = getSearchScopeFromRoute(activeRoute);
 
   return (
@@ -148,12 +158,15 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                 )}
               </button>
             </li>
-            {user && profile?.username && (
+            {user && (
               <li>
                 <button
                   type="button"
                   onClick={() =>
-                    onNavigate('profile', { username: profile.username })
+                    onNavigate(
+                      'profile',
+                      profile?.username ? { username: profile.username } : undefined
+                    )
                   }
                   aria-current={activeRoute === 'profile' ? 'page' : undefined}
                   className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
@@ -166,9 +179,49 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                     className="h-4 w-4 shrink-0 text-slate-400"
                     aria-hidden="true"
                   />
-                  <span>My Public Profile</span>
+                  <span>My Profile</span>
                 </button>
               </li>
+            )}
+            {user && profile?.username && (
+              <>
+                <li>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onNavigate('profile', {
+                        username: profile.username,
+                        profileTab: 'saved',
+                      })
+                    }
+                    className="flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                  >
+                    <Bookmark
+                      className="h-4 w-4 shrink-0 text-slate-400"
+                      aria-hidden="true"
+                    />
+                    <span>Saved Posts</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onNavigate('profile', {
+                        username: profile.username,
+                        profileTab: 'anonymous',
+                      })
+                    }
+                    className="flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                  >
+                    <Lock
+                      className="h-4 w-4 shrink-0 text-slate-400"
+                      aria-hidden="true"
+                    />
+                    <span>My Anonymous Posts</span>
+                  </button>
+                </li>
+              </>
             )}
             {user && (
               <li>
@@ -200,7 +253,7 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   }`}
                 >
                   <ShieldCheck className="h-4 w-4 shrink-0 text-[#1E88E5]" aria-hidden="true" />
-                  <span>Admin Dashboard</span>
+                  <span>{isFullAdmin ? 'Admin Dashboard' : 'Moderation Console'}</span>
                 </button>
               </li>
             )}
