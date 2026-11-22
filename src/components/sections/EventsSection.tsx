@@ -11,10 +11,20 @@ import {
   categorizeEventByDate,
   type CampusEvent,
 } from '../../types/database';
+import type { ActiveRoute } from '../../types/platform';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
 
-export const EventsSection: React.FC = () => {
+interface EventsSectionProps {
+  selectedEventId?: string | null;
+  onSelectEvent?: (eventId: string | null) => void;
+  onNavigateProfile?: (username: string) => void;
+  onRequireAuth?: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
+}
+
+export const EventsSection: React.FC<EventsSectionProps> = ({
+  selectedEventId = null,
+}) => {
   const [events, setEvents] = useState<CampusEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -133,7 +143,11 @@ export const EventsSection: React.FC = () => {
             return (
               <article
                 key={evt.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+                className={`rounded-xl border bg-white p-4 sm:p-5 ${
+                  selectedEventId === evt.id
+                    ? 'border-[#1E88E5] ring-2 ring-[#1E88E5]/20'
+                    : 'border-slate-200'
+                }`}
               >
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                   <div className="min-w-0 flex-1">

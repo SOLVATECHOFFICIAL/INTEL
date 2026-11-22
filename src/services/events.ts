@@ -93,15 +93,17 @@ export async function toggleEventReaction(input: {
         }
 
         const currentCount = Number(evtData.likesCount ?? 0);
-        const { nextLiked, nextCount } = computeNextReactionTransactionState(
-          reactionSnap.exists(),
-          currentCount
-        );
+        const nextState = computeNextReactionTransactionState({
+          alreadyLiked: reactionSnap.exists(),
+          currentLikesCount: currentCount,
+        });
 
-        if (!nextLiked) {
+        if (!nextState.liked) {
           tx.delete(reactionRef);
-          tx.update(eventRef, { likesCount: nextCount });
-          return { liked: false, likesCount: nextCount };
+          if (nextState.shouldUpdatePostLikesCount) {
+            tx.update(eventRef, { likesCount: nextState.likesCount });
+          }
+          return { liked: false, likesCount: nextState.likesCount };
         }
 
         tx.set(reactionRef, {
@@ -111,8 +113,8 @@ export async function toggleEventReaction(input: {
           reactionType: input.reactionType ?? 'like',
           createdAt: serverTimestamp(),
         });
-        tx.update(eventRef, { likesCount: nextCount });
-        return { liked: true, likesCount: nextCount };
+        tx.update(eventRef, { likesCount: nextState.likesCount });
+        return { liked: true, likesCount: nextState.likesCount };
       })
     );
   } catch (error) {
@@ -361,15 +363,17 @@ export async function togglePostCommentReaction(input: {
         const currentCount = Number(
           (commentSnap.data() as PostComment).likesCount ?? 0
         );
-        const { nextLiked, nextCount } = computeNextReactionTransactionState(
-          reactionSnap.exists(),
-          currentCount
-        );
+        const nextState = computeNextReactionTransactionState({
+          alreadyLiked: reactionSnap.exists(),
+          currentLikesCount: currentCount,
+        });
 
-        if (!nextLiked) {
+        if (!nextState.liked) {
           tx.delete(reactionRef);
-          tx.update(commentRef, { likesCount: nextCount });
-          return { liked: false, likesCount: nextCount };
+          if (nextState.shouldUpdatePostLikesCount) {
+            tx.update(commentRef, { likesCount: nextState.likesCount });
+          }
+          return { liked: false, likesCount: nextState.likesCount };
         }
 
         tx.set(reactionRef, {
@@ -379,8 +383,8 @@ export async function togglePostCommentReaction(input: {
           reactionType: 'like',
           createdAt: serverTimestamp(),
         });
-        tx.update(commentRef, { likesCount: nextCount });
-        return { liked: true, likesCount: nextCount };
+        tx.update(commentRef, { likesCount: nextState.likesCount });
+        return { liked: true, likesCount: nextState.likesCount };
       })
     );
   } catch (error) {
