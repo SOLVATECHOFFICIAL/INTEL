@@ -17,10 +17,13 @@ import {
   isSafeMediaUrl,
   isValidFirestoreId,
   isValidUsername,
+  resolveAnonymousPostType,
   resolveBadgeAuditAction,
   resolveBadgeForRole,
   resolveMarketplaceUpdateFromQuantity,
+  resolveOrdinaryPostType,
   validateAnonymousPostPayload,
+  validateAnonymousReportPayload,
   validateCommunityPostPayload,
   validateMediaImagePayload,
   validatePostMediaItems,
@@ -239,9 +242,151 @@ test('anonymous post validator rejects any identity leakage fields and supports 
       }),
     /attach at least one photograph/i
   );
+
+  // Prompt 8 strict two-format validation (text vs photo)
+  assert.doesNotThrow(() =>
+    validateAnonymousPostPayload({
+      id: 'anon_typed_text',
+      postType: 'text',
+      category: 'Academics',
+      body: 'Quiet study update.',
+      backgroundStyle: 'ocean_blue',
+    })
+  );
+
+  assert.throws(
+    () =>
+      validateAnonymousPostPayload({
+        id: 'anon_typed_text_photo',
+        postType: 'text',
+        category: 'Academics',
+        body: 'Mixed anonymous post',
+        backgroundStyle: 'navy_slate',
+        mediaItems: [
+          {
+            imageId: 'img_02',
+            width: 800,
+            height: 800,
+            byteSize: 80000,
+            mimeType: 'image/webp',
+            order: 0,
+          },
+        ],
+      }),
+    /cannot include photo attachments/i
+  );
+
+  assert.doesNotThrow(() =>
+    validateAnonymousPostPayload({
+      id: 'anon_typed_photo',
+      postType: 'photo',
+      category: 'Campus Life',
+      body: 'Shared caption above the photos.',
+      mediaItems: [
+        {
+          imageId: 'img_03',
+          width: 800,
+          height: 800,
+          byteSize: 80000,
+          mimeType: 'image/webp',
+          order: 0,
+        },
+      ],
+    })
+  );
+
+  assert.throws(
+    () =>
+      validateAnonymousPostPayload({
+        id: 'anon_typed_photo_bg',
+        postType: 'photo',
+        category: 'Campus Life',
+        body: 'Shared caption',
+        backgroundStyle: 'cobalt_indigo',
+        mediaItems: [
+          {
+            imageId: 'img_03',
+            width: 800,
+            height: 800,
+            byteSize: 80000,
+            mimeType: 'image/webp',
+            order: 0,
+          },
+        ],
+      }),
+    /cannot use coloured text-post backgrounds/i
+  );
+
+  assert.throws(
+    () =>
+      validateAnonymousPostPayload({
+        id: 'anon_typed_photo_per_caption',
+        postType: 'photo',
+        category: 'Campus Life',
+        body: 'Shared caption',
+        mediaItems: [
+          {
+            imageId: 'img_03',
+            width: 800,
+            height: 800,
+            byteSize: 80000,
+            mimeType: 'image/webp',
+            order: 0,
+            caption: 'Forbidden per-photo caption',
+          },
+        ],
+      }),
+    /individual photo captions are not allowed/i
+  );
+
+  assert.equal(resolveAnonymousPostType({ postType: 'text' }), 'text');
+  assert.equal(resolveAnonymousPostType({ postType: 'photo' }), 'photo');
+  assert.equal(
+    resolveAnonymousPostType({
+      mediaItems: [
+        {
+          imageId: 'img_03',
+          width: 800,
+          height: 800,
+          byteSize: 80000,
+          mimeType: 'image/webp',
+          order: 0,
+        },
+      ],
+    }),
+    'photo'
+  );
+  assert.equal(resolveAnonymousPostType({ mediaItems: [] }), 'text');
+
+  assert.doesNotThrow(() =>
+    validateAnonymousReportPayload({
+      id: 'anonymousPost_anon_1_uid_1',
+      targetType: 'anonymousPost',
+      targetId: 'anon_1',
+      postId: 'anon_1',
+      reporterUid: 'uid_1',
+      reason: 'harassment',
+      details: 'Targeted abuse in thread',
+      excerpt: 'Abusive text excerpt',
+    })
+  );
+
+  assert.throws(
+    () =>
+      validateAnonymousReportPayload({
+        id: 'bad_report',
+        targetType: 'anonymousPost',
+        targetId: 'anon_1',
+        postId: 'anon_1',
+        reporterUid: 'uid_1',
+        reason: 'not_valid',
+        excerpt: 'Test',
+      }),
+    /valid reason/i
+  );
 });
 
-test('mediaImages and 4-image post metadata validators enforce Firestore size and anonymous safety rules', () => {
+test('mediaImages and 4-image post metadata validators enforce Firestore size and ordinary post format separation', () => {
   const sampleMediaItems = [0, 1, 2, 3].map((order) => ({
     imageId: `img_${order}`,
     width: 900,
@@ -251,6 +396,15 @@ test('mediaImages and 4-image post metadata validators enforce Firestore size an
     order,
     caption: `Slide ${order + 1}`,
   }));
+
+  const uncaptionedPhoto = {
+    imageId: 'img_0',
+    width: 900,
+    height: 900,
+    byteSize: 98_000,
+    mimeType: 'image/webp' as const,
+    order: 0,
+  };
 
   assert.doesNotThrow(() => validatePostMediaItems(sampleMediaItems));
   assert.throws(
@@ -307,15 +461,116 @@ test('mediaImages and 4-image post metadata validators enforce Firestore size an
     /safe Firestore Base64 document ceiling/i
   );
 
+  // Format A: Text-Only Post
+  assert.doesNotThrow(() =>
+    validateCommunityPostPayload({
+      id: 'post_text_only',
+      ownerUID: 'uid_verified',
+      postType: 'text',
+      category: 'Campus Update',
+      body: 'Faculty seminar starts at 10am in Hall B.',
+      backgroundStyle: 'ocean_blue',
+    })
+  );
+
+  assert.throws(
+    () =>
+      validateCommunityPostPayload({
+        id: 'post_text_missing_bg',
+        ownerUID: 'uid_verified',
+        postType: 'text',
+        category: 'Campus Update',
+        body: 'Valid message',
+      }),
+    /coloured or gradient background/i
+  );
+
+  assert.throws(
+    () =>
+      validateCommunityPostPayload({
+        id: 'post_text_with_photo',
+        ownerUID: 'uid_verified',
+        postType: 'text',
+        category: 'Campus Update',
+        body: 'Mixed post',
+        backgroundStyle: 'navy_slate',
+        mediaItems: [uncaptionedPhoto],
+      }),
+    /Text-only posts cannot include photo attachments/i
+  );
+
+  assert.throws(
+    () =>
+      validateCommunityPostPayload({
+        id: 'post_text_too_long',
+        ownerUID: 'uid_verified',
+        postType: 'text',
+        category: 'Campus Update',
+        body: 'a'.repeat(BLUEPRINT_LIMITS.textPostBodyMax + 1),
+        backgroundStyle: 'navy_slate',
+      }),
+    /500 characters or fewer/i
+  );
+
+  // Format B: Photo Post (1-4 photos, optional shared caption above, zero coloured background, zero per-photo captions)
   assert.doesNotThrow(() =>
     validateCommunityPostPayload({
       id: 'post_photo_only',
       ownerUID: 'uid_verified',
+      postType: 'photo',
       category: 'Campus Update',
-      body: '',
-      mediaItems: [sampleMediaItems[0]],
+      body: 'Shared caption displayed above the photos.',
+      mediaItems: [uncaptionedPhoto],
     })
   );
+
+  assert.throws(
+    () =>
+      validateCommunityPostPayload({
+        id: 'post_photo_zero',
+        ownerUID: 'uid_verified',
+        postType: 'photo',
+        category: 'Campus Update',
+        body: 'No photos attached',
+        mediaItems: [],
+      }),
+    /between 1 and 4 photographs/i
+  );
+
+  assert.throws(
+    () =>
+      validateCommunityPostPayload({
+        id: 'post_photo_with_bg',
+        ownerUID: 'uid_verified',
+        postType: 'photo',
+        category: 'Campus Update',
+        body: 'Mixed background',
+        backgroundStyle: 'ocean_blue',
+        mediaItems: [uncaptionedPhoto],
+      }),
+    /cannot use coloured text-post backgrounds/i
+  );
+
+  assert.throws(
+    () =>
+      validateCommunityPostPayload({
+        id: 'post_photo_per_caption',
+        ownerUID: 'uid_verified',
+        postType: 'photo',
+        category: 'Campus Update',
+        body: 'Shared caption',
+        mediaItems: [sampleMediaItems[0]],
+      }),
+    /individual photo captions are not allowed/i
+  );
+
+  assert.equal(resolveOrdinaryPostType({ postType: 'text' }), 'text');
+  assert.equal(resolveOrdinaryPostType({ postType: 'photo' }), 'photo');
+  assert.equal(
+    resolveOrdinaryPostType({ mediaItems: [uncaptionedPhoto] }),
+    'photo'
+  );
+  assert.equal(resolveOrdinaryPostType({ mediaItems: [] }), 'text');
 });
 
 test('marketplace approval, 7-day expiry, and quantity=0 sold transition work accurately', () => {

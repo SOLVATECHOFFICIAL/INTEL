@@ -16,7 +16,7 @@ test('firestore.rules enforces default deny and verified email identity checks',
   assert.match(rulesText, /request\.auth\.token\.email_verified == true/);
 });
 
-test('all 23 blueprint collections have explicit rules in firestore.rules', () => {
+test('all 24 blueprint collections have explicit rules in firestore.rules', () => {
   const expectedCollections = [
     'users',
     'privateUserData',
@@ -32,6 +32,7 @@ test('all 23 blueprint collections have explicit rules in firestore.rules', () =
     'anonymousComments',
     'anonymousIdentityMappings',
     'anonymousAuditLogs',
+    'anonymousReports',
     'mediaImages',
     'savedPosts',
     'marketplaceListings',
@@ -130,7 +131,11 @@ test('profile accountCategory, private anonymousHistory subcollection, and anony
   assert.match(rulesText, /allow update: if false;/);
   assert.match(
     rulesText,
-    /allow get, list: if existing\(\)\.targetCollection == 'posts' \|\|/
+    /allow get: if isValidId\(reactionId\) && \(\s*\(resource == null && isSignedIn\(\)\) \|\|/
+  );
+  assert.match(
+    rulesText,
+    /allow list: if existing\(\)\.targetCollection == 'posts' \|\|/
   );
   assert.match(
     rulesText,
@@ -147,7 +152,7 @@ test('Prompt 6 adminAuditLogs immutability, scoped moderator boundaries, and col
   assert.match(adminLogBlock, /allow update, delete: if false;/);
   assert.match(
     adminLogBlock,
-    /isModerator\(\) && incoming\(\)\.action in \[\s*'marketplace_approved', 'marketplace_rejected',\s*'post_deleted', 'anonymous_post_deleted',\s*'post_comment_deleted', 'anonymous_comment_deleted'\s*\]/
+    /isModerator\(\) && incoming\(\)\.action in \[\s*'marketplace_approved', 'marketplace_rejected',\s*'post_deleted', 'anonymous_post_deleted',\s*'post_comment_deleted', 'anonymous_comment_deleted',\s*'anonymous_report_dismissed', 'anonymous_report_removed'\s*\]/
   );
 
   // Moderator notification create strictly limited to marketplace decisions
@@ -187,4 +192,112 @@ test('Prompt 6 adminAuditLogs immutability, scoped moderator boundaries, and col
   assert.match(rulesText, /'newRegistrationsOpen'/);
   assert.match(settingsBlock, /allow delete: if isPermanentOwner\(\)/);
 });
+
+test('Prompt 7 ordinary feed rules enforce role/badge sync, two separate post formats, and target post existence for interactions', () => {
+  assert.match(rulesText, /function isValidPublishRoleAndBadge\(uid\)/);
+  assert.match(rulesText, /function canPublishFeed\(\) \{\s*return isActiveSignedInUser\(\) &&\s*isValidPublishRoleAndBadge\(request\.auth\.uid\)/);
+  assert.match(rulesText, /function isValidTextPostBackgroundStyle\(style\)/);
+  assert.match(rulesText, /function isValidPhotoOnlyMediaItemMap\(item\)/);
+  assert.match(rulesText, /function isValidPhotoPostMediaItemsArray\(data\)/);
+  assert.match(rulesText, /function isValidTypedCommunityPost\(data, postId\)/);
+
+  // Posts create enforces typed post rules and author update locks postType
+  const postsBlock = rulesText.slice(
+    rulesText.indexOf('match /posts/{postId}'),
+    rulesText.indexOf('match /postComments/{commentId}')
+  );
+  assert.match(postsBlock, /isValidTypedCommunityPost\(incoming\(\), postId\)/);
+  assert.match(postsBlock, /!\('postType' in existing\(\)\) \|\| incoming\(\)\.postType == existing\(\)\.postType/);
+
+  // Reactions and comments verify target post exists and is published
+  assert.match(rulesText, /get\(\/databases\/\$\(database\)\/documents\/posts\/\$\(incoming\(\)\.postId\)\)\.data\.status == 'published'/);
+  assert.match(rulesText, /get\(\/databases\/\$\(database\)\/documents\/posts\/\$\(incoming\(\)\.targetId\)\)\.data\.status == 'published'/);
+
+  // Blueprint and composite index checks
+  const postProps = blueprint.entities.CommunityPost.properties;
+  assert.ok('postType' in postProps);
+  assert.ok('backgroundStyle' in postProps);
+
+  const indexesJson = JSON.parse(
+    fs.readFileSync(path.resolve('firestore.indexes.json'), 'utf8')
+  ) as {
+    indexes: { collectionGroup: string; fields: { fieldPath: string; order: string }[] }[];
+  };
+  const hasPostsCreatedAtIndex = indexesJson.indexes.some(
+    (idx) =>
+      idx.collectionGroup === 'posts' &&
+      idx.fields[0]?.fieldPath === 'status' &&
+      idx.fields[1]?.fieldPath === 'createdAt' &&
+      idx.fields[1]?.order === 'DESCENDING'
+  );
+  assert.equal(hasPostsCreatedAtIndex, true);
+});
+
+test('isActiveAccount and currentRoleString guard missing fields safely without weakening suspension checks', () => {
+  assert.match(
+    rulesText,
+    /function isActiveAccount\(uid\) \{\s*return !exists\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\) \|\|\s*!\('accountStatus' in get\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\)\.data\) \|\|\s*get\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\)\.data\.accountStatus == 'active';/
+  );
+  assert.match(
+    rulesText,
+    /function currentRoleString\(\) \{\s*return isPermanentOwner\(\)\s*\? 'owner'\s*: \(hasRoleDoc\(request\.auth\.uid\) &&\s*'role' in roleDoc\(request\.auth\.uid\) &&/
+  );
+  assert.match(
+    rulesText,
+    /allow get: if isValidId\(postId\) && \(\s*resource == null \|\|\s*existing\(\)\.status == 'published'/
+  );
+  assert.match(
+    rulesText,
+    /allow get: if isValidId\(postId\) && \(resource == null \|\| existing\(\)\.status == 'published'\);/
+  );
+  assert.match(
+    rulesText,
+    /allow get: if isValidId\(commentId\) && \(resource == null \|\| existing\(\)\.status == 'published'\);/
+  );
+});
+
+test('Prompt 8 anonymous community rules enforce strict text vs photo formats, comment likes, and moderation reports without exposing author identities', () => {
+  assert.match(rulesText, /function isValidTypedAnonymousPost\(data, postId\)/);
+  assert.match(rulesText, /function isValidAnonymousReport\(data, reportId\)/);
+
+  const anonPostsBlock = rulesText.slice(
+    rulesText.indexOf('match /anonymousPosts/{postId}'),
+    rulesText.indexOf('match /anonymousComments/{commentId}')
+  );
+  assert.match(anonPostsBlock, /isValidTypedAnonymousPost\(incoming\(\), postId\)/);
+  assert.match(
+    anonPostsBlock,
+    /!\('postType' in existing\(\)\) \|\| incoming\(\)\.postType == existing\(\)\.postType/
+  );
+
+  // Anonymous comment & nested reply likes sync with postReactions while remaining private
+  assert.match(
+    rulesText,
+    /incoming\(\)\.targetCollection in \['posts', 'anonymousPosts', 'anonymousComments'\]/
+  );
+  assert.match(
+    rulesText,
+    /'anonymousComments_' \+ commentId \+ '_' \+ request\.auth\.uid/
+  );
+
+  // Anonymous reports never expose target author UIDs and keep deterministic reporter keys
+  const reportsBlock = rulesText.slice(
+    rulesText.indexOf('match /anonymousReports/{reportId}'),
+    rulesText.indexOf('// 5. Media Images')
+  );
+  assert.match(reportsBlock, /isValidAnonymousReport\(incoming\(\), reportId\)/);
+  assert.match(
+    reportsBlock,
+    /reportId == data\.targetType \+ '_' \+ data\.targetId \+ '_' \+ data\.reporterUid|isSupremeAdminOrOwner\(\) \|\| isModerator\(\)/
+  );
+  assert.doesNotMatch(
+    rulesText.slice(
+      rulesText.indexOf('function isValidAnonymousReport'),
+      rulesText.indexOf('function isValidIdentityMapping')
+    ),
+    /authorUid|ownerUID/
+  );
+});
+
+
 

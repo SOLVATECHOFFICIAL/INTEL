@@ -41,6 +41,7 @@ import {
 } from '../../services/governance';
 import type {
   AnonymousPost,
+  AnonymousReport,
   CampusEvent,
   Opportunity,
   PlatformSetting,
@@ -149,11 +150,13 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
     anonymousPosts: AnonymousPost[];
     ordinaryComments: AdminPostCommentItem[];
     anonymousComments: AdminPostCommentItem[];
+    anonymousReports: AnonymousReport[];
   }>({
     ordinaryPosts: [],
     anonymousPosts: [],
     ordinaryComments: [],
     anonymousComments: [],
+    anonymousReports: [],
   });
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [events, setEvents] = useState<CampusEvent[]>([]);
@@ -613,6 +616,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               anonymousPosts={contentBundle.anonymousPosts}
               ordinaryComments={contentBundle.ordinaryComments}
               anonymousComments={contentBundle.anonymousComments}
+              anonymousReports={contentBundle.anonymousReports}
               loading={loadingSection}
               actorUid={user.uid}
               actorRole={actorRole}

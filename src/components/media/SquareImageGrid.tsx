@@ -8,6 +8,7 @@ interface SquareImageGridProps {
   postLabel: string;
   onImageClick: (index: number) => void;
   onRemoveImage?: (imageId: string) => void;
+  showPerPhotoCaptions?: boolean;
 }
 
 export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
@@ -15,6 +16,7 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
   postLabel,
   onImageClick,
   onRemoveImage,
+  showPerPhotoCaptions = true,
 }) => {
   const photos = items.slice(0, 4);
   const count = photos.length;
@@ -37,6 +39,7 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
       {photos.map((photo, index) => {
         const spanClass =
           count === 3 && index === 0 ? 'col-span-2 row-span-2' : '';
+        const visibleCaption = showPerPhotoCaptions ? photo.caption : undefined;
 
         return (
           <div
@@ -47,7 +50,7 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
               type="button"
               onClick={() => onImageClick(index)}
               aria-label={`View ${postLabel} photograph ${index + 1} of ${count}${
-                photo.caption ? `: ${photo.caption}` : ''
+                visibleCaption ? `: ${visibleCaption}` : ''
               }`}
               className="block h-full w-full cursor-zoom-in focus-visible:ring-2 focus-visible:ring-[#1E88E5]"
             >
@@ -55,8 +58,8 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
                 imageId={photo.directSrc ? null : photo.imageId}
                 directSrc={photo.directSrc}
                 alt={
-                  photo.caption
-                    ? photo.caption
+                  visibleCaption
+                    ? visibleCaption
                     : `${postLabel} photograph ${index + 1}`
                 }
                 className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
@@ -64,10 +67,10 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
               />
             </button>
 
-            {photo.caption && (
+            {visibleCaption && (
               <div className="pointer-events-none absolute right-0 bottom-0 left-0 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-2.5 pt-5 pb-2">
                 <p className="truncate text-[11px] font-medium text-white">
-                  {photo.caption}
+                  {visibleCaption}
                 </p>
               </div>
             )}

@@ -29,6 +29,7 @@ import {
   type AnonymousAuditLog,
   type AnonymousComment,
   type AnonymousPost,
+  type AnonymousReport,
   type BadgeAuditLog,
   type CampusEvent,
   type CampusEventStatus,
@@ -581,39 +582,48 @@ export async function fetchAdminCommunityContentBundle(): Promise<{
   anonymousPosts: AnonymousPost[];
   ordinaryComments: AdminPostCommentItem[];
   anonymousComments: AdminPostCommentItem[];
+  anonymousReports: AnonymousReport[];
 }> {
   try {
-    const [postsSnap, anonPostsSnap, postCommentsSnap, anonCommentsSnap] =
-      await Promise.all([
-        getDocs(
-          query(
-            collection(db, COLLECTION_NAMES.posts),
-            where('status', '==', 'published'),
-            limit(80)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, COLLECTION_NAMES.anonymousPosts),
-            where('status', '==', 'published'),
-            limit(80)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, COLLECTION_NAMES.postComments),
-            where('status', '==', 'published'),
-            limit(100)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, COLLECTION_NAMES.anonymousComments),
-            where('status', '==', 'published'),
-            limit(100)
-          )
-        ),
-      ]);
+    const [
+      postsSnap,
+      anonPostsSnap,
+      postCommentsSnap,
+      anonCommentsSnap,
+      anonReportsSnap,
+    ] = await Promise.all([
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.posts),
+          where('status', '==', 'published'),
+          limit(80)
+        )
+      ),
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.anonymousPosts),
+          where('status', '==', 'published'),
+          limit(80)
+        )
+      ),
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.postComments),
+          where('status', '==', 'published'),
+          limit(100)
+        )
+      ),
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.anonymousComments),
+          where('status', '==', 'published'),
+          limit(100)
+        )
+      ),
+      getDocs(
+        query(collection(db, COLLECTION_NAMES.anonymousReports), limit(100))
+      ).catch(() => null),
+    ]);
 
     const rawPosts = sortByCreatedAtDesc(
       postsSnap.docs.map((item) => item.data() as CommunityPost)
@@ -648,9 +658,134 @@ export async function fetchAdminCommunityContentBundle(): Promise<{
         comment,
         author: null,
       })),
+      anonymousReports: anonReportsSnap
+        ? sortByCreatedAtDesc(
+            anonReportsSnap.docs.map((item) => item.data() as AnonymousReport)
+          )
+        : [],
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.posts);
+  }
+}
+
+export async function resolveAnonymousReportWithAudit(input: {
+  report: AnonymousReport;
+  decision: 'reviewed_removed' | 'dismissed';
+  actorUid: string;
+  actorRole: UserRole;
+  resolutionNote?: string;
+  targetPost?: AnonymousPost | null;
+  targetComment?: AnonymousComment | null;
+  allAnonymousComments?: readonly AnonymousComment[];
+}): Promise<AnonymousReport> {
+  const isModeratorOrAdmin =
+    input.actorRole === 'owner' ||
+    input.actorRole === 'supreme_admin' ||
+    input.actorRole === 'moderator';
+  if (!isModeratorOrAdmin) {
+    throw new Error('Only Moderators and Administrators can resolve reports.');
+  }
+
+  const cleanNote = input.resolutionNote?.trim().slice(0, 500) ?? '';
+
+  if (input.decision === 'reviewed_removed') {
+    if (input.report.targetType === 'anonymousPost') {
+      let postToDelete = input.targetPost ?? null;
+      if (!postToDelete) {
+        const postSnap = await getDoc(
+          doc(db, COLLECTION_NAMES.anonymousPosts, input.report.targetId)
+        ).catch(() => null);
+        if (postSnap?.exists()) {
+          postToDelete = postSnap.data() as AnonymousPost;
+        }
+      }
+      if (postToDelete) {
+        try {
+          await deletePostCascading({
+            kind: 'anonymousPosts',
+            post: postToDelete,
+            actorUid: input.actorUid,
+          });
+        } catch (error) {
+          const isFullAdmin =
+            input.actorRole === 'owner' || input.actorRole === 'supreme_admin';
+          const msg = error instanceof Error ? error.message : '';
+          if (!isFullAdmin && /permission|insufficient/i.test(msg)) {
+            throw new Error(
+              'Moderators cannot delete anonymous posts belonging to Verified, Moderator, or Admin accounts.',
+              { cause: error }
+            );
+          }
+          throw error;
+        }
+      }
+    } else {
+      let commentToDelete = input.targetComment ?? null;
+      if (!commentToDelete) {
+        const commentSnap = await getDoc(
+          doc(db, COLLECTION_NAMES.anonymousComments, input.report.targetId)
+        ).catch(() => null);
+        if (commentSnap?.exists()) {
+          commentToDelete = commentSnap.data() as AnonymousComment;
+        }
+      }
+      if (commentToDelete) {
+        await adminDeleteCommentWithAudit({
+          kind: 'anonymousPosts',
+          comment: commentToDelete,
+          allCommentsInSameKind: input.allAnonymousComments ?? [commentToDelete],
+          actorUid: input.actorUid,
+          actorRole: input.actorRole,
+          reason: cleanNote || `Removed via anonymous report (${input.report.reason}).`,
+        });
+      }
+    }
+  }
+
+  const actorAuditRole = getAuditActorRole(input.actorRole);
+  const batch = writeBatch(db);
+
+  batch.update(
+    doc(db, COLLECTION_NAMES.anonymousReports, input.report.id),
+    {
+      status: input.decision,
+      reviewedByUid: input.actorUid,
+      reviewedByRole: actorAuditRole,
+      updatedAt: serverTimestamp(),
+      ...(cleanNote ? { resolutionNote: cleanNote } : {}),
+    }
+  );
+  attachAdminAuditLogToBatch(batch, {
+    action:
+      input.decision === 'reviewed_removed'
+        ? 'anonymous_report_removed'
+        : 'anonymous_report_dismissed',
+    targetCollection: COLLECTION_NAMES.anonymousReports,
+    targetId: input.report.id,
+    targetLabel: `${input.report.targetType}: ${input.report.excerpt.slice(0, 80)}`,
+    performedByUid: input.actorUid,
+    performedByRole: input.actorRole,
+    details:
+      cleanNote ||
+      (input.decision === 'reviewed_removed'
+        ? `Removed reported content (${input.report.reason}).`
+        : `Dismissed report (${input.report.reason}).`),
+  });
+
+  const path = `${COLLECTION_NAMES.anonymousReports}/${input.report.id}`;
+  try {
+    await batch.commit();
+    return {
+      ...input.report,
+      status: input.decision,
+      reviewedByUid: input.actorUid,
+      reviewedByRole: actorAuditRole,
+      resolutionNote: cleanNote || undefined,
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 

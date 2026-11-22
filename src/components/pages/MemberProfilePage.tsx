@@ -24,7 +24,10 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { getAnonymousBackgroundTheme } from '../../config/anonymousBackgrounds';
+import {
+  getAnonymousBackgroundTheme,
+  getTextPostBackgroundTheme,
+} from '../../config/anonymousBackgrounds';
 import { useFirebase } from '../../context/firebaseContext';
 import {
   fetchFollowersListByUsername,
@@ -907,15 +910,44 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   placeholderClassName="bg-[#0B1A2E]"
                 />
               ) : (
-                <div className="flex h-full w-full flex-col justify-between bg-gradient-to-br from-[#0B1A2E] via-[#132944] to-[#1E88E5]/80 p-2.5 sm:p-3.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#90CAF9] sm:text-[11px]">
-                    {post.category}
-                  </span>
-                  <p className="line-clamp-4 text-[11px] font-semibold leading-snug text-white sm:text-xs">
-                    {post.title || post.body}
-                  </p>
-                  <span aria-hidden="true" />
-                </div>
+                (() => {
+                  const textTheme =
+                    post.backgroundStyle || post.postType === 'text'
+                      ? getTextPostBackgroundTheme(post.backgroundStyle)
+                      : null;
+                  return (
+                    <div
+                      className={`flex h-full w-full flex-col justify-between p-2.5 sm:p-3.5 ${
+                        textTheme
+                          ? ''
+                          : 'bg-gradient-to-br from-[#0B1A2E] via-[#132944] to-[#1E88E5]/80'
+                      }`}
+                      style={
+                        textTheme
+                          ? { background: textTheme.backgroundCss }
+                          : undefined
+                      }
+                    >
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wide sm:text-[11px] ${
+                          textTheme && !textTheme.isDark
+                            ? 'text-[#0B1A2E]/75'
+                            : 'text-[#90CAF9]'
+                        }`}
+                      >
+                        {post.category}
+                      </span>
+                      <p
+                        className={`line-clamp-4 text-[11px] font-semibold leading-snug sm:text-xs ${
+                          textTheme ? textTheme.textColorClass : 'text-white'
+                        }`}
+                      >
+                        {post.title || post.body}
+                      </p>
+                      <span aria-hidden="true" />
+                    </div>
+                  );
+                })()
               )}
 
               {/* Subtle bottom gradient for metric legibility */}
@@ -1830,21 +1862,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                           </div>
                         )}
 
-                        {gridItems.length > 0 && (
-                          <div className="mt-3">
-                            <SquareImageGrid
-                              items={gridItems}
-                              postLabel="Your anonymous post"
-                              onImageClick={() =>
-                                setDetailTarget({
-                                  kind: 'anonymous',
-                                  post: anonPost,
-                                })
-                              }
-                            />
-                          </div>
-                        )}
-
                         {isStyledText && theme ? (
                           <div
                             className="mt-3 flex min-h-[128px] items-center justify-center rounded-xl p-5 text-center"
@@ -1857,11 +1874,28 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                             </p>
                           </div>
                         ) : (
-                          anonPost.body.trim().length > 0 && (
-                            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                              {anonPost.body}
-                            </p>
-                          )
+                          <>
+                            {anonPost.body.trim().length > 0 && (
+                              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                                {anonPost.body}
+                              </p>
+                            )}
+                            {gridItems.length > 0 && (
+                              <div className="mt-3">
+                                <SquareImageGrid
+                                  items={gridItems}
+                                  postLabel="Your anonymous post"
+                                  showPerPhotoCaptions={false}
+                                  onImageClick={() =>
+                                    setDetailTarget({
+                                      kind: 'anonymous',
+                                      post: anonPost,
+                                    })
+                                  }
+                                />
+                              </div>
+                            )}
+                          </>
                         )}
 
                         <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-2.5 text-xs font-semibold text-slate-600">

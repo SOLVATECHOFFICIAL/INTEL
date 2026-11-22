@@ -140,6 +140,20 @@ export const FullScreenImageLightbox: React.FC<
         </div>
       </div>
 
+      {/* Shared Post Caption Visible at Top of Viewer */}
+      {postCaption && (
+        <div
+          className="border-b border-white/10 bg-[#0B1A2E]/90 px-4 py-3 sm:px-6"
+          data-testid="lightbox-shared-caption"
+        >
+          <div className="mx-auto max-w-3xl">
+            <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-100 sm:text-sm">
+              {postCaption}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Main Viewport */}
       <div
         className="relative flex flex-1 items-center justify-center overflow-auto p-4 sm:p-8"
@@ -182,7 +196,7 @@ export const FullScreenImageLightbox: React.FC<
             transformOrigin: 'center center',
           }}
         >
-          <div className="max-h-[70vh] max-w-full overflow-hidden rounded-xl bg-[#0B1A2E]">
+          <div className="max-h-[68vh] max-w-full overflow-hidden rounded-xl bg-[#0B1A2E]">
             <FirestoreImage
               imageId={activeItem.directSrc ? null : activeItem.imageId}
               directSrc={activeItem.directSrc}
@@ -192,7 +206,7 @@ export const FullScreenImageLightbox: React.FC<
                 `Photograph ${currentIndex + 1}`
               }
               eager
-              className="max-h-[70vh] w-auto max-w-full object-contain"
+              className="max-h-[68vh] w-auto max-w-full object-contain"
               placeholderClassName="bg-[#0B1A2E] min-h-[240px] min-w-[240px]"
             />
           </div>
@@ -210,23 +224,16 @@ export const FullScreenImageLightbox: React.FC<
         )}
       </div>
 
-      {/* Bottom Captions Panel */}
-      {(activeItem.caption || postCaption) && (
-        <div className="border-t border-white/10 bg-[#0B1A2E]/90 px-4 py-3.5 sm:px-6">
-          <div className="mx-auto max-w-3xl space-y-1.5">
-            {activeItem.caption && (
-              <p className="text-sm font-semibold text-white">
-                <span className="text-[#64B5F6]">
-                  Photo {currentIndex + 1}:
-                </span>{' '}
-                {activeItem.caption}
-              </p>
-            )}
-            {postCaption && (
-              <p className="text-xs leading-relaxed text-slate-200 sm:text-sm">
-                {postCaption}
-              </p>
-            )}
+      {/* Optional Per-Photo Caption (Anonymous Posts Only) */}
+      {activeItem.caption && (
+        <div className="border-t border-white/10 bg-[#0B1A2E]/90 px-4 py-3 sm:px-6">
+          <div className="mx-auto max-w-3xl">
+            <p className="text-sm font-semibold text-white">
+              <span className="text-[#64B5F6]">
+                Photo {currentIndex + 1}:
+              </span>{' '}
+              {activeItem.caption}
+            </p>
           </div>
         </div>
       )}

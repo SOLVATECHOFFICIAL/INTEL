@@ -20,6 +20,10 @@ export type MediaTargetCollection =
 
 export type SupportedImageMimeType = 'image/webp' | 'image/jpeg';
 
+export type OrdinaryPostType = 'text' | 'photo';
+
+export type AnonymousPostType = 'text' | 'photo';
+
 export type AnonymousBackgroundId =
   | 'plain'
   | 'navy_slate'
@@ -30,6 +34,8 @@ export type AnonymousBackgroundId =
   | 'crimson_rose'
   | 'royal_plum'
   | 'warm_charcoal';
+
+export type TextPostBackgroundId = Exclude<AnonymousBackgroundId, 'plain'>;
 
 export type MarketplaceListingKind = 'product' | 'service' | 'accommodation';
 
@@ -88,9 +94,8 @@ export const BLUEPRINT_PATTERNS = {
   username: /^[a-z0-9_]+$/,
 } as const;
 
-export const ALLOWED_ANONYMOUS_BACKGROUND_IDS: readonly AnonymousBackgroundId[] =
+export const ALLOWED_TEXT_POST_BACKGROUND_IDS: readonly TextPostBackgroundId[] =
   [
-    'plain',
     'navy_slate',
     'ocean_blue',
     'cobalt_indigo',
@@ -99,6 +104,12 @@ export const ALLOWED_ANONYMOUS_BACKGROUND_IDS: readonly AnonymousBackgroundId[] 
     'crimson_rose',
     'royal_plum',
     'warm_charcoal',
+  ] as const;
+
+export const ALLOWED_ANONYMOUS_BACKGROUND_IDS: readonly AnonymousBackgroundId[] =
+  [
+    'plain',
+    ...ALLOWED_TEXT_POST_BACKGROUND_IDS,
   ] as const;
 
 export const BLUEPRINT_LIMITS = {
@@ -124,6 +135,8 @@ export const BLUEPRINT_LIMITS = {
   postTitleMax: 180,
   postBodyMin: 0,
   postBodyMax: 5000,
+  textPostBodyMax: 500,
+  photoPostCaptionMax: 2000,
   anonymousBodyMin: 0,
   anonymousBodyMax: 3000,
   commentBodyMin: 1,
@@ -167,6 +180,7 @@ export const COLLECTION_NAMES = {
   anonymousComments: 'anonymousComments',
   anonymousIdentityMappings: 'anonymousIdentityMappings',
   anonymousAuditLogs: 'anonymousAuditLogs',
+  anonymousReports: 'anonymousReports',
   mediaImages: 'mediaImages',
   savedPosts: 'savedPosts',
   marketplaceListings: 'marketplaceListings',
@@ -320,6 +334,8 @@ export type AdminAuditAction =
   | 'anonymous_post_deleted'
   | 'post_comment_deleted'
   | 'anonymous_comment_deleted'
+  | 'anonymous_report_dismissed'
+  | 'anonymous_report_removed'
   | 'post_pinned'
   | 'post_unpinned'
   | 'post_official_toggled'
@@ -361,9 +377,11 @@ export interface CommunityPost {
   id: string;
   ownerUID: string;
   authorRole: Exclude<UserRole, 'member'>;
+  postType?: OrdinaryPostType;
   category: string;
   title?: string;
   body: string;
+  backgroundStyle?: TextPostBackgroundId;
   mediaUrls?: string[];
   mediaItems?: PostMediaMeta[];
   isOfficial: boolean;
@@ -374,6 +392,17 @@ export interface CommunityPost {
   commentsCount: number;
   createdAt: unknown;
   updatedAt: unknown;
+}
+
+export function resolveOrdinaryPostType(
+  post: Pick<CommunityPost, 'postType' | 'mediaItems' | 'mediaUrls'>
+): OrdinaryPostType {
+  if (post.postType === 'text' || post.postType === 'photo') {
+    return post.postType;
+  }
+  const hasMediaItems = Array.isArray(post.mediaItems) && post.mediaItems.length > 0;
+  const hasMediaUrls = Array.isArray(post.mediaUrls) && post.mediaUrls.length > 0;
+  return hasMediaItems || hasMediaUrls ? 'photo' : 'text';
 }
 
 export interface PostComment {
@@ -394,7 +423,7 @@ export interface FollowEdge {
 }
 
 export interface PostReaction {
-  targetCollection: 'posts' | 'anonymousPosts';
+  targetCollection: 'posts' | 'anonymousPosts' | 'anonymousComments';
   targetId: string;
   ownerUID: string;
   reactionType: ReactionType;
@@ -403,6 +432,7 @@ export interface PostReaction {
 
 export interface AnonymousPost {
   id: string;
+  postType?: AnonymousPostType;
   category: string;
   body: string;
   backgroundStyle?: AnonymousBackgroundId;
@@ -415,12 +445,55 @@ export interface AnonymousPost {
   updatedAt: unknown;
 }
 
+export function resolveAnonymousPostType(
+  post: Pick<AnonymousPost, 'postType' | 'mediaItems'>
+): AnonymousPostType {
+  if (post.postType === 'text' || post.postType === 'photo') {
+    return post.postType;
+  }
+  const hasMediaItems = Array.isArray(post.mediaItems) && post.mediaItems.length > 0;
+  return hasMediaItems ? 'photo' : 'text';
+}
+
 export interface AnonymousComment {
   id: string;
   postId: string;
   parentCommentId?: string;
   body: string;
   status: PostStatus;
+  likesCount?: number;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
+export type AnonymousReportTargetType = 'anonymousPost' | 'anonymousComment';
+
+export type AnonymousReportReason =
+  | 'harassment'
+  | 'hate_speech'
+  | 'privacy_leak'
+  | 'misinformation'
+  | 'spam'
+  | 'other';
+
+export type AnonymousReportStatus =
+  | 'pending'
+  | 'reviewed_removed'
+  | 'dismissed';
+
+export interface AnonymousReport {
+  id: string;
+  targetType: AnonymousReportTargetType;
+  targetId: string;
+  postId: string;
+  reporterUid: string;
+  reason: AnonymousReportReason;
+  details?: string;
+  excerpt: string;
+  status: AnonymousReportStatus;
+  reviewedByUid?: string;
+  reviewedByRole?: 'owner' | 'supreme_admin' | 'moderator';
+  resolutionNote?: string;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -755,15 +828,25 @@ export function validateCommunityPostPayload(
 ): void {
   const id = String(payload.id ?? '');
   const ownerUID = String(payload.ownerUID ?? '');
+  const postType = payload.postType;
   const category = String(payload.category ?? '').trim();
   const title = payload.title === undefined ? '' : String(payload.title).trim();
   const body = String(payload.body ?? '').trim();
+  const backgroundStyle = payload.backgroundStyle;
   const mediaItems = Array.isArray(payload.mediaItems)
     ? (payload.mediaItems as PostMediaMeta[])
+    : [];
+  const mediaUrls = Array.isArray(payload.mediaUrls)
+    ? (payload.mediaUrls as string[])
     : [];
 
   if (!isValidFirestoreId(id) || !isValidFirestoreId(ownerUID)) {
     throw new Error('Invalid community post identifiers.');
+  }
+  if (postType !== 'text' && postType !== 'photo') {
+    throw new Error(
+      'Ordinary community posts must specify postType as "text" or "photo".'
+    );
   }
   if (
     category.length < BLUEPRINT_LIMITS.categoryMin ||
@@ -776,13 +859,59 @@ export function validateCommunityPostPayload(
       `Post title must be ${BLUEPRINT_LIMITS.postTitleMax} characters or fewer.`
     );
   }
-  validatePostMediaItems(mediaItems);
-  if (body.length === 0 && mediaItems.length === 0) {
-    throw new Error('Write a caption or attach at least one photograph.');
+
+  if (postType === 'text') {
+    if (mediaItems.length > 0 || mediaUrls.length > 0) {
+      throw new Error(
+        'Text-only posts cannot include photo attachments. Switch to Photo Post to upload images.'
+      );
+    }
+    if (
+      typeof backgroundStyle !== 'string' ||
+      !ALLOWED_TEXT_POST_BACKGROUND_IDS.includes(
+        backgroundStyle as TextPostBackgroundId
+      )
+    ) {
+      throw new Error(
+        'Select a valid coloured or gradient background for your text-only post.'
+      );
+    }
+    if (body.length === 0) {
+      throw new Error('Write a message for your text-only post.');
+    }
+    if (body.length > BLUEPRINT_LIMITS.textPostBodyMax) {
+      throw new Error(
+        `Text-only posts must be ${BLUEPRINT_LIMITS.textPostBodyMax} characters or fewer.`
+      );
+    }
+    return;
   }
-  if (body.length > BLUEPRINT_LIMITS.postBodyMax) {
+
+  // postType === 'photo'
+  if (backgroundStyle !== undefined && backgroundStyle !== '') {
     throw new Error(
-      `Post text must be ${BLUEPRINT_LIMITS.postBodyMax} characters or fewer.`
+      'Photo posts cannot use coloured text-post backgrounds.'
+    );
+  }
+  if (mediaItems.length === 0 || mediaItems.length > BLUEPRINT_LIMITS.mediaPostMaxCount) {
+    throw new Error(
+      `Photo posts require between 1 and ${BLUEPRINT_LIMITS.mediaPostMaxCount} photographs.`
+    );
+  }
+  validatePostMediaItems(mediaItems);
+  for (let i = 0; i < mediaItems.length; i += 1) {
+    if (
+      mediaItems[i].caption !== undefined &&
+      mediaItems[i].caption!.trim().length > 0
+    ) {
+      throw new Error(
+        'Photo posts use one shared caption above the photos; individual photo captions are not allowed.'
+      );
+    }
+  }
+  if (body.length > BLUEPRINT_LIMITS.photoPostCaptionMax) {
+    throw new Error(
+      `Shared photo caption must be ${BLUEPRINT_LIMITS.photoPostCaptionMax} characters or fewer.`
     );
   }
 }
@@ -813,6 +942,7 @@ export function validateAnonymousPostPayload(
   }
 
   const id = String(payload.id ?? '');
+  const postType = payload.postType;
   const category = String(payload.category ?? '').trim();
   const body = String(payload.body ?? '').trim();
   const backgroundStyle = payload.backgroundStyle;
@@ -822,6 +952,13 @@ export function validateAnonymousPostPayload(
 
   if (!isValidFirestoreId(id)) {
     throw new Error('Invalid anonymous post ID.');
+  }
+  if (
+    postType !== undefined &&
+    postType !== 'text' &&
+    postType !== 'photo'
+  ) {
+    throw new Error('Anonymous post type must be "text" or "photo".');
   }
   if (
     category.length < BLUEPRINT_LIMITS.categoryMin ||
@@ -837,6 +974,55 @@ export function validateAnonymousPostPayload(
   ) {
     throw new Error('Invalid anonymous post background style.');
   }
+
+  if (postType === 'text') {
+    if (mediaItems.length > 0) {
+      throw new Error(
+        'Anonymous text-only posts cannot include photo attachments. Switch to Photo Post to upload images.'
+      );
+    }
+    if (body.length === 0) {
+      throw new Error('Write your anonymous message before posting.');
+    }
+    if (body.length > BLUEPRINT_LIMITS.anonymousBodyMax) {
+      throw new Error('Anonymous post body violates blueprint length bounds.');
+    }
+    return;
+  }
+
+  if (postType === 'photo') {
+    if (backgroundStyle !== undefined && backgroundStyle !== '') {
+      throw new Error(
+        'Anonymous photo posts cannot use coloured text-post backgrounds.'
+      );
+    }
+    if (
+      mediaItems.length === 0 ||
+      mediaItems.length > BLUEPRINT_LIMITS.mediaPostMaxCount
+    ) {
+      throw new Error(
+        `Anonymous photo posts require between 1 and ${BLUEPRINT_LIMITS.mediaPostMaxCount} photographs.`
+      );
+    }
+    validatePostMediaItems(mediaItems);
+    for (let i = 0; i < mediaItems.length; i += 1) {
+      if (
+        mediaItems[i].caption !== undefined &&
+        mediaItems[i].caption!.trim().length > 0
+      ) {
+        throw new Error(
+          'Anonymous photo posts use one shared caption above the photos; individual photo captions are not allowed.'
+        );
+      }
+    }
+    if (body.length > BLUEPRINT_LIMITS.photoPostCaptionMax) {
+      throw new Error(
+        `Shared photo caption must be ${BLUEPRINT_LIMITS.photoPostCaptionMax} characters or fewer.`
+      );
+    }
+    return;
+  }
+
   validatePostMediaItems(mediaItems);
 
   if (body.length === 0 && mediaItems.length === 0) {
@@ -846,6 +1032,54 @@ export function validateAnonymousPostPayload(
   }
   if (body.length > BLUEPRINT_LIMITS.anonymousBodyMax) {
     throw new Error('Anonymous post body violates blueprint length bounds.');
+  }
+}
+
+export const ALLOWED_ANONYMOUS_REPORT_REASONS: readonly AnonymousReportReason[] =
+  [
+    'harassment',
+    'hate_speech',
+    'privacy_leak',
+    'misinformation',
+    'spam',
+    'other',
+  ] as const;
+
+export function validateAnonymousReportPayload(
+  payload: Record<string, unknown>
+): void {
+  const id = String(payload.id ?? '');
+  const targetType = payload.targetType;
+  const targetId = String(payload.targetId ?? '');
+  const postId = String(payload.postId ?? '');
+  const reporterUid = String(payload.reporterUid ?? '');
+  const reason = payload.reason;
+  const details =
+    payload.details === undefined ? '' : String(payload.details).trim();
+  const excerpt = String(payload.excerpt ?? '');
+
+  if (
+    !isValidFirestoreId(id) ||
+    !isValidFirestoreId(targetId) ||
+    !isValidFirestoreId(postId) ||
+    !isValidFirestoreId(reporterUid)
+  ) {
+    throw new Error('Invalid anonymous report identifiers.');
+  }
+  if (targetType !== 'anonymousPost' && targetType !== 'anonymousComment') {
+    throw new Error('Invalid anonymous report target type.');
+  }
+  if (
+    typeof reason !== 'string' ||
+    !ALLOWED_ANONYMOUS_REPORT_REASONS.includes(reason as AnonymousReportReason)
+  ) {
+    throw new Error('Select a valid reason for this report.');
+  }
+  if (details.length > 500) {
+    throw new Error('Additional report details must be 500 characters or fewer.');
+  }
+  if (excerpt.length > 240) {
+    throw new Error('Report excerpt exceeds maximum length.');
   }
 }
 

@@ -331,6 +331,10 @@ export function formatAdminAuditActionLabel(
       return 'Deleted post comment';
     case 'anonymous_comment_deleted':
       return 'Deleted anonymous comment';
+    case 'anonymous_report_dismissed':
+      return 'Dismissed anonymous report';
+    case 'anonymous_report_removed':
+      return 'Removed reported anonymous content';
     case 'post_pinned':
       return 'Pinned community post';
     case 'post_unpinned':

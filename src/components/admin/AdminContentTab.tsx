@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import {
+  CheckCircle2,
   Eye,
   EyeOff,
   FileText,
+  Flag,
   Loader2,
   Lock,
   MessageSquare,
@@ -15,6 +17,7 @@ import {
   adminDeleteCommentWithAudit,
   adminDeleteCommunityPostWithAudit,
   adminTogglePostFlagsWithAudit,
+  resolveAnonymousReportWithAudit,
   type AdminCommunityPostItem,
   type AdminPostCommentItem,
 } from '../../services/adminDashboard';
@@ -27,6 +30,7 @@ import {
   canActorDeleteOrdinaryPost,
   type AnonymousComment,
   type AnonymousPost,
+  type AnonymousReport,
   type CommunityPost,
   type PostComment,
   type UserRole,
@@ -42,6 +46,7 @@ interface AdminContentTabProps {
   anonymousPosts: AnonymousPost[];
   ordinaryComments: AdminPostCommentItem[];
   anonymousComments: AdminPostCommentItem[];
+  anonymousReports: AnonymousReport[];
   loading: boolean;
   actorUid: string;
   actorRole: UserRole;
@@ -55,7 +60,8 @@ type ContentSubTab =
   | 'ordinary_posts'
   | 'anonymous_posts'
   | 'post_comments'
-  | 'anonymous_comments';
+  | 'anonymous_comments'
+  | 'anonymous_reports';
 
 function formatShortTime(value: unknown): string {
   const ms = extractTimestampMs(value);
@@ -73,6 +79,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
   anonymousPosts,
   ordinaryComments,
   anonymousComments,
+  anonymousReports,
   loading,
   actorUid,
   actorRole,
@@ -175,6 +182,79 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
       }),
     [anonymousComments, term]
   );
+
+  const pendingReportsCount = useMemo(
+    () => anonymousReports.filter((r) => r.status === 'pending').length,
+    [anonymousReports]
+  );
+
+  const filteredAnonymousReports = useMemo(
+    () =>
+      anonymousReports.filter((report) => {
+        if (!term) return true;
+        return [
+          report.excerpt,
+          report.details ?? '',
+          report.reason,
+          report.status,
+          report.targetId,
+          report.postId,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(term);
+      }),
+    [anonymousReports, term]
+  );
+
+  const handleResolveReport = async (
+    report: AnonymousReport,
+    decision: 'reviewed_removed' | 'dismissed'
+  ) => {
+    if (busyId) return;
+    setBusyId(report.id);
+    try {
+      const targetPost =
+        report.targetType === 'anonymousPost'
+          ? anonymousPosts.find((p) => p.id === report.targetId) ?? null
+          : null;
+      const allAnonComments = anonymousComments.map(
+        (item) => item.comment as AnonymousComment
+      );
+      const targetComment =
+        report.targetType === 'anonymousComment'
+          ? allAnonComments.find((c) => c.id === report.targetId) ?? null
+          : null;
+
+      await resolveAnonymousReportWithAudit({
+        report,
+        decision,
+        actorUid,
+        actorRole,
+        resolutionNote: reasonNote,
+        targetPost,
+        targetComment,
+        allAnonymousComments: allAnonComments,
+      });
+
+      onSuccess(
+        decision === 'reviewed_removed'
+          ? 'Reported anonymous content removed and report resolved.'
+          : 'Anonymous report dismissed and logged.'
+      );
+      setReasonNote('');
+      onReload();
+    } catch (error) {
+      onError(
+        formatFirestoreOrAppError(
+          error,
+          'Could not resolve this anonymous report.'
+        )
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const handleFlagToggle = async (
     post: CommunityPost,
@@ -303,7 +383,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
       )}
 
       {/* Sub-navigation Tabs */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {(
           [
             {
@@ -325,6 +405,11 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               id: 'anonymous_comments',
               label: `Anon Comments (${anonymousComments.length})`,
               icon: EyeOff,
+            },
+            {
+              id: 'anonymous_reports',
+              label: `Anon Reports (${pendingReportsCount} pending)`,
+              icon: Flag,
             },
           ] as const
         ).map((tab) => {
@@ -666,65 +751,171 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
             })}
           </div>
         )
-      ) : filteredAnonymousComments.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
-          No anonymous comments match your filter.
-        </p>
-      ) : (
-        <div className="space-y-2.5">
-          {filteredAnonymousComments.map(({ comment }) => {
-            const anonComment = comment as AnonymousComment;
-            return (
-              <div
-                key={comment.id}
-                className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-[#0B1A2E]">
-                      Anonymous Reply
-                    </span>
-                    <span className="font-mono text-[11px] text-slate-500">
-                      ID: {comment.id}
-                    </span>
-                    <span className="text-slate-500">
-                      {formatShortTime(comment.createdAt)}
-                    </span>
+      ) : subTab === 'anonymous_comments' ? (
+        filteredAnonymousComments.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
+            No anonymous comments match your filter.
+          </p>
+        ) : (
+          <div className="space-y-2.5">
+            {filteredAnonymousComments.map(({ comment }) => {
+              const anonComment = comment as AnonymousComment;
+              return (
+                <div
+                  key={comment.id}
+                  className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-[#0B1A2E]">
+                        Anonymous Reply
+                      </span>
+                      <span className="font-mono text-[11px] text-slate-500">
+                        ID: {comment.id}
+                      </span>
+                      <span className="text-slate-500">
+                        {formatShortTime(comment.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-800">{comment.body}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400">
+                      Thread: {comment.postId}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-slate-800">{comment.body}</p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-400">
-                    Thread: {comment.postId}
-                  </p>
-                </div>
 
-                <div className="flex shrink-0 items-center gap-2">
-                  {isFullAdmin && (
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isFullAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setLookupEntryId(comment.id)}
+                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100"
+                      >
+                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                        Inspect ID
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => setLookupEntryId(comment.id)}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100"
+                      disabled={busyId === comment.id}
+                      onClick={() =>
+                        setPendingDelete({
+                          kind: 'anonymousComments',
+                          comment: anonComment,
+                          label: comment.body.slice(0, 60),
+                        })
+                      }
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
                     >
-                      <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-                      Inspect ID
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Delete
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={busyId === comment.id}
-                    onClick={() =>
-                      setPendingDelete({
-                        kind: 'anonymousComments',
-                        comment: anonComment,
-                        label: comment.body.slice(0, 60),
-                      })
-                    }
-                    className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    Delete
-                  </button>
+                  </div>
                 </div>
-              </div>
+              );
+            })}
+          </div>
+        )
+      ) : filteredAnonymousReports.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
+          No anonymous moderation reports match your filter.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {filteredAnonymousReports.map((report) => {
+            const isPending = report.status === 'pending';
+            const isBusy = busyId === report.id;
+            return (
+              <article
+                key={report.id}
+                className="rounded-xl border border-slate-200 bg-white p-4"
+              >
+                <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        className={`rounded-md px-2 py-0.5 font-semibold ${
+                          report.status === 'pending'
+                            ? 'bg-amber-100 text-amber-900'
+                            : report.status === 'reviewed_removed'
+                            ? 'bg-red-100 text-red-900'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {report.status === 'pending'
+                          ? 'Pending Review'
+                          : report.status === 'reviewed_removed'
+                          ? 'Content Removed'
+                          : 'Dismissed'}
+                      </span>
+                      <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white">
+                        {report.targetType === 'anonymousPost'
+                          ? 'Anonymous Post'
+                          : 'Anonymous Comment'}
+                      </span>
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                        Reason: {report.reason.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-slate-500">
+                        {formatShortTime(report.createdAt)}
+                      </span>
+                    </div>
+
+                    <p className="text-xs leading-relaxed text-slate-800">
+                      {report.excerpt}
+                    </p>
+                    {report.details && (
+                      <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+                        Reporter note: {report.details}
+                      </p>
+                    )}
+                    <p className="font-mono text-[11px] text-slate-400">
+                      Entry: {report.targetId} · Thread: {report.postId}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {isFullAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setLookupEntryId(report.targetId)}
+                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100"
+                      >
+                        <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                        Inspect ID
+                      </button>
+                    )}
+                    {isPending && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() =>
+                            void handleResolveReport(report, 'reviewed_removed')
+                          }
+                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          Remove Content &amp; Resolve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() =>
+                            void handleResolveReport(report, 'dismissed')
+                          }
+                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          <CheckCircle2
+                            className="h-3.5 w-3.5 text-slate-500"
+                            aria-hidden="true"
+                          />
+                          Dismiss
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </article>
             );
           })}
         </div>

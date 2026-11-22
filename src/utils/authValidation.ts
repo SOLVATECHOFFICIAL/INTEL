@@ -2,6 +2,7 @@ import type { User } from 'firebase/auth';
 import {
   BLUEPRINT_LIMITS,
   isValidUsername,
+  resolveBadgeForRole,
   type PublicProfileProjection,
   type PublicUserProfile,
   type UserRole,
@@ -354,6 +355,22 @@ export function isPermanentOwnerUser(user: User | null): boolean {
   );
 }
 
+const VALID_USER_ROLES: readonly UserRole[] = [
+  'owner',
+  'supreme_admin',
+  'moderator',
+  'verified',
+  'member',
+] as const;
+
+export function isValidRoleRecordConsistency(
+  roleRecord: UserRoleRecord | null | undefined
+): roleRecord is UserRoleRecord {
+  if (!roleRecord) return false;
+  if (!VALID_USER_ROLES.includes(roleRecord.role)) return false;
+  return roleRecord.badge === resolveBadgeForRole(roleRecord.role);
+}
+
 export function resolveEffectiveAccountTier(
   user: User | null,
   roleRecord: UserRoleRecord | null
@@ -364,13 +381,43 @@ export function resolveEffectiveAccountTier(
   if (isPermanentOwnerUser(user)) {
     return 'owner';
   }
-  if (!roleRecord) {
+  if (!isValidRoleRecordConsistency(roleRecord)) {
     return 'member';
   }
   if (roleRecord.role === 'owner' && roleRecord.isPermanentOwner) {
     return 'owner';
   }
+  if (roleRecord.role === 'owner') {
+    return 'member';
+  }
   return roleRecord.role;
+}
+
+/**
+ * Resolves the exact authorRole value expected by firestore.rules `currentRoleString()`
+ * for anonymousIdentityMappings writes. Unlike `resolveEffectiveAccountTier`, this does
+ * not reject a userRoles document whose `badge` field is missing or inconsistent, preventing
+ * permission-denied mismatches between client payloads and Firestore security rules.
+ */
+export function resolveAuthoritativeMappingRole(
+  user: User | null,
+  rawRoleDoc: Partial<UserRoleRecord> | null | undefined,
+  fallbackRole: UserRole = 'member'
+): UserRole {
+  if (isPermanentOwnerUser(user)) {
+    return 'owner';
+  }
+  if (
+    rawRoleDoc &&
+    typeof rawRoleDoc.role === 'string' &&
+    VALID_USER_ROLES.includes(rawRoleDoc.role as UserRole)
+  ) {
+    return rawRoleDoc.role as UserRole;
+  }
+  if (rawRoleDoc === null) {
+    return 'member';
+  }
+  return VALID_USER_ROLES.includes(fallbackRole) ? fallbackRole : 'member';
 }
 
 export function canAccessFullAdminDashboard(
@@ -400,6 +447,34 @@ export function canPublishOrdinaryFeedUpdate(
     tier === 'supreme_admin' ||
     tier === 'owner'
   );
+}
+
+export function canPublishOrdinaryPostStrict(input: {
+  user: User | null;
+  tier: EffectiveAccountTier;
+  profile: PublicUserProfile | null;
+  roleRecord: UserRoleRecord | null;
+  suspended: boolean;
+}): boolean {
+  if (!input.user || input.suspended || input.tier === 'guest') {
+    return false;
+  }
+  if (!canPublishOrdinaryFeedUpdate(input.tier, input.suspended)) {
+    return false;
+  }
+  if (isPermanentOwnerUser(input.user)) {
+    return !input.profile || input.profile.accountStatus === 'active';
+  }
+  if (!input.profile || input.profile.accountStatus !== 'active') {
+    return false;
+  }
+  if (!isValidRoleRecordConsistency(input.roleRecord)) {
+    return false;
+  }
+  if (input.roleRecord.role !== input.tier) {
+    return false;
+  }
+  return input.profile.badge === input.roleRecord.badge;
 }
 
 export function canCreateAnonymousEntry(

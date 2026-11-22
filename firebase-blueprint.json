@@ -90,15 +90,29 @@
     },
     "CommunityPost": {
       "title": "CommunityPost",
-      "description": "Ordinary community feed post (For You, Following, Latest). Publishable only by verified, moderator, supreme_admin, or owner. Image metadata stored here; Base64 bytes live in /mediaImages/{imageId}.",
+      "description": "Ordinary community feed post (For You, Following, Latest) with two strictly separate formats: styled text-only ('text') or 1-4 photo gallery with one shared top caption ('photo'). Publishable only by verified, moderator, supreme_admin, or owner. Image metadata stored here; Base64 bytes live in /mediaImages/{imageId}.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "authorRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified"] },
+        "postType": { "type": "string", "enum": ["text", "photo"] },
         "category": { "type": "string", "minLength": 2, "maxLength": 64 },
         "title": { "type": "string", "maxLength": 180 },
         "body": { "type": "string", "maxLength": 5000 },
+        "backgroundStyle": {
+          "type": "string",
+          "enum": [
+            "navy_slate",
+            "ocean_blue",
+            "cobalt_indigo",
+            "midnight_emerald",
+            "sunset_amber",
+            "crimson_rose",
+            "royal_plum",
+            "warm_charcoal"
+          ]
+        },
         "mediaUrls": { "type": "array" },
         "mediaItems": { "type": "array" },
         "isOfficial": { "type": "boolean" },
@@ -141,10 +155,10 @@
     },
     "PostReaction": {
       "title": "PostReaction",
-      "description": "Like or reaction on a public or anonymous post ({targetCollection}_{targetId}_{uid}).",
+      "description": "Like or reaction on a public post, anonymous post, or anonymous comment ({targetCollection}_{targetId}_{uid}).",
       "type": "object",
       "properties": {
-        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts"] },
+        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts", "anonymousComments"] },
         "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "reactionType": { "type": "string", "enum": ["like", "insightful", "support"] },
@@ -154,10 +168,11 @@
     },
     "AnonymousPost": {
       "title": "AnonymousPost",
-      "description": "Public anonymous post in The Unfiltered. Must NEVER contain author UID, email, phone, or profile identifiers. Supports background styles for text-only posts and lightweight mediaItems metadata referencing /mediaImages/{imageId}.",
+      "description": "Public anonymous post with two strict formats: text-only ('text') or 1-4 photo gallery with one shared top caption ('photo'). Must NEVER contain author UID, email, phone, or profile identifiers.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postType": { "type": "string", "enum": ["text", "photo"] },
         "category": { "type": "string", "minLength": 2, "maxLength": 64 },
         "body": { "type": "string", "maxLength": 3000 },
         "backgroundStyle": { "type": "string", "maxLength": 32 },
@@ -173,7 +188,7 @@
     },
     "AnonymousComment": {
       "title": "AnonymousComment",
-      "description": "Public anonymous comment or nested reply in The Unfiltered. Must NEVER expose author UID or identity.",
+      "description": "Public anonymous comment or nested reply. Must NEVER expose author UID or identity.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -181,10 +196,33 @@
         "parentCommentId": { "type": "string", "maxLength": 128 },
         "body": { "type": "string", "minLength": 1, "maxLength": 1500 },
         "status": { "type": "string", "enum": ["published", "deleted"] },
+        "likesCount": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "postId", "body", "status", "createdAt", "updatedAt"]
+    },
+    "AnonymousReport": {
+      "title": "AnonymousReport",
+      "description": "User report flagging an anonymous post or comment for moderator/admin review without exposing any target author UID.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetType": { "type": "string", "enum": ["anonymousPost", "anonymousComment"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reporterUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "reason": { "type": "string", "enum": ["harassment", "hate_speech", "privacy_leak", "misinformation", "spam", "other"] },
+        "details": { "type": "string", "maxLength": 500 },
+        "excerpt": { "type": "string", "maxLength": 240 },
+        "status": { "type": "string", "enum": ["pending", "reviewed_removed", "dismissed"] },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "reviewedByRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator"] },
+        "resolutionNote": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "targetType", "targetId", "postId", "reporterUid", "reason", "excerpt", "status", "createdAt", "updatedAt"]
     },
     "AnonymousIdentityMapping": {
       "title": "AnonymousIdentityMapping",
@@ -438,6 +476,8 @@
             "anonymous_post_deleted",
             "post_comment_deleted",
             "anonymous_comment_deleted",
+            "anonymous_report_dismissed",
+            "anonymous_report_removed",
             "post_pinned",
             "post_unpinned",
             "post_official_toggled",
@@ -518,6 +558,10 @@
     "/anonymousAuditLogs/{auditId}": {
       "schema": { "$ref": "#/entities/AnonymousAuditLog" },
       "description": "Audit records for Supreme Admin anonymous identity reveals; hidden from members and Moderators."
+    },
+    "/anonymousReports/{reportId}": {
+      "schema": { "$ref": "#/entities/AnonymousReport" },
+      "description": "Moderation reports submitted against anonymous posts or comments for Moderator/Admin review."
     },
     "/savedPosts/{savedId}": {
       "schema": { "$ref": "#/entities/SavedPost" },

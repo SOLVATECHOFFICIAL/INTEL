@@ -1,8 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { MessageSquare, ShieldAlert } from 'lucide-react';
-import { useFirebase } from '../context/firebaseContext';
-import { fetchPublicAnonymousFeed } from '../services/firestoreFoundation';
 import {
+  EyeOff,
+  Image as ImageIcon,
+  Loader2,
+  MessageSquare,
+  ShieldAlert,
+  ShieldCheck,
+  Type,
+} from 'lucide-react';
+import { useFirebase } from '../context/firebaseContext';
+import {
+  fetchPublicAnonymousFeedPage,
+  type AnonymousFeedPageCursor,
+} from '../services/firestoreFoundation';
+import {
+  fetchMyAnonymousHistory,
   fetchOwnedAnonymousEntries,
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
@@ -54,6 +66,19 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   const fallbackState = sectionStates[activeSection.id];
 
   const [anonymousPosts, setAnonymousPosts] = useState<AnonymousPost[]>([]);
+  const [anonCursor, setAnonCursor] = useState<AnonymousFeedPageCursor | null>(
+    null
+  );
+  const [hasMoreAnon, setHasMoreAnon] = useState(false);
+  const [loadingMoreAnon, setLoadingMoreAnon] = useState(false);
+
+  const [anonViewTab, setAnonViewTab] = useState<'feed' | 'mine'>('feed');
+  const [myAnonState, setMyAnonState] = useState<{
+    loadedKey: string | null;
+    items: AnonymousPost[];
+    error: string | null;
+  }>({ loadedKey: null, items: [], error: null });
+
   const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(new Set());
   const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(new Set());
   const [ownedAnonPostIds, setOwnedAnonPostIds] = useState<Set<string>>(
@@ -73,6 +98,22 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     open: boolean;
     editPost?: AnonymousPost;
   }>({ open: false });
+
+  const activeAnonTab = user ? anonViewTab : 'feed';
+  const myAnonTargetKey = user?.uid ? `${user.uid}:${retryToken}` : null;
+  const myAnonLoading =
+    sectionId === 'anonymous' &&
+    activeAnonTab === 'mine' &&
+    Boolean(myAnonTargetKey) &&
+    myAnonState.loadedKey !== myAnonTargetKey;
+  const myAnonPosts =
+    myAnonTargetKey && myAnonState.loadedKey === myAnonTargetKey
+      ? myAnonState.items
+      : [];
+  const myAnonError =
+    myAnonTargetKey && myAnonState.loadedKey === myAnonTargetKey
+      ? myAnonState.error
+      : null;
 
   useEffect(() => {
     if (sectionId !== 'anonymous') {
@@ -104,14 +145,16 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
         });
 
     Promise.all([
-      fetchPublicAnonymousFeed(20),
+      fetchPublicAnonymousFeedPage({ pageSize: 12 }),
       likedPromise,
       savedPromise,
       ownedPromise,
     ])
-      .then(([items, likedIds, savedIds, owned]) => {
+      .then(([page, likedIds, savedIds, owned]) => {
         if (!active) return;
-        setAnonymousPosts(items);
+        setAnonymousPosts(page.items);
+        setAnonCursor(page.nextCursor);
+        setHasMoreAnon(page.hasMore);
         setLikedAnonIds(likedIds);
         setSavedAnonIds(savedIds);
         setOwnedAnonPostIds(owned.postIds);
@@ -128,9 +171,65 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     };
   }, [sectionId, user?.uid, retryToken]);
 
+  useEffect(() => {
+    if (
+      sectionId !== 'anonymous' ||
+      activeAnonTab !== 'mine' ||
+      !user?.uid ||
+      !myAnonTargetKey ||
+      myAnonState.loadedKey === myAnonTargetKey
+    ) {
+      return;
+    }
+    let active = true;
+    fetchMyAnonymousHistory(user.uid)
+      .then((items) => {
+        if (!active) return;
+        setMyAnonState({ loadedKey: myAnonTargetKey, items, error: null });
+      })
+      .catch(() => {
+        if (!active) return;
+        setMyAnonState({
+          loadedKey: myAnonTargetKey,
+          items: [],
+          error: 'Unable to load your anonymous posts right now.',
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    sectionId,
+    activeAnonTab,
+    user?.uid,
+    myAnonTargetKey,
+    myAnonState.loadedKey,
+  ]);
+
   const loadAnonymous = () => {
     setAnonLoadState('loading');
     setRetryToken((prev) => prev + 1);
+  };
+
+  const handleLoadMoreAnonymous = async () => {
+    if (!anonCursor || loadingMoreAnon) return;
+    setLoadingMoreAnon(true);
+    try {
+      const page = await fetchPublicAnonymousFeedPage({
+        pageSize: 12,
+        cursor: anonCursor,
+      });
+      setAnonymousPosts((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        const extra = page.items.filter((item) => !seen.has(item.id));
+        return [...prev, ...extra];
+      });
+      setAnonCursor(page.nextCursor);
+      setHasMoreAnon(page.hasMore);
+    } finally {
+      setLoadingMoreAnon(false);
+    }
   };
 
   const handleAnonymousPostClick = () => {
@@ -149,6 +248,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   const actorRole: UserRole = (
     effectiveTier === 'guest' ? 'member' : effectiveTier
   ) as UserRole;
+
+  const displayedAnonPosts =
+    activeAnonTab === 'mine' && user ? myAnonPosts : anonymousPosts;
 
   return (
     <section
@@ -207,6 +309,83 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           )}
         </div>
 
+        {sectionId === 'anonymous' && (
+          <div className="mt-4 space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 text-xs leading-relaxed text-slate-600">
+              <ShieldCheck
+                className="mt-0.5 h-4 w-4 shrink-0 text-[#1E88E5]"
+                aria-hidden="true"
+              />
+              <span>
+                Your identity, photo EXIF metadata, and filenames are stripped
+                automatically before publishing. Every active registered LASUED
+                Intel account can share text-only cards or 1–4 anonymous photos.
+              </span>
+            </div>
+
+            {/* Inline Quick Compose Prompt Strip */}
+            <button
+              type="button"
+              onClick={handleAnonymousPostClick}
+              className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-[#1E88E5]/50 hover:bg-slate-50/60"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0B1A2E] text-white">
+                  <EyeOff className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                </span>
+                <span className="truncate text-sm text-slate-500">
+                  Share an anonymous campus thought or photo...
+                </span>
+              </span>
+              <span className="hidden shrink-0 items-center gap-2 text-xs font-semibold text-slate-500 sm:inline-flex">
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1">
+                  <Type className="h-3.5 w-3.5 text-[#0B1A2E]" aria-hidden="true" />
+                  Text
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1">
+                  <ImageIcon className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                  Photos
+                </span>
+              </span>
+            </button>
+
+            {user && (
+              <div
+                role="tablist"
+                aria-label="Anonymous feed views"
+                className="inline-flex rounded-xl bg-slate-100 p-1"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeAnonTab === 'feed'}
+                  onClick={() => setAnonViewTab('feed')}
+                  className={`min-h-[38px] rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
+                    activeAnonTab === 'feed'
+                      ? 'bg-white text-[#0B1A2E] shadow-xs'
+                      : 'text-slate-600 hover:text-[#0B1A2E]'
+                  }`}
+                >
+                  Community Feed
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeAnonTab === 'mine'}
+                  onClick={() => setAnonViewTab('mine')}
+                  className={`min-h-[38px] rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
+                    activeAnonTab === 'mine'
+                      ? 'bg-white text-[#0B1A2E] shadow-xs'
+                      : 'text-slate-600 hover:text-[#0B1A2E]'
+                  }`}
+                >
+                  My Anonymous Posts
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {actionPrompt === 'guest' && (
           <div className="mt-5">
             <GuestPromptCard
@@ -234,7 +413,101 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
         <div className="mt-6">
           {sectionId === 'anonymous' ? (
-            anonLoadState === 'loading' ? (
+            activeAnonTab === 'mine' && user ? (
+              myAnonLoading ? (
+                <LoadingState sectionTitle="My Anonymous Posts" />
+              ) : myAnonError ? (
+                <ErrorState
+                  section={activeSection}
+                  onRetry={() => {
+                    setRetryToken((prev) => prev + 1);
+                  }}
+                />
+              ) : displayedAnonPosts.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
+                  <p className="text-sm font-semibold text-[#0B1A2E]">
+                    You haven&apos;t published any anonymous posts yet
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Your anonymous submissions appear privately here so only you
+                    can review, edit, or delete them later.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {displayedAnonPosts.map((item) => (
+                    <PostCard
+                      key={item.id}
+                      kind="anonymous"
+                      post={item}
+                      viewerUid={user?.uid ?? null}
+                      viewerTier={effectiveTier}
+                      viewerSuspended={isSuspended}
+                      isLiked={likedAnonIds.has(item.id)}
+                      isSaved={savedAnonIds.has(item.id)}
+                      onSaveChanged={(postId, saved) =>
+                        setSavedAnonIds((prev) => {
+                          const next = new Set(prev);
+                          if (saved) next.add(postId);
+                          else next.delete(postId);
+                          return next;
+                        })
+                      }
+                      isOwnedAnonymous={
+                        ownedAnonPostIds.has(item.id) || activeAnonTab === 'mine'
+                      }
+                      ownedAnonymousCommentIds={ownedAnonCommentIds}
+                      onRequireAuth={onRequireAuth}
+                      returnRoute="anonymous"
+                      onEditPost={(targetPost) =>
+                        setComposerModal({
+                          open: true,
+                          editPost: targetPost as AnonymousPost,
+                        })
+                      }
+                      onPostUpdated={(updated) => {
+                        const updatedAnon = updated as AnonymousPost;
+                        setAnonymousPosts((prev) =>
+                          prev.map((existing) =>
+                            existing.id === updatedAnon.id ? updatedAnon : existing
+                          )
+                        );
+                        setMyAnonState((prev) => ({
+                          ...prev,
+                          items: prev.items.map((existing) =>
+                            existing.id === updatedAnon.id ? updatedAnon : existing
+                          ),
+                        }));
+                      }}
+                      onPostDeleted={(deletedId) => {
+                        setAnonymousPosts((prev) =>
+                          prev.filter((existing) => existing.id !== deletedId)
+                        );
+                        setMyAnonState((prev) => ({
+                          ...prev,
+                          items: prev.items.filter(
+                            (existing) => existing.id !== deletedId
+                          ),
+                        }));
+                        setOwnedAnonPostIds((prev) => {
+                          const next = new Set(prev);
+                          next.delete(deletedId);
+                          return next;
+                        });
+                      }}
+                      onAnonymousCommentTracked={(commentId, action) =>
+                        setOwnedAnonCommentIds((prev) => {
+                          const next = new Set(prev);
+                          if (action === 'add') next.add(commentId);
+                          else next.delete(commentId);
+                          return next;
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+              )
+            ) : anonLoadState === 'loading' ? (
               <LoadingState sectionTitle={activeSection.title} />
             ) : anonLoadState === 'error' ? (
               <ErrorState
@@ -273,19 +546,30 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                         editPost: targetPost as AnonymousPost,
                       })
                     }
-                    onPostUpdated={(updated) =>
+                    onPostUpdated={(updated) => {
+                      const updatedAnon = updated as AnonymousPost;
                       setAnonymousPosts((prev) =>
                         prev.map((existing) =>
-                          existing.id === updated.id
-                            ? (updated as AnonymousPost)
-                            : existing
+                          existing.id === updatedAnon.id ? updatedAnon : existing
                         )
-                      )
-                    }
+                      );
+                      setMyAnonState((prev) => ({
+                        ...prev,
+                        items: prev.items.map((existing) =>
+                          existing.id === updatedAnon.id ? updatedAnon : existing
+                        ),
+                      }));
+                    }}
                     onPostDeleted={(deletedId) => {
                       setAnonymousPosts((prev) =>
                         prev.filter((existing) => existing.id !== deletedId)
                       );
+                      setMyAnonState((prev) => ({
+                        ...prev,
+                        items: prev.items.filter(
+                          (existing) => existing.id !== deletedId
+                        ),
+                      }));
                       setOwnedAnonPostIds((prev) => {
                         const next = new Set(prev);
                         next.delete(deletedId);
@@ -305,6 +589,27 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                     }
                   />
                 ))}
+
+                {hasMoreAnon && (
+                  <div className="flex justify-center pt-2">
+                    <button
+                      type="button"
+                      disabled={loadingMoreAnon}
+                      onClick={() => void handleLoadMoreAnonymous()}
+                      className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {loadingMoreAnon && (
+                        <Loader2
+                          className="h-3.5 w-3.5 animate-spin text-[#1E88E5]"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {loadingMoreAnon
+                        ? 'Loading more...'
+                        : 'Load more anonymous posts'}
+                    </button>
+                  </div>
+                )}
               </div>
             )
           ) : sectionId === 'marketplace' ? (
@@ -346,8 +651,19 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
               setAnonymousPosts((prev) =>
                 prev.map((item) => (item.id === savedAnon.id ? savedAnon : item))
               );
+              setMyAnonState((prev) => ({
+                ...prev,
+                items: prev.items.map((item) =>
+                  item.id === savedAnon.id ? savedAnon : item
+                ),
+              }));
             } else {
               setAnonymousPosts((prev) => [savedAnon, ...prev]);
+              setMyAnonState((prev) =>
+                prev.loadedKey === myAnonTargetKey
+                  ? { ...prev, items: [savedAnon, ...prev.items] }
+                  : prev
+              );
               setOwnedAnonPostIds((prev) => {
                 const next = new Set(prev);
                 next.add(savedAnon.id);

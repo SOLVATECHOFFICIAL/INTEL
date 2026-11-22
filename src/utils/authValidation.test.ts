@@ -9,6 +9,7 @@ import {
   canAccessFullAdminDashboard,
   canCreateAnonymousEntry,
   canPublishOrdinaryFeedUpdate,
+  canPublishOrdinaryPostStrict,
   formatFirestoreOrAppError,
   isAccountSuspended,
   isPermanentOwnerUser,
@@ -17,6 +18,7 @@ import {
   mapFirebaseAuthError,
   normalizeUsername,
   PERMANENT_OWNER_EMAIL,
+  resolveAuthoritativeMappingRole,
   resolveEffectiveAccountTier,
   toPublicProfileProjection,
   validatePasswordChangeForm,
@@ -321,6 +323,97 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
     }),
     true
   );
+
+  // Mismatched role/badge defaults to ordinary member
+  assert.equal(
+    resolveEffectiveAccountTier(fakeUser, {
+      uid: 'uid_123',
+      role: 'verified',
+      badge: 'none',
+      isPermanentOwner: false,
+      isHiddenFromDirectory: false,
+      updatedAt: null,
+    }),
+    'member'
+  );
+
+  const activeVerifiedProfile = {
+    uid: 'uid_123',
+    memberId: 'LI-1234',
+    fullName: 'Verified Student',
+    username: 'verified_student',
+    showWhatsappPublicly: true,
+    publicWhatsapp: '+2348012345678',
+    badge: 'verified' as const,
+    accountStatus: 'active' as const,
+    isHiddenFromDirectory: false,
+    followersCount: 0,
+    followingCount: 0,
+    createdAt: null,
+    updatedAt: null,
+  };
+
+  const validVerifiedRole = {
+    uid: 'uid_123',
+    role: 'verified' as const,
+    badge: 'verified' as const,
+    isPermanentOwner: false,
+    isHiddenFromDirectory: false,
+    updatedAt: null,
+  };
+
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: fakeUser,
+      tier: 'verified',
+      profile: activeVerifiedProfile,
+      roleRecord: validVerifiedRole,
+      suspended: false,
+    }),
+    true
+  );
+
+  // Deny by default when roleRecord is missing, mismatched, or profile badge disagrees
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: fakeUser,
+      tier: 'verified',
+      profile: activeVerifiedProfile,
+      roleRecord: null,
+      suspended: false,
+    }),
+    false
+  );
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: fakeUser,
+      tier: 'verified',
+      profile: { ...activeVerifiedProfile, badge: 'none' },
+      roleRecord: validVerifiedRole,
+      suspended: false,
+    }),
+    false
+  );
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: fakeUser,
+      tier: 'member',
+      profile: { ...activeVerifiedProfile, badge: 'none' },
+      roleRecord: { ...validVerifiedRole, role: 'member', badge: 'none' },
+      suspended: false,
+    }),
+    false
+  );
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: fakeUser,
+      tier: 'verified',
+      profile: activeVerifiedProfile,
+      roleRecord: validVerifiedRole,
+      suspended: true,
+    }),
+    false
+  );
 });
 
 test('mapFirebaseAuthError handles auth error codes gracefully', () => {
@@ -362,5 +455,47 @@ test('formatFirestoreOrAppError extracts clean error strings from structured Fir
   assert.equal(
     formatFirestoreOrAppError(new Error('Plain readable message'), 'Fallback'),
     'Plain readable message'
+  );
+});
+
+test('resolveAuthoritativeMappingRole mirrors firestore.rules currentRoleString() across owner, inconsistent role docs, and absent docs', () => {
+  const ownerUser = {
+    uid: 'owner_uid',
+    email: PERMANENT_OWNER_EMAIL,
+    emailVerified: true,
+  } as unknown as User;
+  const standardUser = {
+    uid: 'user_uid',
+    email: 'student@example.com',
+    emailVerified: true,
+  } as unknown as User;
+
+  assert.equal(
+    resolveAuthoritativeMappingRole(ownerUser, null, 'member'),
+    'owner'
+  );
+  assert.equal(
+    resolveAuthoritativeMappingRole(
+      standardUser,
+      { role: 'supreme_admin', badge: 'none' },
+      'member'
+    ),
+    'supreme_admin'
+  );
+  assert.equal(
+    resolveAuthoritativeMappingRole(
+      standardUser,
+      { role: 'owner', isPermanentOwner: false },
+      'member'
+    ),
+    'owner'
+  );
+  assert.equal(
+    resolveAuthoritativeMappingRole(standardUser, null, 'verified'),
+    'member'
+  );
+  assert.equal(
+    resolveAuthoritativeMappingRole(standardUser, undefined, 'moderator'),
+    'moderator'
   );
 });

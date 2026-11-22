@@ -5,14 +5,23 @@ import {
   getDocs,
   limit,
   onSnapshot,
+  orderBy,
   query,
   runTransaction,
   serverTimestamp,
+  startAfter,
   where,
   writeBatch,
+  type DocumentData,
+  type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  handleFirestoreError,
+  OperationType,
+} from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -40,7 +49,10 @@ import {
   type UsernameReservation,
 } from '../types/database';
 import {
+  isFirebaseErrorCode,
+  isPermanentOwnerUser,
   normalizeUsername,
+  resolveAuthoritativeMappingRole,
   toPublicProfileProjection,
   validateProfileSettingsForm,
   validateUsernameCandidate,
@@ -57,6 +69,11 @@ import {
   filterTrustedContacts,
   type SearchableCommunityPostItem,
 } from '../utils/contextualSearch';
+import {
+  rankForYouCommunityPosts,
+  sortLatestCommunityPosts,
+} from '../utils/feedRanking';
+import type { FeedTabId } from '../types/platform';
 
 export interface InitializeMemberProfileInput {
   uid: string;
@@ -1057,19 +1074,312 @@ export async function fetchViewerFollowingUsernames(
   }
 }
 
+export type CommunityFeedCursor =
+  | { mode: 'firestore'; docSnap: QueryDocumentSnapshot<DocumentData> }
+  | { mode: 'offset'; offset: number };
+
+export interface CommunityFeedPageResult {
+  items: CommunityPostWithAuthor[];
+  nextCursor: CommunityFeedCursor | null;
+  hasMore: boolean;
+  followingCount: number;
+  followedUids: string[];
+}
+
+async function fetchViewerFollowedUidList(viewerUid: string): Promise<string[]> {
+  const followsSnap = await getDocs(
+    query(
+      collection(db, COLLECTION_NAMES.follows),
+      where('followerUid', '==', viewerUid),
+      limit(100)
+    )
+  );
+  return followsSnap.docs
+    .map((item) => (item.data() as FollowEdge).targetUid)
+    .filter(isValidFirestoreId);
+}
+
+async function queryPublishedPostsOrderedPage(
+  pageLimit: number,
+  cursorSnap?: QueryDocumentSnapshot<DocumentData> | null
+): Promise<{
+  docs: QueryDocumentSnapshot<DocumentData>[];
+  indexed: boolean;
+}> {
+  const constraints = [
+    where('status', '==', 'published'),
+    orderBy('createdAt', 'desc'),
+    ...(cursorSnap ? [startAfter(cursorSnap)] : []),
+    limit(pageLimit),
+  ];
+
+  try {
+    const snap = await getDocs(
+      query(collection(db, COLLECTION_NAMES.posts), ...constraints)
+    );
+    return { docs: snap.docs, indexed: true };
+  } catch (error) {
+    if (isFirebaseErrorCode(error, 'failed-precondition')) {
+      const fallbackSnap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.posts),
+          where('status', '==', 'published'),
+          limit(150)
+        )
+      );
+      return { docs: fallbackSnap.docs, indexed: false };
+    }
+    throw error;
+  }
+}
+
+export async function fetchCommunityFeedPage(input: {
+  tab: FeedTabId;
+  viewerUid: string | null;
+  pageSize?: number;
+  cursor?: CommunityFeedCursor | null;
+  followedUids?: string[];
+}): Promise<CommunityFeedPageResult> {
+  const pageSize = Math.max(1, Math.min(30, input.pageSize ?? 12));
+
+  try {
+    let followedUids = input.followedUids;
+    if (input.viewerUid && isValidFirestoreId(input.viewerUid) && !followedUids) {
+      followedUids = await fetchViewerFollowedUidList(input.viewerUid).catch(
+        () => [] as string[]
+      );
+    }
+    const resolvedFollowedUids = followedUids ?? [];
+
+    if (input.tab === 'following') {
+      if (!input.viewerUid || !isValidFirestoreId(input.viewerUid)) {
+        return {
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+          followingCount: 0,
+          followedUids: [],
+        };
+      }
+      if (resolvedFollowedUids.length === 0) {
+        return {
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+          followingCount: 0,
+          followedUids: [],
+        };
+      }
+
+      const followedSet = new Set(resolvedFollowedUids);
+
+      if (input.cursor?.mode === 'offset') {
+        const res = await queryPublishedPostsOrderedPage(150);
+        const allMatching = sortLatestCommunityPosts(
+          res.docs
+            .map((item) => item.data() as CommunityPost)
+            .filter((post) => followedSet.has(post.ownerUID))
+        );
+        const slice = allMatching.slice(
+          input.cursor.offset,
+          input.cursor.offset + pageSize
+        );
+        const hasMore = input.cursor.offset + slice.length < allMatching.length;
+        const authorMap = await fetchPublicProfileProjectionsByUids(
+          slice.map((p) => p.ownerUID)
+        );
+        return {
+          items: slice
+            .map((post) => ({ post, author: authorMap.get(post.ownerUID) ?? null }))
+            .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
+          nextCursor: hasMore
+            ? { mode: 'offset', offset: input.cursor.offset + slice.length }
+            : null,
+          hasMore,
+          followingCount: resolvedFollowedUids.length,
+          followedUids: resolvedFollowedUids,
+        };
+      }
+
+      // Scan Firestore chronologically in bounded chunks until we gather a page of followed posts
+      const collected: { docSnap: QueryDocumentSnapshot<DocumentData>; post: CommunityPost }[] = [];
+      let scanCursor = input.cursor?.mode === 'firestore' ? input.cursor.docSnap : null;
+      let reachedCollectionEnd = false;
+      let indexedMode = true;
+
+      for (let round = 0; round < 3; round += 1) {
+        const batchSize = Math.max(pageSize * 2, 24);
+        const res = await queryPublishedPostsOrderedPage(batchSize, scanCursor);
+        if (!res.indexed) {
+          indexedMode = false;
+          const allMatching = sortLatestCommunityPosts(
+            res.docs
+              .map((item) => item.data() as CommunityPost)
+              .filter((post) => followedSet.has(post.ownerUID))
+          );
+          const slice = allMatching.slice(0, pageSize);
+          const hasMore = slice.length < allMatching.length;
+          const authorMap = await fetchPublicProfileProjectionsByUids(
+            slice.map((p) => p.ownerUID)
+          );
+          return {
+            items: slice
+              .map((post) => ({ post, author: authorMap.get(post.ownerUID) ?? null }))
+              .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
+            nextCursor: hasMore ? { mode: 'offset', offset: slice.length } : null,
+            hasMore,
+            followingCount: resolvedFollowedUids.length,
+            followedUids: resolvedFollowedUids,
+          };
+        }
+
+        if (res.docs.length === 0) {
+          reachedCollectionEnd = true;
+          break;
+        }
+
+        for (const docSnap of res.docs) {
+          const post = docSnap.data() as CommunityPost;
+          if (followedSet.has(post.ownerUID)) {
+            collected.push({ docSnap, post });
+            if (collected.length > pageSize) break;
+          }
+          scanCursor = docSnap;
+        }
+
+        if (collected.length > pageSize || res.docs.length < batchSize) {
+          if (res.docs.length < batchSize) {
+            reachedCollectionEnd = true;
+          }
+          break;
+        }
+      }
+
+      const pageEntries = collected.slice(0, pageSize);
+      const hasMore = indexedMode && (collected.length > pageSize || !reachedCollectionEnd);
+      const lastDoc =
+        pageEntries.length > 0
+          ? pageEntries[pageEntries.length - 1].docSnap
+          : scanCursor;
+      const authorMap = await fetchPublicProfileProjectionsByUids(
+        pageEntries.map((entry) => entry.post.ownerUID)
+      );
+
+      return {
+        items: pageEntries
+          .map((entry) => ({
+            post: entry.post,
+            author: authorMap.get(entry.post.ownerUID) ?? null,
+          }))
+          .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
+        nextCursor: hasMore && lastDoc ? { mode: 'firestore', docSnap: lastDoc } : null,
+        hasMore,
+        followingCount: resolvedFollowedUids.length,
+        followedUids: resolvedFollowedUids,
+      };
+    }
+
+    // 'latest' or 'for-you'
+    if (input.cursor?.mode === 'offset') {
+      const res = await queryPublishedPostsOrderedPage(150);
+      const allPosts = res.docs.map((item) => item.data() as CommunityPost);
+      const ordered =
+        input.tab === 'latest'
+          ? sortLatestCommunityPosts(allPosts)
+          : rankForYouCommunityPosts(allPosts, {
+              followedUids: new Set(resolvedFollowedUids),
+            });
+      const slice = ordered.slice(
+        input.cursor.offset,
+        input.cursor.offset + pageSize
+      );
+      const hasMore = input.cursor.offset + slice.length < ordered.length;
+      const authorMap = await fetchPublicProfileProjectionsByUids(
+        slice.map((p) => p.ownerUID)
+      );
+      return {
+        items: slice.map((post) => ({
+          post,
+          author: authorMap.get(post.ownerUID) ?? null,
+        })),
+        nextCursor: hasMore
+          ? { mode: 'offset', offset: input.cursor.offset + slice.length }
+          : null,
+        hasMore,
+        followingCount: resolvedFollowedUids.length,
+        followedUids: resolvedFollowedUids,
+      };
+    }
+
+    const cursorSnap =
+      input.cursor?.mode === 'firestore' ? input.cursor.docSnap : null;
+    const res = await queryPublishedPostsOrderedPage(pageSize + 1, cursorSnap);
+
+    if (!res.indexed) {
+      const allPosts = res.docs.map((item) => item.data() as CommunityPost);
+      const ordered =
+        input.tab === 'latest'
+          ? sortLatestCommunityPosts(allPosts)
+          : rankForYouCommunityPosts(allPosts, {
+              followedUids: new Set(resolvedFollowedUids),
+            });
+      const slice = ordered.slice(0, pageSize);
+      const hasMore = slice.length < ordered.length;
+      const authorMap = await fetchPublicProfileProjectionsByUids(
+        slice.map((p) => p.ownerUID)
+      );
+      return {
+        items: slice.map((post) => ({
+          post,
+          author: authorMap.get(post.ownerUID) ?? null,
+        })),
+        nextCursor: hasMore ? { mode: 'offset', offset: slice.length } : null,
+        hasMore,
+        followingCount: resolvedFollowedUids.length,
+        followedUids: resolvedFollowedUids,
+      };
+    }
+
+    const hasMore = res.docs.length > pageSize;
+    const pageDocs = res.docs.slice(0, pageSize);
+    const rawPosts = pageDocs.map((item) => item.data() as CommunityPost);
+    const orderedPosts =
+      input.tab === 'latest'
+        ? sortLatestCommunityPosts(rawPosts)
+        : rankForYouCommunityPosts(rawPosts, {
+            followedUids: new Set(resolvedFollowedUids),
+          });
+    const lastDocSnap = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+    const authorMap = await fetchPublicProfileProjectionsByUids(
+      orderedPosts.map((post) => post.ownerUID)
+    );
+
+    return {
+      items: orderedPosts.map((post) => ({
+        post,
+        author: authorMap.get(post.ownerUID) ?? null,
+      })),
+      nextCursor:
+        hasMore && lastDocSnap
+          ? { mode: 'firestore', docSnap: lastDocSnap }
+          : null,
+      hasMore,
+      followingCount: resolvedFollowedUids.length,
+      followedUids: resolvedFollowedUids,
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.posts);
+  }
+}
+
 export async function fetchPublicCommunityFeed(
   maxItems = 15
 ): Promise<CommunityPost[]> {
   const path = COLLECTION_NAMES.posts;
   try {
-    const q = query(
-      collection(db, COLLECTION_NAMES.posts),
-      where('status', '==', 'published'),
-      limit(Math.max(maxItems, 40))
-    );
-    const snapshot = await getDocs(q);
-    return sortCommunityPosts(
-      snapshot.docs.map((item) => item.data() as CommunityPost)
+    const res = await queryPublishedPostsOrderedPage(Math.max(maxItems, 40));
+    return sortLatestCommunityPosts(
+      res.docs.map((item) => item.data() as CommunityPost)
     ).slice(0, maxItems);
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
@@ -1096,76 +1406,117 @@ export async function fetchFollowingFeedPosts(
   followingCount: number;
   items: CommunityPostWithAuthor[];
 }> {
-  if (!isValidFirestoreId(viewerUid)) {
-    return { followingCount: 0, items: [] };
-  }
+  const res = await fetchCommunityFeedPage({
+    tab: 'following',
+    viewerUid,
+    pageSize: maxItems,
+  });
+  return {
+    followingCount: res.followingCount,
+    items: res.items,
+  };
+}
+
+export type AnonymousFeedPageCursor =
+  | { mode: 'firestore'; docSnap: QueryDocumentSnapshot<DocumentData> }
+  | { mode: 'offset'; offset: number };
+
+export interface AnonymousFeedPageResult {
+  items: AnonymousPost[];
+  nextCursor: AnonymousFeedPageCursor | null;
+  hasMore: boolean;
+}
+
+export async function fetchPublicAnonymousFeedPage(
+  options: {
+    pageSize?: number;
+    cursor?: AnonymousFeedPageCursor | null;
+  } = {}
+): Promise<AnonymousFeedPageResult> {
+  const path = COLLECTION_NAMES.anonymousPosts;
+  const pageSize = Math.max(1, Math.min(30, options.pageSize ?? 12));
 
   try {
-    const followsSnap = await getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.follows),
-        where('followerUid', '==', viewerUid),
-        limit(100)
-      )
-    );
-    const followedUids = followsSnap.docs.map(
-      (item) => (item.data() as FollowEdge).targetUid
-    );
-
-    if (followedUids.length === 0) {
-      return { followingCount: 0, items: [] };
+    if (options.cursor?.mode === 'offset') {
+      const snap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.anonymousPosts),
+          where('status', '==', 'published'),
+          limit(150)
+        )
+      );
+      const sorted = sortByCreatedAtDesc(
+        snap.docs.map((item) => item.data() as AnonymousPost)
+      );
+      const slice = sorted.slice(
+        options.cursor.offset,
+        options.cursor.offset + pageSize
+      );
+      const hasMore = options.cursor.offset + slice.length < sorted.length;
+      return {
+        items: slice,
+        nextCursor: hasMore
+          ? { mode: 'offset', offset: options.cursor.offset + slice.length }
+          : null,
+        hasMore,
+      };
     }
 
-    const followedSet = new Set(followedUids);
-    const postsSnap = await getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.posts),
-        where('status', '==', 'published'),
-        limit(100)
-      )
-    );
+    const cursorSnap =
+      options.cursor?.mode === 'firestore' ? options.cursor.docSnap : null;
 
-    const matchingPosts = sortByCreatedAtDesc(
-      postsSnap.docs
-        .map((item) => item.data() as CommunityPost)
-        .filter((post) => followedSet.has(post.ownerUID))
-    ).slice(0, maxItems);
-
-    const authorMap = await fetchPublicProfileProjectionsByUids(
-      matchingPosts.map((post) => post.ownerUID)
-    );
-
-    return {
-      followingCount: followedUids.length,
-      items: matchingPosts
-        .map((post) => ({
-          post,
-          author: authorMap.get(post.ownerUID) ?? null,
-        }))
-        .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
-    };
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.anonymousPosts),
+          where('status', '==', 'published'),
+          orderBy('createdAt', 'desc'),
+          ...(cursorSnap ? [startAfter(cursorSnap)] : []),
+          limit(pageSize + 1)
+        )
+      );
+      const hasMore = snap.docs.length > pageSize;
+      const pageDocs = snap.docs.slice(0, pageSize);
+      const lastDoc =
+        pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+      return {
+        items: pageDocs.map((item) => item.data() as AnonymousPost),
+        nextCursor:
+          hasMore && lastDoc ? { mode: 'firestore', docSnap: lastDoc } : null,
+        hasMore,
+      };
+    } catch (innerError) {
+      if (!isFirebaseErrorCode(innerError, 'failed-precondition')) {
+        throw innerError;
+      }
+      const fallbackSnap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.anonymousPosts),
+          where('status', '==', 'published'),
+          limit(150)
+        )
+      );
+      const sorted = sortByCreatedAtDesc(
+        fallbackSnap.docs.map((item) => item.data() as AnonymousPost)
+      );
+      const slice = sorted.slice(0, pageSize);
+      const hasMore = slice.length < sorted.length;
+      return {
+        items: slice,
+        nextCursor: hasMore ? { mode: 'offset', offset: slice.length } : null,
+        hasMore,
+      };
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.posts);
+    handleFirestoreError(error, OperationType.LIST, path);
   }
 }
 
 export async function fetchPublicAnonymousFeed(
   maxItems = 15
 ): Promise<AnonymousPost[]> {
-  const path = COLLECTION_NAMES.anonymousPosts;
-  try {
-    const q = query(
-      collection(db, COLLECTION_NAMES.anonymousPosts),
-      where('status', '==', 'published'),
-      limit(Math.max(maxItems, 40))
-    );
-    const snapshot = await getDocs(q);
-    return sortByCreatedAtDesc(
-      snapshot.docs.map((item) => item.data() as AnonymousPost)
-    ).slice(0, maxItems);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
-  }
+  const res = await fetchPublicAnonymousFeedPage({ pageSize: maxItems });
+  return res.items;
 }
 
 export async function searchHomeScope(
@@ -1486,6 +1837,33 @@ export async function createAnonymousPostAtomically(
 
   validateAnonymousPostPayload(publicDoc);
 
+  const currentUser =
+    auth.currentUser?.uid === input.authorUid ? auth.currentUser : null;
+  let mappingRole: UserRole;
+  if (isPermanentOwnerUser(currentUser)) {
+    mappingRole = 'owner';
+  } else {
+    try {
+      const roleSnap = await getDoc(
+        doc(db, COLLECTION_NAMES.userRoles, input.authorUid)
+      );
+      const rawRoleDoc = roleSnap.exists()
+        ? (roleSnap.data() as Partial<UserRoleRecord>)
+        : null;
+      mappingRole = resolveAuthoritativeMappingRole(
+        currentUser,
+        rawRoleDoc,
+        input.authorRole
+      );
+    } catch {
+      mappingRole = resolveAuthoritativeMappingRole(
+        currentUser,
+        undefined,
+        input.authorRole
+      );
+    }
+  }
+
   const batch = writeBatch(db);
   batch.set(doc(db, COLLECTION_NAMES.anonymousPosts, input.postId), publicDoc);
   batch.set(
@@ -1494,7 +1872,7 @@ export async function createAnonymousPostAtomically(
       entryId: input.postId,
       entryType: 'anonymousPosts',
       authorUid: input.authorUid,
-      authorRole: input.authorRole,
+      authorRole: mappingRole,
       createdAt: serverTimestamp(),
     }
   );

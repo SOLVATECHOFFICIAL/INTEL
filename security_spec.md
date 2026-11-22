@@ -31,3 +31,12 @@
 1. **`/adminAuditLogs/{logId}`**: Immutable administrative & moderation log readable exclusively by Supreme Admin / Permanent Owner. Moderators may append strictly scoped marketplace decision (`marketplace_approved`, `marketplace_rejected`) and ordinary-member content deletion (`post_deleted`, `anonymous_post_deleted`, `post_comment_deleted`, `anonymous_comment_deleted`) entries matching their own UID and role.
 2. **Collaborative Supreme Admin Management**: `trustedContacts`, `opportunities`, and `events` preserve immutable initial creator (`createdByUid` / `ownerUID`) on `update` so any authorised Supreme Admin or Permanent Owner can edit or manage records created by another authorised Supreme Admin.
 3. **Platform Settings (`/platformSettings/{settingId}`)**: Readable by `get` so notice/policy flags apply cleanly across clients; writable strictly by Supreme Admin or Permanent Owner; deletable strictly by Permanent Owner.
+
+## 4. Prompt 7 Ordinary Feed & Format Separation Invariants
+1. **Deny-by-Default Posting Permissions (`canPublishFeed()`)**: Creating or editing ordinary community posts requires an active `users/{uid}` document, an active consistent `userRoles/{uid}` document (`verified`, `moderator`, `supreme_admin`, or `owner`), and matching `users/{uid}.badge == userRoles/{uid}.badge` (plus verified email for Permanent Owner). Missing or mismatched role/badge data denies ordinary posting by default.
+2. **Strict Separation Between `text` and `photo` Ordinary Posts (`isValidTypedCommunityPost()`)**:
+   - `postType == 'text'`: requires one of the 8 coloured/gradient `backgroundStyle` values (`navy_slate`, `ocean_blue`, `cobalt_indigo`, `midnight_emerald`, `sunset_amber`, `crimson_rose`, `royal_plum`, `warm_charcoal`), `1..500` character body, and zero photo attachments (`mediaItems` / `mediaUrls`).
+   - `postType == 'photo'`: forbids `backgroundStyle`, requires `1..4` `mediaItems` with zero per-photo `caption` strings, and allows one shared caption (`0..2000` chars) displayed above the photo grid.
+   - `postType` is immutable after creation.
+3. **Target Post Integrity on Reactions & Comments**: `postReactions` and `postComments` creation verify that the target post exists and has `status == 'published'`, while deterministic reaction IDs (`posts_{postId}_{uid}`) prevent duplicate likes per account.
+

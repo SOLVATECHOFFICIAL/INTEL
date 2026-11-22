@@ -32,6 +32,7 @@ service cloud.firestore {
 
     function isActiveAccount(uid) {
       return !exists(/databases/$(database)/documents/users/$(uid)) ||
+        !('accountStatus' in get(/databases/$(database)/documents/users/$(uid)).data) ||
         get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active';
     }
 
@@ -81,7 +82,11 @@ service cloud.firestore {
     function currentRoleString() {
       return isPermanentOwner()
         ? 'owner'
-        : (hasRoleDoc(request.auth.uid) ? roleDoc(request.auth.uid).role : 'member');
+        : (hasRoleDoc(request.auth.uid) &&
+            'role' in roleDoc(request.auth.uid) &&
+            roleDoc(request.auth.uid).role in ['owner', 'supreme_admin', 'moderator', 'verified', 'member']
+              ? roleDoc(request.auth.uid).role
+              : 'member');
     }
 
     function isTargetPermanentOwner(uid) {
@@ -90,8 +95,24 @@ service cloud.firestore {
       );
     }
 
+    function isValidPublishRoleAndBadge(uid) {
+      return isPermanentOwner() || (
+        exists(/databases/$(database)/documents/users/$(uid)) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active' &&
+        hasRoleDoc(uid) &&
+        roleDoc(uid).role in ['supreme_admin', 'moderator', 'verified'] &&
+        roleDoc(uid).badge in ['supreme_admin', 'moderator', 'verified'] &&
+        ((roleDoc(uid).role == 'supreme_admin' && roleDoc(uid).badge == 'supreme_admin') ||
+          (roleDoc(uid).role == 'moderator' && roleDoc(uid).badge == 'moderator') ||
+          (roleDoc(uid).role == 'verified' && roleDoc(uid).badge == 'verified')) &&
+        get(/databases/$(database)/documents/users/$(uid)).data.badge == roleDoc(uid).badge
+      );
+    }
+
     function canPublishFeed() {
-      return isActiveSignedInUser() && (isSupremeAdminOrOwner() || isModerator() || isVerifiedMember());
+      return isActiveSignedInUser() &&
+        isValidPublishRoleAndBadge(request.auth.uid) &&
+        (isSupremeAdminOrOwner() || isModerator() || isVerifiedMember());
     }
 
     function isReservedUsername(username) {
@@ -144,6 +165,30 @@ service cloud.firestore {
         (data[key].size() < 3 || isValidMediaItemMap(data[key][2])) &&
         (data[key].size() < 4 || isValidMediaItemMap(data[key][3]))
       );
+    }
+
+    function isValidPhotoOnlyMediaItemMap(item) {
+      return isValidMediaItemMap(item) &&
+        (!('caption' in item) || item.caption == '');
+    }
+
+    function isValidPhotoPostMediaItemsArray(data) {
+      return 'mediaItems' in data &&
+        data.mediaItems is list &&
+        data.mediaItems.size() >= 1 &&
+        data.mediaItems.size() <= 4 &&
+        (data.mediaItems.size() < 1 || isValidPhotoOnlyMediaItemMap(data.mediaItems[0])) &&
+        (data.mediaItems.size() < 2 || isValidPhotoOnlyMediaItemMap(data.mediaItems[1])) &&
+        (data.mediaItems.size() < 3 || isValidPhotoOnlyMediaItemMap(data.mediaItems[2])) &&
+        (data.mediaItems.size() < 4 || isValidPhotoOnlyMediaItemMap(data.mediaItems[3]));
+    }
+
+    function isValidTextPostBackgroundStyle(style) {
+      return style in [
+        'navy_slate', 'ocean_blue', 'cobalt_indigo',
+        'midnight_emerald', 'sunset_amber', 'crimson_rose',
+        'royal_plum', 'warm_charcoal'
+      ];
     }
 
     // -------------------------------------------------------------------------
@@ -301,12 +346,14 @@ service cloud.firestore {
         data.action in [
           'marketplace_approved', 'marketplace_rejected', 'marketplace_removed',
           'marketplace_status_updated', 'post_deleted', 'anonymous_post_deleted',
-          'post_comment_deleted', 'anonymous_comment_deleted', 'post_pinned',
-          'post_unpinned', 'post_official_toggled', 'opportunity_created',
-          'opportunity_updated', 'opportunity_expired', 'opportunity_deleted',
-          'event_created', 'event_updated', 'event_cancelled', 'event_deleted',
-          'trusted_contact_created', 'trusted_contact_updated',
-          'trusted_contact_deleted', 'settings_updated'
+          'post_comment_deleted', 'anonymous_comment_deleted',
+          'anonymous_report_dismissed', 'anonymous_report_removed',
+          'post_pinned', 'post_unpinned', 'post_official_toggled',
+          'opportunity_created', 'opportunity_updated', 'opportunity_expired',
+          'opportunity_deleted', 'event_created', 'event_updated',
+          'event_cancelled', 'event_deleted', 'trusted_contact_created',
+          'trusted_contact_updated', 'trusted_contact_deleted',
+          'settings_updated'
         ] &&
         data.targetCollection is string && data.targetCollection.size() >= 2 && data.targetCollection.size() <= 64 &&
         isValidId(data.targetId) &&
@@ -337,17 +384,19 @@ service cloud.firestore {
           'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'id', 'ownerUID', 'authorRole', 'category', 'title', 'body',
-          'mediaUrls', 'mediaItems', 'isOfficial', 'isPinned', 'status',
+          'id', 'ownerUID', 'authorRole', 'postType', 'category', 'title', 'body',
+          'backgroundStyle', 'mediaUrls', 'mediaItems', 'isOfficial', 'isPinned', 'status',
           'visibility', 'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
         ]) &&
         data.id == postId &&
         isValidId(data.id) &&
         isValidId(data.ownerUID) &&
         data.authorRole in ['owner', 'supreme_admin', 'moderator', 'verified'] &&
+        (!('postType' in data) || data.postType in ['text', 'photo']) &&
         data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
         isOptionalShortString(data, 'title', 180) &&
         data.body is string && data.body.size() <= 5000 &&
+        (!('backgroundStyle' in data) || isValidTextPostBackgroundStyle(data.backgroundStyle)) &&
         (data.body.size() >= 1 || ('mediaItems' in data && data.mediaItems is list && data.mediaItems.size() >= 1)) &&
         isValidMediaArray(data, 'mediaUrls') &&
         isValidMediaItemsArray(data, 'mediaItems') &&
@@ -359,6 +408,26 @@ service cloud.firestore {
         data.commentsCount is int && data.commentsCount >= 0 &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
+    }
+
+    function isValidTypedCommunityPost(data, postId) {
+      return isValidCommunityPost(data, postId) &&
+        'postType' in data &&
+        data.postType in ['text', 'photo'] && (
+          (data.postType == 'text' &&
+            'backgroundStyle' in data &&
+            isValidTextPostBackgroundStyle(data.backgroundStyle) &&
+            data.body.size() >= 1 &&
+            data.body.size() <= 500 &&
+            (!('mediaItems' in data) || data.mediaItems.size() == 0) &&
+            (!('mediaUrls' in data) || data.mediaUrls.size() == 0)
+          ) ||
+          (data.postType == 'photo' &&
+            !('backgroundStyle' in data) &&
+            data.body.size() <= 2000 &&
+            isValidPhotoPostMediaItemsArray(data)
+          )
+        );
     }
 
     function isValidPostComment(data, commentId) {
@@ -381,12 +450,13 @@ service cloud.firestore {
           'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'id', 'category', 'body', 'backgroundStyle', 'mediaItems',
+          'id', 'postType', 'category', 'body', 'backgroundStyle', 'mediaItems',
           'status', 'visibility', 'likesCount', 'commentsCount',
           'createdAt', 'updatedAt'
         ]) &&
         data.id == postId &&
         isValidId(data.id) &&
+        (!('postType' in data) || data.postType in ['text', 'photo']) &&
         data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
         (!('backgroundStyle' in data) || data.backgroundStyle in [
           'plain', 'navy_slate', 'ocean_blue', 'cobalt_indigo',
@@ -403,15 +473,66 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidTypedAnonymousPost(data, postId) {
+      return isValidAnonymousPost(data, postId) &&
+        'postType' in data &&
+        data.postType in ['text', 'photo'] && (
+          (data.postType == 'text' &&
+            (!('backgroundStyle' in data) || data.backgroundStyle in [
+              'plain', 'navy_slate', 'ocean_blue', 'cobalt_indigo',
+              'midnight_emerald', 'sunset_amber', 'crimson_rose', 'royal_plum', 'warm_charcoal'
+            ]) &&
+            data.body.size() >= 1 &&
+            data.body.size() <= 3000 &&
+            (!('mediaItems' in data) || data.mediaItems.size() == 0)
+          ) ||
+          (data.postType == 'photo' &&
+            !('backgroundStyle' in data) &&
+            data.body.size() <= 2000 &&
+            isValidPhotoPostMediaItemsArray(data)
+          )
+        );
+    }
+
     function isValidAnonymousComment(data, commentId) {
       return data.keys().hasAll(['id', 'postId', 'body', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'postId', 'parentCommentId', 'body', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'postId', 'parentCommentId', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
         data.id == commentId &&
         isValidId(data.id) &&
         isValidId(data.postId) &&
         isOptionalShortString(data, 'parentCommentId', 128) &&
         data.body is string && data.body.size() >= 1 && data.body.size() <= 1500 &&
         data.status in ['published', 'deleted'] &&
+        (!('likesCount' in data) || (data.likesCount is int && data.likesCount >= 0)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAnonymousReport(data, reportId) {
+      return data.keys().hasAll([
+          'id', 'targetType', 'targetId', 'postId', 'reporterUid',
+          'reason', 'excerpt', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'targetType', 'targetId', 'postId', 'reporterUid',
+          'reason', 'details', 'excerpt', 'status',
+          'reviewedByUid', 'reviewedByRole', 'resolutionNote',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.id == reportId &&
+        isValidId(data.id) &&
+        data.targetType in ['anonymousPost', 'anonymousComment'] &&
+        isValidId(data.targetId) &&
+        isValidId(data.postId) &&
+        isValidId(data.reporterUid) &&
+        reportId == data.targetType + '_' + data.targetId + '_' + data.reporterUid &&
+        data.reason in ['harassment', 'hate_speech', 'privacy_leak', 'misinformation', 'spam', 'other'] &&
+        isOptionalShortString(data, 'details', 500) &&
+        data.excerpt is string && data.excerpt.size() <= 240 &&
+        data.status in ['pending', 'reviewed_removed', 'dismissed'] &&
+        isOptionalShortString(data, 'reviewedByUid', 128) &&
+        (!('reviewedByRole' in data) || data.reviewedByRole in ['owner', 'supreme_admin', 'moderator']) &&
+        isOptionalShortString(data, 'resolutionNote', 500) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -801,7 +922,8 @@ service cloud.firestore {
           (isModerator() && incoming().action in [
             'marketplace_approved', 'marketplace_rejected',
             'post_deleted', 'anonymous_post_deleted',
-            'post_comment_deleted', 'anonymous_comment_deleted'
+            'post_comment_deleted', 'anonymous_comment_deleted',
+            'anonymous_report_dismissed', 'anonymous_report_removed'
           ])
         );
       allow update, delete: if false;
@@ -831,10 +953,15 @@ service cloud.firestore {
     // 3. Ordinary Community Feed (posts, postComments, follows, postReactions)
     // -------------------------------------------------------------------------
     match /posts/{postId} {
-      allow get, list: if existing().status == 'published' || isSupremeAdminOrOwner();
+      allow get: if isValidId(postId) && (
+        resource == null ||
+        existing().status == 'published' ||
+        isSupremeAdminOrOwner()
+      );
+      allow list: if existing().status == 'published' || isSupremeAdminOrOwner();
       allow create: if isValidId(postId) &&
         canPublishFeed() &&
-        isValidCommunityPost(incoming(), postId) &&
+        isValidTypedCommunityPost(incoming(), postId) &&
         incoming().ownerUID == request.auth.uid &&
         incoming().authorRole == currentRoleString() &&
         incoming().status == 'published' &&
@@ -847,15 +974,17 @@ service cloud.firestore {
       allow update: if isValidId(postId) &&
         isActiveSignedInUser() &&
         isValidCommunityPost(incoming(), postId) &&
+        (!('postType' in incoming()) || isValidTypedCommunityPost(incoming(), postId)) &&
         incoming().id == existing().id &&
         incoming().ownerUID == existing().ownerUID &&
         incoming().authorRole == existing().authorRole &&
+        (!('postType' in existing()) || incoming().postType == existing().postType) &&
         incoming().createdAt == existing().createdAt && (
-          // Author edits post content / media (preserves likes & comments)
+          // Author edits post content / format-specific media or background (preserves likes, comments, and format separation)
           (canPublishFeed() &&
             existing().ownerUID == request.auth.uid &&
             incoming().updatedAt == request.time &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'category', 'mediaUrls', 'mediaItems', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'category', 'backgroundStyle', 'mediaUrls', 'mediaItems', 'updatedAt'])
           ) ||
           // Supreme Admin or Permanent Owner governance edits
           (isSupremeAdminOrOwner() &&
@@ -886,7 +1015,7 @@ service cloud.firestore {
             )
           )
         );
-      allow delete: if isValidId(postId) && isVerifiedEmailUser() && (
+      allow delete: if isValidId(postId) && isActiveSignedInUser() && isVerifiedEmailUser() && (
         existing().ownerUID == request.auth.uid ||
         isSupremeAdminOrOwner() ||
         (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))
@@ -894,13 +1023,15 @@ service cloud.firestore {
     }
 
     match /postComments/{commentId} {
-      allow get, list: if existing().status == 'published';
+      allow get: if isValidId(commentId) && (resource == null || existing().status == 'published');
+      allow list: if existing().status == 'published';
       allow create: if isValidId(commentId) &&
         isActiveSignedInUser() &&
         isValidPostComment(incoming(), commentId) &&
         incoming().ownerUID == request.auth.uid &&
         incoming().status == 'published' &&
         exists(/databases/$(database)/documents/posts/$(incoming().postId)) &&
+        get(/databases/$(database)/documents/posts/$(incoming().postId)).data.status == 'published' &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(commentId) &&
@@ -950,18 +1081,37 @@ service cloud.firestore {
 
     match /postReactions/{reactionId} {
       // Only ordinary public post reactions are publicly listable; anonymous reactions remain strictly private to the reactor (or Supreme Admin audit)
-      allow get, list: if existing().targetCollection == 'posts' ||
+      allow get: if isValidId(reactionId) && (
+        (resource == null && isSignedIn()) ||
+        (resource != null && (
+          existing().targetCollection == 'posts' ||
+          (isSignedIn() && existing().ownerUID == request.auth.uid) ||
+          isSupremeAdminOrOwner()
+        ))
+      );
+      allow list: if existing().targetCollection == 'posts' ||
         (isSignedIn() && existing().ownerUID == request.auth.uid) ||
         isSupremeAdminOrOwner();
       allow create: if isValidId(reactionId) &&
         isActiveSignedInUser() &&
         incoming().keys().hasAll(['targetCollection', 'targetId', 'ownerUID', 'reactionType', 'createdAt']) &&
         incoming().keys().hasOnly(['targetCollection', 'targetId', 'ownerUID', 'reactionType', 'createdAt']) &&
-        incoming().targetCollection in ['posts', 'anonymousPosts'] &&
+        incoming().targetCollection in ['posts', 'anonymousPosts', 'anonymousComments'] &&
         isValidId(incoming().targetId) &&
         incoming().ownerUID == request.auth.uid &&
         reactionId == incoming().targetCollection + '_' + incoming().targetId + '_' + request.auth.uid &&
         incoming().reactionType in ['like', 'insightful', 'support'] &&
+        (
+          (incoming().targetCollection == 'posts' &&
+            exists(/databases/$(database)/documents/posts/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/posts/$(incoming().targetId)).data.status == 'published') ||
+          (incoming().targetCollection == 'anonymousPosts' &&
+            exists(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published') ||
+          (incoming().targetCollection == 'anonymousComments' &&
+            exists(/databases/$(database)/documents/anonymousComments/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/anonymousComments/$(incoming().targetId)).data.status == 'published')
+        ) &&
         incoming().createdAt == request.time;
       allow update: if false;
       allow delete: if isValidId(reactionId) && isActiveSignedInUser() && (
@@ -972,7 +1122,10 @@ service cloud.firestore {
           !existsAfter(/databases/$(database)/documents/posts/$(existing().targetId))) ||
         (existing().targetCollection == 'anonymousPosts' &&
           exists(/databases/$(database)/documents/anonymousPosts/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/anonymousPosts/$(existing().targetId)))
+          !existsAfter(/databases/$(database)/documents/anonymousPosts/$(existing().targetId))) ||
+        (existing().targetCollection == 'anonymousComments' &&
+          exists(/databases/$(database)/documents/anonymousComments/$(existing().targetId)) &&
+          !existsAfter(/databases/$(database)/documents/anonymousComments/$(existing().targetId)))
       );
     }
 
@@ -980,10 +1133,11 @@ service cloud.firestore {
     // 4. The Unfiltered (Anonymous Posts + Isolated Identity Mappings & Audits)
     // -------------------------------------------------------------------------
     match /anonymousPosts/{postId} {
-      allow get, list: if existing().status == 'published';
+      allow get: if isValidId(postId) && (resource == null || existing().status == 'published');
+      allow list: if existing().status == 'published';
       allow create: if isValidId(postId) &&
         isActiveSignedInUser() &&
-        isValidAnonymousPost(incoming(), postId) &&
+        isValidTypedAnonymousPost(incoming(), postId) &&
         incoming().status == 'published' &&
         incoming().visibility == 'public' &&
         incoming().likesCount == 0 &&
@@ -995,9 +1149,11 @@ service cloud.firestore {
       allow update: if isValidId(postId) &&
         isActiveSignedInUser() &&
         isValidAnonymousPost(incoming(), postId) &&
+        (!('postType' in incoming()) || isValidTypedAnonymousPost(incoming(), postId)) &&
         incoming().id == existing().id &&
+        (!('postType' in existing()) || incoming().postType == existing().postType) &&
         incoming().createdAt == existing().createdAt && (
-          // Anonymous author edits their own post (preserves likes, comments, and identity shield)
+          // Anonymous author edits their own post (preserves likes, comments, format, and identity shield)
           (existing().status == 'published' &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['category', 'body', 'backgroundStyle', 'mediaItems', 'updatedAt']) &&
@@ -1038,12 +1194,15 @@ service cloud.firestore {
     }
 
     match /anonymousComments/{commentId} {
-      allow get, list: if existing().status == 'published';
+      allow get: if isValidId(commentId) && (resource == null || existing().status == 'published');
+      allow list: if existing().status == 'published';
       allow create: if isValidId(commentId) &&
         isActiveSignedInUser() &&
         isValidAnonymousComment(incoming(), commentId) &&
         incoming().status == 'published' &&
+        (!('likesCount' in incoming()) || incoming().likesCount == 0) &&
         exists(/databases/$(database)/documents/anonymousPosts/$(incoming().postId)) &&
+        get(/databases/$(database)/documents/anonymousPosts/$(incoming().postId)).data.status == 'published' &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         existsAfter(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)) &&
@@ -1053,11 +1212,32 @@ service cloud.firestore {
         isValidAnonymousComment(incoming(), commentId) &&
         incoming().id == existing().id &&
         incoming().postId == existing().postId &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['body', 'updatedAt']) &&
-        exists(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)) &&
-        get(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)).data.authorUid == request.auth.uid;
+        incoming().createdAt == existing().createdAt && (
+          // Anonymous author edits their own comment/reply body
+          (existing().status == 'published' &&
+            incoming().updatedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['body', 'updatedAt']) &&
+            exists(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)) &&
+            get(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)).data.authorUid == request.auth.uid
+          ) ||
+          // Atomic like / unlike sync on anonymous comments & nested replies with postReactions
+          (existing().status == 'published' &&
+            incoming().updatedAt == existing().updatedAt &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
+              (((!('likesCount' in existing()) && incoming().likesCount == 1) ||
+                ('likesCount' in existing() && incoming().likesCount == existing().likesCount + 1)) &&
+                !exists(/databases/$(database)/documents/postReactions/$('anonymousComments_' + commentId + '_' + request.auth.uid)) &&
+                existsAfter(/databases/$(database)/documents/postReactions/$('anonymousComments_' + commentId + '_' + request.auth.uid))
+              ) ||
+              ('likesCount' in existing() &&
+                existing().likesCount > 0 &&
+                incoming().likesCount == existing().likesCount - 1 &&
+                exists(/databases/$(database)/documents/postReactions/$('anonymousComments_' + commentId + '_' + request.auth.uid)) &&
+                !existsAfter(/databases/$(database)/documents/postReactions/$('anonymousComments_' + commentId + '_' + request.auth.uid))
+              )
+            )
+          )
+        );
       allow delete: if isValidId(commentId) && isActiveSignedInUser() && (
         isSupremeAdminOrOwner() ||
         (exists(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)) && (
@@ -1111,6 +1291,60 @@ service cloud.firestore {
         incoming().reason is string && incoming().reason.size() >= 5 && incoming().reason.size() <= 500 &&
         incoming().createdAt == request.time;
       allow update, delete: if false;
+    }
+
+    match /anonymousReports/{reportId} {
+      // Reporters can inspect their own reports; Moderators, Supreme Admins, and Owner review moderation queue
+      allow get: if isValidId(reportId) && (
+        (resource == null && isSignedIn()) ||
+        (resource != null && (
+          isSupremeAdminOrOwner() ||
+          isModerator() ||
+          (isSignedIn() && existing().reporterUid == request.auth.uid)
+        ))
+      );
+      allow list: if isSupremeAdminOrOwner() ||
+        isModerator() ||
+        (isSignedIn() && existing().reporterUid == request.auth.uid);
+      allow create: if isValidId(reportId) &&
+        isActiveSignedInUser() &&
+        isValidAnonymousReport(incoming(), reportId) &&
+        incoming().reporterUid == request.auth.uid &&
+        incoming().status == 'pending' &&
+        !('reviewedByUid' in incoming()) &&
+        !('reviewedByRole' in incoming()) &&
+        !('resolutionNote' in incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          (incoming().targetType == 'anonymousPost' &&
+            incoming().targetId == incoming().postId &&
+            exists(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published') ||
+          (incoming().targetType == 'anonymousComment' &&
+            exists(/databases/$(database)/documents/anonymousComments/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/anonymousComments/$(incoming().targetId)).data.status == 'published')
+        );
+      allow update: if isValidId(reportId) &&
+        isActiveSignedInUser() &&
+        isValidAnonymousReport(incoming(), reportId) &&
+        (isSupremeAdminOrOwner() || isModerator()) &&
+        existing().status == 'pending' &&
+        incoming().id == existing().id &&
+        incoming().targetType == existing().targetType &&
+        incoming().targetId == existing().targetId &&
+        incoming().postId == existing().postId &&
+        incoming().reporterUid == existing().reporterUid &&
+        incoming().reason == existing().reason &&
+        incoming().excerpt == existing().excerpt &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().status in ['reviewed_removed', 'dismissed'] &&
+        incoming().reviewedByUid == request.auth.uid &&
+        incoming().reviewedByRole == currentRoleString() &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'reviewedByUid', 'reviewedByRole', 'resolutionNote', 'updatedAt'
+        ]);
+      allow delete: if isValidId(reportId) && isSupremeAdminOrOwner();
     }
 
     // -------------------------------------------------------------------------
@@ -1186,7 +1420,14 @@ service cloud.firestore {
     // 7. Marketplace (Approval Hierarchy + 7-Day Timestamp Expiry + No Double Approval)
     // -------------------------------------------------------------------------
     match /marketplaceListings/{listingId} {
-      allow get, list: if existing().status == 'active' ||
+      allow get: if isValidId(listingId) && (
+        resource == null ||
+        existing().status == 'active' ||
+        (isSignedIn() && existing().ownerUID == request.auth.uid) ||
+        isSupremeAdminOrOwner() ||
+        isModerator()
+      );
+      allow list: if existing().status == 'active' ||
         (isSignedIn() && existing().ownerUID == request.auth.uid) ||
         isSupremeAdminOrOwner() ||
         isModerator();

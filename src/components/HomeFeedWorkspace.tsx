@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CheckCircle2,
   ImagePlus,
+  Loader2,
   MessageSquare,
   PenSquare,
   Search,
@@ -12,15 +13,19 @@ import {
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import {
-  fetchFollowingFeedPosts,
-  fetchPublicCommunityFeedWithAuthors,
+  fetchCommunityFeedPage,
+  type CommunityFeedCursor,
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
 import {
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
 } from '../services/socialPosts';
-import type { CommunityPost, UserRole } from '../types/database';
+import type {
+  CommunityPost,
+  OrdinaryPostType,
+  UserRole,
+} from '../types/database';
 import {
   ActiveRoute,
   FeedTabId,
@@ -30,7 +35,7 @@ import {
 } from '../types/platform';
 import {
   canCreateAnonymousEntry,
-  canPublishOrdinaryFeedUpdate,
+  canPublishOrdinaryPostStrict,
   toPublicProfileProjection,
 } from '../utils/authValidation';
 import { getSectionById } from '../utils/sectionState';
@@ -60,17 +65,24 @@ const FEED_TABS: { id: FeedTabId; label: string }[] = [
   { id: 'latest', label: 'Latest' },
 ];
 
+const FEED_PAGE_SIZE = 10;
+
 export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   activeFeedTab,
   onSelectFeedTab,
   onNavigate,
   onRequireAuth,
 }) => {
-  const { user, profile, effectiveTier, isSuspended, authReady } = useFirebase();
+  const { user, profile, roleRecord, effectiveTier, isSuspended, authReady } =
+    useFirebase();
   const [postItems, setPostItems] = useState<CommunityPostWithAuthor[]>([]);
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
   const [followingCount, setFollowingCount] = useState<number>(0);
+  const [followedUids, setFollowedUids] = useState<string[]>([]);
+  const [feedCursor, setFeedCursor] = useState<CommunityFeedCursor | null>(null);
+  const [hasMorePosts, setHasMorePosts] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
     'loading'
   );
@@ -86,6 +98,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   } | null>(null);
   const [composerModal, setComposerModal] = useState<{
     mode: 'ordinary' | 'anonymous';
+    ordinaryType?: OrdinaryPostType;
     editPost?: CommunityPost;
   } | null>(null);
 
@@ -100,44 +113,28 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       ? fetchViewerSavedPostIds('posts', user.uid).catch(() => new Set<string>())
       : Promise.resolve(new Set<string>());
 
-    if (activeFeedTab === 'following') {
-      if (!user) {
-        return () => {
-          active = false;
-        };
-      }
-
-      Promise.all([
-        fetchFollowingFeedPosts(user.uid, 20),
-        likedPromise,
-        savedPromise,
-      ])
-        .then(([res, likedIds, savedIds]) => {
-          if (!active) return;
-          setFollowingCount(res.followingCount);
-          setPostItems(res.items);
-          setLikedPostIds(likedIds);
-          setSavedPostIds(savedIds);
-          setLoadState('ready');
-        })
-        .catch(() => {
-          if (!active) return;
-          setLoadState('error');
-        });
-
+    if (activeFeedTab === 'following' && !user) {
       return () => {
         active = false;
       };
     }
 
     Promise.all([
-      fetchPublicCommunityFeedWithAuthors(20),
+      fetchCommunityFeedPage({
+        tab: activeFeedTab,
+        viewerUid: user?.uid ?? null,
+        pageSize: FEED_PAGE_SIZE,
+      }),
       likedPromise,
       savedPromise,
     ])
-      .then(([items, likedIds, savedIds]) => {
+      .then(([page, likedIds, savedIds]) => {
         if (!active) return;
-        setPostItems(items);
+        setFollowingCount(page.followingCount);
+        setFollowedUids(page.followedUids);
+        setPostItems(page.items);
+        setFeedCursor(page.nextCursor);
+        setHasMorePosts(page.hasMore);
         setLikedPostIds(likedIds);
         setSavedPostIds(savedIds);
         setLoadState('ready');
@@ -154,14 +151,47 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
   const loadFeed = () => {
     setLoadState('loading');
+    setFeedCursor(null);
+    setHasMorePosts(false);
     setRetryToken((prev) => prev + 1);
   };
 
+  const handleLoadMore = async () => {
+    if (!feedCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchCommunityFeedPage({
+        tab: activeFeedTab,
+        viewerUid: user?.uid ?? null,
+        pageSize: FEED_PAGE_SIZE,
+        cursor: feedCursor,
+        followedUids,
+      });
+      setPostItems((prev) => {
+        const seen = new Set(prev.map((item) => item.post.id));
+        const extra = page.items.filter((item) => !seen.has(item.post.id));
+        return [...prev, ...extra];
+      });
+      setFeedCursor(page.nextCursor);
+      setHasMorePosts(page.hasMore);
+    } catch {
+      setComposerFeedback({
+        kind: 'suspended',
+        message: 'Unable to load additional campus updates right now.',
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const activeSection = getSectionById(activeFeedTab as SectionId);
-  const canPublishOrdinary = canPublishOrdinaryFeedUpdate(
-    effectiveTier,
-    isSuspended
-  );
+  const canPublishOrdinary = canPublishOrdinaryPostStrict({
+    user,
+    tier: effectiveTier,
+    profile,
+    roleRecord,
+    suspended: isSuspended,
+  });
   const canPostAnonymously = canCreateAnonymousEntry(effectiveTier, isSuspended);
   const actorRole: UserRole = (
     effectiveTier === 'guest' ? 'member' : effectiveTier
@@ -195,12 +225,15 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       setComposerFeedback({
         kind: 'ordinary_restricted',
         message:
-          'Ordinary community feed updates can only be published by Verified members, Moderators, or Supreme Admins. As a registered Member, you can still comment, react, and post in Anonymous.',
+          'Ordinary community feed updates can only be published by Verified members, Moderators, or Supreme Admins with a valid verified badge. As a registered Member, you can still comment, react, and post in Anonymous.',
       });
       return;
     }
 
-    setComposerModal({ mode: 'ordinary' });
+    setComposerModal({
+      mode: 'ordinary',
+      ordinaryType: action === 'photo' ? 'photo' : 'text',
+    });
   };
 
   return (
@@ -214,7 +247,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         returnRoute={activeFeedTab}
       />
 
-      {/* Prominent Marketplace Shortcut near the top of Homepage (Part 8) */}
+      {/* Prominent Marketplace Shortcut near the top of Homepage */}
       <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:px-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
@@ -258,6 +291,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                   setComposerFeedback(null);
                   if (tab.id !== activeFeedTab && !(tab.id === 'following' && !user)) {
                     setLoadState('loading');
+                    setFeedCursor(null);
+                    setHasMorePosts(false);
                   }
                   onSelectFeedTab(tab.id);
                 }}
@@ -279,7 +314,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           })}
         </div>
 
-        {/* Facebook-inspired Post Composer (Part 7) */}
+        {/* Campus Feed Composer */}
         <div className="p-4 sm:p-5">
           <button
             type="button"
@@ -297,7 +332,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
               >
                 <PenSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                Write an update
+                Text Post
               </button>
 
               <button
@@ -306,7 +341,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
               >
                 <ImagePlus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                Add a photograph
+                Photo Post
               </button>
             </div>
 
@@ -496,6 +531,25 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                   />
                 );
               })}
+
+              {hasMorePosts && (
+                <div className="flex justify-center pt-2">
+                  <button
+                    type="button"
+                    disabled={loadingMore}
+                    onClick={() => void handleLoadMore()}
+                    className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {loadingMore && (
+                      <Loader2
+                        className="h-3.5 w-3.5 animate-spin text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                    )}
+                    {loadingMore ? 'Loading more...' : 'Load more updates'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -504,6 +558,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       {composerModal && user && (
         <PostComposer
           mode={composerModal.mode}
+          initialOrdinaryType={composerModal.ordinaryType}
           actorUid={user.uid}
           actorRole={actorRole}
           actorName={profile?.fullName || user.displayName || undefined}
@@ -534,13 +589,15 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 message: 'Your community update has been updated.',
               });
             } else {
-              const authorProjection = profile
-                ? toPublicProfileProjection(profile)
-                : null;
-              setPostItems((prev) => [
-                { post: savedCommunity, author: authorProjection },
-                ...prev,
-              ]);
+              if (activeFeedTab !== 'following') {
+                const authorProjection = profile
+                  ? toPublicProfileProjection(profile)
+                  : null;
+                setPostItems((prev) => [
+                  { post: savedCommunity, author: authorProjection },
+                  ...prev.filter((item) => item.post.id !== savedCommunity.id),
+                ]);
+              }
               setComposerFeedback({
                 kind: 'ordinary_published',
                 message: 'Your community update is now live.',

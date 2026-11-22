@@ -105,11 +105,29 @@ export const ANONYMOUS_BACKGROUND_THEMES: readonly AnonymousBackgroundTheme[] =
     },
   ] as const;
 
+export interface TextPostBackgroundTheme extends AnonymousBackgroundTheme {
+  id: Exclude<AnonymousBackgroundId, 'plain'>;
+}
+
+export const TEXT_POST_BACKGROUND_THEMES: readonly TextPostBackgroundTheme[] =
+  ANONYMOUS_BACKGROUND_THEMES.filter(
+    (theme): theme is TextPostBackgroundTheme => theme.id !== 'plain'
+  );
+
 export function getAnonymousBackgroundTheme(
   id?: AnonymousBackgroundId | string | null
 ): AnonymousBackgroundTheme {
   return (
     ANONYMOUS_BACKGROUND_THEMES.find((theme) => theme.id === id) ??
     ANONYMOUS_BACKGROUND_THEMES[0]
+  );
+}
+
+export function getTextPostBackgroundTheme(
+  id?: string | null
+): TextPostBackgroundTheme {
+  return (
+    TEXT_POST_BACKGROUND_THEMES.find((theme) => theme.id === id) ??
+    TEXT_POST_BACKGROUND_THEMES[0]
   );
 }
