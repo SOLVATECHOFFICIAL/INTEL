@@ -37,6 +37,9 @@ interface RouteHistoryEntry {
   username?: string | null;
   profileTab?: ProfileTab | null;
   searchScope?: SearchScopeId;
+  opportunityId?: string | null;
+  eventId?: string | null;
+  scrollY?: number;
 }
 
 export function App() {
@@ -55,6 +58,12 @@ export function App() {
   const [searchScope, setSearchScope] = useState<SearchScopeId>(
     initialParsed.searchScope
   );
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState<
+    string | null
+  >(initialParsed.opportunityId);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(
+    initialParsed.eventId
+  );
   const [previousEntry, setPreviousEntry] = useState<RouteHistoryEntry>({
     route: 'for-you',
   });
@@ -70,21 +79,39 @@ export function App() {
     username: initialParsed.profileUsername,
     profileTab: initialParsed.profileTab,
     searchScope: initialParsed.searchScope,
+    opportunityId: initialParsed.opportunityId,
+    eventId: initialParsed.eventId,
   });
 
   useEffect(() => {
-    const onPopState = () => {
+    const onPopState = (event: PopStateEvent) => {
       const parsed = parseLocationSearch(window.location.search);
       setActiveRoute(parsed.route);
       setProfileUsername(parsed.profileUsername);
       setProfileTab(parsed.profileTab);
       setSearchScope(parsed.searchScope);
+      setSelectedOpportunityId(parsed.opportunityId);
+      setSelectedEventId(parsed.eventId);
+      const stateScrollY =
+        event.state &&
+        typeof event.state === 'object' &&
+        typeof (event.state as { scrollY?: unknown }).scrollY === 'number'
+          ? (event.state as { scrollY: number }).scrollY
+          : undefined;
       currentEntryRef.current = {
         route: parsed.route,
         username: parsed.profileUsername,
         profileTab: parsed.profileTab,
         searchScope: parsed.searchScope,
+        opportunityId: parsed.opportunityId,
+        eventId: parsed.eventId,
+        scrollY: stateScrollY,
       };
+      if (stateScrollY !== undefined) {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: stateScrollY, behavior: 'auto' });
+        });
+      }
     };
     window.addEventListener('popstate', onPopState);
     return () => {
@@ -102,17 +129,14 @@ export function App() {
         username?: string | null;
         profileTab?: ProfileTab | null;
         searchScope?: SearchScopeId;
+        opportunityId?: string | null;
+        eventId?: string | null;
+        restoreScrollY?: number;
       }
     ) => {
       const current = currentEntryRef.current;
-      if (
-        current.route !== 'login' &&
-        current.route !== 'register' &&
-        current.route !== route
-      ) {
-        setPreviousEntry(current);
-      }
-
+      const departingScrollY =
+        typeof window !== 'undefined' ? window.scrollY : 0;
       const nextUsername =
         route === 'profile'
           ? options?.username?.trim().toLowerCase() ?? null
@@ -121,26 +145,84 @@ export function App() {
         route === 'profile' ? options?.profileTab ?? null : null;
       const nextSearchScope =
         route === 'search' ? options?.searchScope ?? 'home' : 'home';
+      const nextOpportunityId =
+        route === 'opportunities' ? options?.opportunityId ?? null : null;
+      const nextEventId =
+        route === 'upcoming-events' ? options?.eventId ?? null : null;
+
+      const isRouteChange =
+        current.route !== route ||
+        (route === 'profile' && current.username !== nextUsername);
+
+      if (
+        current.route !== 'login' &&
+        current.route !== 'register' &&
+        isRouteChange &&
+        route === 'profile' &&
+        current.route !== 'profile'
+      ) {
+        setPreviousEntry({
+          ...current,
+          scrollY: departingScrollY,
+        });
+      } else if (
+        current.route !== 'login' &&
+        current.route !== 'register' &&
+        current.route !== route &&
+        route !== 'profile'
+      ) {
+        setPreviousEntry({
+          ...current,
+          scrollY: departingScrollY,
+        });
+      }
+
+      if (typeof window !== 'undefined') {
+        const currentHistoryState =
+          window.history.state && typeof window.history.state === 'object'
+            ? (window.history.state as Record<string, unknown>)
+            : {};
+        window.history.replaceState(
+          { ...currentHistoryState, scrollY: departingScrollY },
+          ''
+        );
+      }
 
       setActiveRoute(route);
       setProfileUsername(nextUsername);
       setProfileTab(nextProfileTab);
       setSearchScope(nextSearchScope);
+      setSelectedOpportunityId(nextOpportunityId);
+      setSelectedEventId(nextEventId);
+
+      const targetScrollY = options?.restoreScrollY ?? 0;
 
       currentEntryRef.current = {
         route,
         username: nextUsername,
         profileTab: nextProfileTab,
         searchScope: nextSearchScope,
+        opportunityId: nextOpportunityId,
+        eventId: nextEventId,
+        scrollY: targetScrollY,
       };
 
       const nextUrl = buildSearchForRoute(route, {
         username: nextUsername,
         profileTab: nextProfileTab,
         searchScope: route === 'search' ? nextSearchScope : undefined,
+        opportunityId:
+          route === 'opportunities' ? nextOpportunityId : undefined,
+        eventId: route === 'upcoming-events' ? nextEventId : undefined,
       });
-      window.history.pushState(null, '', nextUrl);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.history.pushState({ scrollY: targetScrollY }, '', nextUrl);
+      if (options?.restoreScrollY !== undefined) {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: targetScrollY, behavior: 'auto' });
+        });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     },
     []
   );
@@ -151,10 +233,13 @@ export function App() {
         username: previousEntry.username,
         profileTab: previousEntry.profileTab,
         searchScope: previousEntry.searchScope,
+        opportunityId: previousEntry.opportunityId,
+        eventId: previousEntry.eventId,
+        restoreScrollY: previousEntry.scrollY ?? 0,
       });
       return;
     }
-    handleNavigate('for-you');
+    handleNavigate('for-you', { restoreScrollY: previousEntry.scrollY ?? 0 });
   }, [handleNavigate, previousEntry]);
 
   const handleRequireAuth = useCallback(
@@ -223,7 +308,12 @@ export function App() {
     }
 
     if (activeRoute === 'notifications') {
-      return <NotificationsPage onRequireAuth={handleRequireAuth} />;
+      return (
+        <NotificationsPage
+          onNavigate={handleNavigate}
+          onRequireAuth={handleRequireAuth}
+        />
+      );
     }
 
     if (activeRoute === 'account') {
@@ -283,6 +373,12 @@ export function App() {
         key={activeRoute}
         sectionId={
           activeRoute as Exclude<SectionId, 'for-you' | 'following' | 'latest'>
+        }
+        selectedOpportunityId={
+          activeRoute === 'opportunities' ? selectedOpportunityId : null
+        }
+        selectedEventId={
+          activeRoute === 'upcoming-events' ? selectedEventId : null
         }
         sectionStates={sectionStates}
         onNavigate={handleNavigate}

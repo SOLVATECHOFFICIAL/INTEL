@@ -19,22 +19,18 @@ import {
   Shield,
   ShieldAlert,
   Trash2,
-  UserCheck,
-  UserPlus,
   Users,
   X,
 } from 'lucide-react';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   getAnonymousBackgroundTheme,
   getTextPostBackgroundTheme,
 } from '../../config/anonymousBackgrounds';
 import { useFirebase } from '../../context/firebaseContext';
 import {
-  fetchFollowersListByUsername,
-  fetchFollowingListByUsername,
+  fetchFollowDirectoryPage,
   fetchMemberProfileBundleByUsername,
-  followMemberByUsername,
-  unfollowMemberByUsername,
   type CommunityPostWithAuthor,
   type MemberProfileBundle,
 } from '../../services/firestoreFoundation';
@@ -74,7 +70,18 @@ import {
   type CompressedImageResult,
 } from '../../utils/imageCompression';
 import { mediaMetaToGridItems } from '../../utils/mediaGrid';
+import {
+  formatOpportunityDeadlineSummary,
+  getOpportunityCategoryShortLabel,
+  resolveOpportunityLifecycle,
+} from '../../utils/opportunities';
+import {
+  formatEventLocalDate,
+  getEventCategoryShortLabel,
+  resolveEventLifecycle,
+} from '../../utils/events';
 import { RoleBadge } from '../RoleBadge';
+import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
 import { SquareImageGrid } from '../media/SquareImageGrid';
@@ -92,6 +99,8 @@ interface MemberProfilePageProps {
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      opportunityId?: string | null;
+      eventId?: string | null;
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -166,6 +175,11 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   const [followModalList, setFollowModalList] = useState<
     PublicProfileProjection[] | null
   >(null);
+  const [followModalCursor, setFollowModalCursor] =
+    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [followModalHasMore, setFollowModalHasMore] = useState(false);
+  const [followModalLoadingMore, setFollowModalLoadingMore] = useState(false);
+  const [followModalError, setFollowModalError] = useState<string | null>(null);
 
   // Modals & sheets
   const [detailTarget, setDetailTarget] = useState<DetailModalTarget | null>(
@@ -196,7 +210,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   const [avatarBusy, setAvatarBusy] = useState(false);
 
   // Feedback & actions
-  const [isTogglingFollow, setIsTogglingFollow] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -326,6 +339,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           anonymousPosts: [],
           listings: [],
           opportunities: [],
+          events: [],
         });
         setActionError(
           formatFirestoreOrAppError(err, 'Unable to load saved content.')
@@ -367,36 +381,92 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     };
   }, [bundle?.isOwnProfile, user?.uid, activeTab, anonHistory]);
 
+  const followModalTargetUsername = bundle?.resolvedUsername ?? null;
+
   // Load Followers / Following modal list when opened
   useEffect(() => {
-    if (!followModalKind || !bundle) return;
+    if (!followModalKind || !followModalTargetUsername) return;
     let active = true;
-    const loader =
-      followModalKind === 'followers'
-        ? fetchFollowersListByUsername(bundle.resolvedUsername)
-        : fetchFollowingListByUsername(bundle.resolvedUsername);
-
-    loader
-      .then((items) => {
-        if (active) setFollowModalList(items);
+    fetchFollowDirectoryPage({
+      username: followModalTargetUsername,
+      kind: followModalKind,
+      pageSize: 20,
+    })
+      .then((page) => {
+        if (!active) return;
+        setFollowModalList(page.items);
+        setFollowModalCursor(page.nextCursor);
+        setFollowModalHasMore(page.hasMore);
+        setFollowModalError(null);
       })
-      .catch(() => {
-        if (active) setFollowModalList([]);
+      .catch((err) => {
+        if (!active) return;
+        setFollowModalList([]);
+        setFollowModalCursor(null);
+        setFollowModalHasMore(false);
+        setFollowModalError(
+          formatFirestoreOrAppError(err, 'Unable to load this member list.')
+        );
       });
 
     return () => {
       active = false;
     };
-  }, [followModalKind, bundle]);
+  }, [followModalKind, followModalTargetUsername]);
 
   const openFollowModal = (kind: 'followers' | 'following') => {
     setFollowModalList(null);
+    setFollowModalCursor(null);
+    setFollowModalHasMore(false);
+    setFollowModalError(null);
     setFollowModalKind(kind);
   };
 
   const closeFollowModal = () => {
     setFollowModalKind(null);
     setFollowModalList(null);
+    setFollowModalCursor(null);
+    setFollowModalHasMore(false);
+    setFollowModalLoadingMore(false);
+    setFollowModalError(null);
+  };
+
+  const handleLoadMoreFollowModal = async () => {
+    if (
+      !followModalKind ||
+      !bundle ||
+      !followModalHasMore ||
+      followModalLoadingMore ||
+      !followModalCursor
+    ) {
+      return;
+    }
+    setFollowModalLoadingMore(true);
+    setFollowModalError(null);
+    try {
+      const page = await fetchFollowDirectoryPage({
+        username: bundle.resolvedUsername,
+        kind: followModalKind,
+        pageSize: 20,
+        cursor: followModalCursor,
+      });
+      setFollowModalList((prev) => {
+        const existing = prev ?? [];
+        const seen = new Set(existing.map((m) => m.username));
+        return [
+          ...existing,
+          ...page.items.filter((m) => !seen.has(m.username)),
+        ];
+      });
+      setFollowModalCursor(page.nextCursor);
+      setFollowModalHasMore(page.hasMore);
+    } catch (err) {
+      setFollowModalError(
+        formatFirestoreOrAppError(err, 'Unable to load more members right now.')
+      );
+    } finally {
+      setFollowModalLoadingMore(false);
+    }
   };
 
   const handleSelectTab = (tab: ProfileTab) => {
@@ -410,58 +480,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     }
     setActiveTab(tab);
     setActionError(null);
-  };
-
-  const handleToggleFollow = async () => {
-    if (!bundle || isTogglingFollow) return;
-    setActionError(null);
-
-    if (!user) {
-      setShowGuestPrompt(true);
-      return;
-    }
-    if (isSuspended) {
-      setActionError('Suspended accounts cannot follow or unfollow members.');
-      return;
-    }
-    if (bundle.isOwnProfile) return;
-
-    setIsTogglingFollow(true);
-    const wasFollowing = bundle.isFollowing;
-
-    try {
-      if (wasFollowing) {
-        await unfollowMemberByUsername(user.uid, bundle.resolvedUsername);
-      } else {
-        await followMemberByUsername(user.uid, bundle.resolvedUsername);
-      }
-
-      setBundle((prev) =>
-        prev
-          ? {
-              ...prev,
-              isFollowing: !wasFollowing,
-              profile: {
-                ...prev.profile,
-                followersCount: Math.max(
-                  0,
-                  prev.profile.followersCount + (wasFollowing ? -1 : 1)
-                ),
-              },
-            }
-          : prev
-      );
-      await refreshAccountState();
-    } catch (error) {
-      setActionError(
-        formatFirestoreOrAppError(
-          error,
-          'Unable to update follow status right now.'
-        )
-      );
-    } finally {
-      setIsTogglingFollow(false);
-    }
   };
 
   const handleShareProfile = async () => {
@@ -1213,31 +1231,30 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 </>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    disabled={isTogglingFollow || bundle.isSuspended}
-                    onClick={() => void handleToggleFollow()}
-                    className={`inline-flex min-h-[42px] items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-colors disabled:opacity-60 sm:text-sm ${
-                      bundle.isFollowing
-                        ? 'border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
-                        : 'bg-[#1E88E5] text-white hover:bg-[#1565C0]'
-                    }`}
-                  >
-                    {isTogglingFollow ? (
-                      <Loader2
-                        className="h-4 w-4 animate-spin"
-                        aria-hidden="true"
-                      />
-                    ) : bundle.isFollowing ? (
-                      <UserCheck
-                        className="h-4 w-4 text-[#1E88E5]"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <UserPlus className="h-4 w-4" aria-hidden="true" />
-                    )}
-                    <span>{bundle.isFollowing ? 'Following' : 'Follow'}</span>
-                  </button>
+                  <TikTokFollowButton
+                    targetUsername={bundle.resolvedUsername}
+                    compact={false}
+                    disabled={bundle.isSuspended}
+                    onRequireAuth={() => setShowGuestPrompt(true)}
+                    onFollowChange={(nextFollowing) => {
+                      setBundle((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              isFollowing: nextFollowing,
+                              profile: {
+                                ...prev.profile,
+                                followersCount: Math.max(
+                                  0,
+                                  prev.profile.followersCount +
+                                    (nextFollowing ? 1 : -1)
+                                ),
+                              },
+                            }
+                          : prev
+                      );
+                    }}
+                  />
 
                   {whatsappUrl && (
                     <a
@@ -1534,7 +1551,8 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 (savedBundle.posts.length === 0 &&
                   savedBundle.anonymousPosts.length === 0 &&
                   savedBundle.listings.length === 0 &&
-                  savedBundle.opportunities.length === 0) ? (
+                  savedBundle.opportunities.length === 0 &&
+                  savedBundle.events.length === 0) ? (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
                   <Bookmark
                     className="mx-auto mb-2 h-6 w-6 text-slate-400"
@@ -1672,28 +1690,76 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                       <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
                         Saved Opportunities ({savedBundle.opportunities.length})
                       </h2>
-                      {savedBundle.opportunities.map((opp) => (
-                        <div
-                          key={opp.id}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                              {opp.title}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {opp.organisation}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => onNavigate('opportunities')}
-                            className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                      {savedBundle.opportunities.map((opp) => {
+                        const lifecycle = resolveOpportunityLifecycle(opp);
+                        return (
+                          <div
+                            key={opp.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
                           >
-                            Open
-                          </button>
-                        </div>
-                      ))}
+                            <div className="min-w-0">
+                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                                {opp.title}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {getOpportunityCategoryShortLabel(opp.category)} ·{' '}
+                                {opp.organisation} · {lifecycle.label} (
+                                {formatOpportunityDeadlineSummary(lifecycle)})
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onNavigate('opportunities', {
+                                  opportunityId: opp.id,
+                                })
+                              }
+                              className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {savedBundle.events.length > 0 && (
+                    <div className="space-y-2.5">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        Saved Events ({savedBundle.events.length})
+                      </h2>
+                      {savedBundle.events.map((evt) => {
+                        const lifecycle = resolveEventLifecycle(evt);
+                        return (
+                          <div
+                            key={evt.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                                {evt.title}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                {getEventCategoryShortLabel(evt.category)} ·{' '}
+                                {evt.venue} · {lifecycle.label} (
+                                {formatEventLocalDate(evt.eventDate)})
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onNavigate('upcoming-events', {
+                                  eventId: evt.id,
+                                })
+                              }
+                              className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </>
@@ -1990,11 +2056,32 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             className="max-h-[82vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2
-                id="follow-modal-title"
-                className="font-display text-base font-bold text-[#0B1A2E]"
-              >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => openFollowModal('followers')}
+                  className={`min-h-[34px] rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                    followModalKind === 'followers'
+                      ? 'bg-[#0B1A2E] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-[#0B1A2E]'
+                  }`}
+                >
+                  Followers ({profile.followersCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openFollowModal('following')}
+                  className={`min-h-[34px] rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                    followModalKind === 'following'
+                      ? 'bg-[#0B1A2E] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-[#0B1A2E]'
+                  }`}
+                >
+                  Following ({profile.followingCount})
+                </button>
+              </div>
+              <h2 id="follow-modal-title" className="sr-only">
                 {followModalKind === 'followers'
                   ? `Followers (${profile.followersCount})`
                   : `Following (${profile.followingCount})`}
@@ -2008,6 +2095,15 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
+
+            {followModalError && (
+              <div
+                role="alert"
+                className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+              >
+                {followModalError}
+              </div>
+            )}
 
             <div className="mt-4">
               {followModalLoading ? (
@@ -2031,37 +2127,69 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               ) : (
                 <div className="space-y-2.5">
                   {followModalList.map((member) => (
-                    <button
+                    <div
                       key={member.username}
-                      type="button"
-                      onClick={() => {
-                        closeFollowModal();
-                        onNavigate('profile', { username: member.username });
-                      }}
-                      className="flex min-h-[60px] w-full items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition-colors hover:border-[#1E88E5] hover:bg-slate-50"
+                      className="flex min-h-[60px] w-full items-center justify-between gap-2.5 rounded-xl border border-slate-200 p-2.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60"
                     >
-                      <AvatarMedia
-                        fullName={member.fullName}
-                        photoImageId={member.photoImageId}
-                        photoUrl={member.photoUrl}
-                        sizeClass="h-11 w-11"
-                        roundedClass="rounded-full"
-                        textClass="text-xs"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                            {member.fullName}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeFollowModal();
+                          onNavigate('profile', { username: member.username });
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      >
+                        <AvatarMedia
+                          fullName={member.fullName}
+                          photoImageId={member.photoImageId}
+                          photoUrl={member.photoUrl}
+                          sizeClass="h-11 w-11"
+                          roundedClass="rounded-full"
+                          textClass="text-xs"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                              {member.fullName}
+                            </p>
+                            <RoleBadge badge={member.badge} size="xs" />
+                          </div>
+                          <p className="truncate text-xs text-slate-600">
+                            @{member.username}
+                            {member.department ? ` · ${member.department}` : ''}
                           </p>
-                          <RoleBadge badge={member.badge} size="xs" />
                         </div>
-                        <p className="truncate text-xs text-slate-600">
-                          @{member.username}
-                          {member.department ? ` · ${member.department}` : ''}
-                        </p>
-                      </div>
-                    </button>
+                      </button>
+
+                      <TikTokFollowButton
+                        targetUsername={member.username}
+                        compact
+                        onRequireAuth={() => {
+                          closeFollowModal();
+                          setShowGuestPrompt(true);
+                        }}
+                      />
+                    </div>
                   ))}
+
+                  {followModalHasMore && (
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        disabled={followModalLoadingMore}
+                        onClick={() => void handleLoadMoreFollowModal()}
+                        className="inline-flex min-h-[40px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-60"
+                      >
+                        {followModalLoadingMore && (
+                          <Loader2
+                            className="h-3.5 w-3.5 animate-spin text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                        )}
+                        Load more
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -161,9 +161,10 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [events, setEvents] = useState<CampusEvent[]>([]);
   const [trustedCircleData, setTrustedCircleData] = useState<{
+    supremeAdmins: PublicProfileProjection[];
     verifiedMembers: PublicProfileProjection[];
     officialContacts: TrustedContact[];
-  }>({ verifiedMembers: [], officialContacts: [] });
+  }>({ supremeAdmins: [], verifiedMembers: [], officialContacts: [] });
   const [auditEntries, setAuditEntries] = useState<UnifiedAuditEntry[]>([]);
   const [globalSettings, setGlobalSettings] = useState<PlatformSetting | null>(
     null
@@ -671,6 +672,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
 
           {activeSection === 'trusted-circle' && isFullAdmin && (
             <AdminTrustedCircleTab
+              supremeAdmins={trustedCircleData.supremeAdmins}
               verifiedMembers={trustedCircleData.verifiedMembers}
               officialContacts={trustedCircleData.officialContacts}
               loading={loadingSection}

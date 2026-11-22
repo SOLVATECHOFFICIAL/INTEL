@@ -299,5 +299,97 @@ test('Prompt 8 anonymous community rules enforce strict text vs photo formats, c
   );
 });
 
+test('Prompt 10 follow notifications and Trusted Circle media/category rules are enforced', () => {
+  assert.match(rulesText, /incoming\(\)\.eventType == 'follow'/);
+  assert.match(
+    rulesText,
+    /!exists\(\/databases\/\$\(database\)\/documents\/follows\/\$\(request\.auth\.uid \+ '_' \+ incoming\(\)\.recipientUid\)\)/
+  );
+  assert.match(
+    rulesText,
+    /existsAfter\(\/databases\/\$\(database\)\/documents\/follows\/\$\(request\.auth\.uid \+ '_' \+ incoming\(\)\.recipientUid\)\)/
+  );
+  assert.match(
+    rulesText,
+    /incoming\(\)\.targetCollection == 'trustedContacts' &&\s*isSupremeAdminOrOwner\(\)/
+  );
+  assert.match(rulesText, /'officially_verified'/);
+  assert.match(rulesText, /'community_recommended'/);
+  assert.match(rulesText, /isOptionalValidImageId\(data, 'photoImageId'\)/);
+});
 
+test('Task 11 opportunities rules enforce 9 categories, unpublished draft isolation, verification, and notification safety', () => {
+  const oppFn = rulesText.slice(
+    rulesText.indexOf('function isValidOpportunity'),
+    rulesText.indexOf('function isValidCampusEvent')
+  );
+  assert.match(oppFn, /'conference'/);
+  assert.match(oppFn, /'other'/);
+  assert.match(oppFn, /'whoCanApply'/);
+  assert.match(oppFn, /'opensAt'/);
+  assert.match(oppFn, /'isVerified'/);
+  assert.match(oppFn, /'notifiedNewAt'/);
+  assert.match(oppFn, /'lastDeadlineNotifiedMs'/);
+  assert.match(oppFn, /data\.status in \['active', 'expired', 'unpublished'\]/);
 
+  const oppMatchBlock = rulesText.slice(
+    rulesText.indexOf('match /opportunities/{opportunityId}'),
+    rulesText.indexOf('match /events/{eventId}')
+  );
+  assert.match(
+    oppMatchBlock,
+    /existing\(\)\.status in \['active', 'expired'\] \|\| isSupremeAdminOrOwner\(\)/
+  );
+  assert.match(
+    oppMatchBlock,
+    /allow list: if existing\(\)\.status in \['active', 'expired'\] \|\| isSupremeAdminOrOwner\(\);/
+  );
+});
+
+test('Task 12 events rules enforce 10 categories, draft isolation, mediaImages, savedPosts, and atomic likes/comments', () => {
+  const eventFn = rulesText.slice(
+    rulesText.indexOf('function isValidCampusEvent'),
+    rulesText.indexOf('function isValidNotification')
+  );
+  for (const cat of [
+    'departmental',
+    'faculty',
+    'student_association',
+    'seminar_workshop',
+    'conference',
+    'orientation',
+    'public_lecture',
+    'competition',
+    'social_cultural',
+    'other',
+  ]) {
+    assert.ok(eventFn.includes(`'${cat}'`), `Missing event category ${cat}`);
+  }
+  assert.match(eventFn, /'mediaItems'/);
+  assert.match(eventFn, /'endDate'/);
+  assert.match(eventFn, /'registrationRequired'/);
+  assert.match(eventFn, /'published'/);
+  assert.match(eventFn, /'ongoing'/);
+  assert.match(eventFn, /'completed'/);
+
+  const eventMatchBlock = rulesText.slice(
+    rulesText.indexOf('match /events/{eventId}'),
+    rulesText.indexOf('// 10. Notifications')
+  );
+  assert.match(eventMatchBlock, /isEventPublished\(existing\(\)\) \|\| isSupremeAdminOrOwner\(\)/);
+  assert.match(eventMatchBlock, /'events_' \+ eventId \+ '_' \+ request\.auth\.uid/);
+  assert.match(eventMatchBlock, /hasOnly\(\['commentsCount'\]\)/);
+
+  assert.match(
+    rulesText,
+    /incoming\(\)\.targetCollection == 'events' &&\s*isSupremeAdminOrOwner\(\)/
+  );
+  assert.match(
+    rulesText,
+    /incoming\(\)\.targetCollection in \['posts', 'anonymousPosts', 'marketplaceListings', 'opportunities', 'events'\]/
+  );
+  assert.match(
+    rulesText,
+    /incoming\(\)\.targetCollection in \['events', 'postComments'\]/
+  );
+});

@@ -18,7 +18,6 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
-  categorizeEventByDate,
   collectCommentTreeIds,
   isSafeMediaUrl,
   isValidFirestoreId,
@@ -37,8 +36,10 @@ import {
   type MarketplaceListing,
   type MarketplaceStatus,
   type Opportunity,
+  type OpportunityStatus,
   type PlatformSetting,
   type PostComment,
+  type PostMediaMeta,
   type PublicProfileProjection,
   type PublicUserProfile,
   type TrustedContact,
@@ -57,11 +58,31 @@ import {
 import { toPublicProfileProjection } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
+  buildEventNotificationDocId,
+  canSendNewEventNotice,
+  formatEventDateTimeRange,
+  getEventCategoryLabel,
+  resolveEventLifecycle,
+  type EventNotificationKind,
+} from '../utils/events';
+import {
+  buildOpportunityNotificationDocId,
+  canSendDeadlineUpdateNotice,
+  canSendNewOpportunityNotice,
+  getOpportunityCategoryLabel,
+} from '../utils/opportunities';
+import type { CompressedImageResult } from '../utils/imageCompression';
+import {
   fetchAnonymousAuditLogs,
   fetchBadgeAuditLogs,
   reviewPendingMarketplaceListing,
 } from './governance';
-import { evictMediaImageCache, generateFirestoreDocId } from './mediaStorage';
+import {
+  buildMediaImageFirestoreRecord,
+  evictMediaImageCache,
+  generateFirestoreDocId,
+  primeMediaImageCache,
+} from './mediaStorage';
 import { deletePostComment, deletePostCascading } from './socialPosts';
 
 function sortByCreatedAtDesc<T extends { createdAt: unknown }>(items: T[]): T[] {
@@ -202,7 +223,15 @@ export async function fetchPlatformOverviewData(input: {
         )
       ),
       getDocs(query(collection(db, COLLECTION_NAMES.marketplaceListings), limit(500))),
-      getDocs(query(collection(db, COLLECTION_NAMES.opportunities), limit(250))),
+      getDocs(
+        isFullAdmin
+          ? query(collection(db, COLLECTION_NAMES.opportunities), limit(250))
+          : query(
+              collection(db, COLLECTION_NAMES.opportunities),
+              where('status', 'in', ['active', 'expired']),
+              limit(250)
+            )
+      ),
       getDocs(query(collection(db, COLLECTION_NAMES.events), limit(250))),
       isFullAdmin ? fetchBadgeAuditLogs(15).catch(() => []) : Promise.resolve([]),
       isFullAdmin ? fetchAdminAuditLogs(15).catch(() => []) : Promise.resolve([]),
@@ -984,7 +1013,28 @@ export async function adminTogglePostFlagsWithAudit(input: {
 export async function fetchAllOpportunities(): Promise<Opportunity[]> {
   try {
     const snap = await getDocs(
-      query(collection(db, COLLECTION_NAMES.opportunities), limit(120))
+      query(collection(db, COLLECTION_NAMES.opportunities), limit(150))
+    );
+    return sortByCreatedAtDesc(
+      snap.docs.map((item) => item.data() as Opportunity)
+    );
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.LIST,
+      COLLECTION_NAMES.opportunities
+    );
+  }
+}
+
+export async function fetchPublishedOpportunities(): Promise<Opportunity[]> {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.opportunities),
+        where('status', 'in', ['active', 'expired']),
+        limit(150)
+      )
     );
     return sortByCreatedAtDesc(
       snap.docs.map((item) => item.data() as Opportunity)
@@ -1013,10 +1063,20 @@ export async function createOpportunityRecord(input: {
 
   const oppId = generateFirestoreDocId(COLLECTION_NAMES.opportunities);
   const deadlineMs = Date.parse(input.form.expiresAtIso);
-  const status =
-    input.form.status === 'expired' || deadlineMs <= Date.now()
-      ? 'expired'
-      : 'active';
+  const opensMs = input.form.opensAtIso?.trim()
+    ? Date.parse(input.form.opensAtIso)
+    : null;
+
+  let status: OpportunityStatus;
+  if (input.form.status === 'unpublished') {
+    status = 'unpublished';
+  } else if (input.form.status === 'expired' || deadlineMs <= Date.now()) {
+    status = 'expired';
+  } else {
+    status = 'active';
+  }
+
+  const isVerified = Boolean(input.form.isVerified);
 
   const payload: Record<string, unknown> = {
     id: oppId,
@@ -1026,6 +1086,7 @@ export async function createOpportunityRecord(input: {
     organisation: input.form.organisation.trim(),
     description: input.form.description.trim(),
     applicationUrl: input.form.applicationUrl.trim(),
+    isVerified,
     status,
     expiresAt: Timestamp.fromMillis(deadlineMs),
     createdAt: serverTimestamp(),
@@ -1034,6 +1095,9 @@ export async function createOpportunityRecord(input: {
 
   if (input.form.eligibility?.trim()) {
     payload.eligibility = input.form.eligibility.trim().slice(0, 1500);
+  }
+  if (input.form.whoCanApply?.trim()) {
+    payload.whoCanApply = input.form.whoCanApply.trim().slice(0, 1000);
   }
   if (input.form.requiredDocuments?.trim()) {
     payload.requiredDocuments = input.form.requiredDocuments.trim().slice(0, 1500);
@@ -1049,6 +1113,9 @@ export async function createOpportunityRecord(input: {
   if (input.form.contactInfo?.trim()) {
     payload.contactInfo = input.form.contactInfo.trim().slice(0, 256);
   }
+  if (opensMs !== null && Number.isFinite(opensMs)) {
+    payload.opensAt = Timestamp.fromMillis(opensMs);
+  }
 
   const batch = writeBatch(db);
   batch.set(doc(db, COLLECTION_NAMES.opportunities, oppId), payload);
@@ -1059,13 +1126,14 @@ export async function createOpportunityRecord(input: {
     targetLabel: input.form.title.trim(),
     performedByUid: input.actorUid,
     performedByRole: input.actorRole,
-    details: `${input.form.category} · ${input.form.organisation.trim()}`,
+    details: `${input.form.category} · ${input.form.organisation.trim()} (${status})`,
   });
 
   try {
     await batch.commit();
     return {
       ...(payload as unknown as Opportunity),
+      opensAt: opensMs ?? undefined,
       expiresAt: deadlineMs,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -1094,7 +1162,28 @@ export async function updateOpportunityRecord(input: {
   }
 
   const deadlineMs = Date.parse(input.form.expiresAtIso);
-  const nextStatus = input.form.status ?? resolveOpportunityEffectiveStatus(input.existing, deadlineMs);
+  const opensMs = input.form.opensAtIso?.trim()
+    ? Date.parse(input.form.opensAtIso)
+    : null;
+
+  let nextStatus: OpportunityStatus;
+  if (input.form.status === 'unpublished') {
+    nextStatus = 'unpublished';
+  } else if (input.form.status === 'expired') {
+    nextStatus = 'expired';
+  } else if (input.form.status === 'active') {
+    nextStatus = deadlineMs <= Date.now() ? 'expired' : 'active';
+  } else {
+    nextStatus =
+      input.existing.status === 'unpublished'
+        ? 'unpublished'
+        : resolveOpportunityEffectiveStatus(input.existing, deadlineMs);
+  }
+
+  const nextVerified =
+    typeof input.form.isVerified === 'boolean'
+      ? input.form.isVerified
+      : Boolean(input.existing.isVerified);
 
   const updates: Record<
     string,
@@ -1108,6 +1197,9 @@ export async function updateOpportunityRecord(input: {
     eligibility: input.form.eligibility?.trim()
       ? input.form.eligibility.trim().slice(0, 1500)
       : deleteField(),
+    whoCanApply: input.form.whoCanApply?.trim()
+      ? input.form.whoCanApply.trim().slice(0, 1000)
+      : deleteField(),
     requiredDocuments: input.form.requiredDocuments?.trim()
       ? input.form.requiredDocuments.trim().slice(0, 1500)
       : deleteField(),
@@ -1120,6 +1212,11 @@ export async function updateOpportunityRecord(input: {
     contactInfo: input.form.contactInfo?.trim()
       ? input.form.contactInfo.trim().slice(0, 256)
       : deleteField(),
+    opensAt:
+      opensMs !== null && Number.isFinite(opensMs)
+        ? Timestamp.fromMillis(opensMs)
+        : deleteField(),
+    isVerified: nextVerified,
     status: nextStatus,
     expiresAt: Timestamp.fromMillis(deadlineMs),
     updatedAt: serverTimestamp(),
@@ -1128,15 +1225,16 @@ export async function updateOpportunityRecord(input: {
   const batch = writeBatch(db);
   batch.update(doc(db, COLLECTION_NAMES.opportunities, input.existing.id), updates);
   attachAdminAuditLogToBatch(batch, {
-    action: nextStatus === 'expired' && input.existing.status !== 'expired'
-      ? 'opportunity_expired'
-      : 'opportunity_updated',
+    action:
+      nextStatus === 'expired' && input.existing.status !== 'expired'
+        ? 'opportunity_expired'
+        : 'opportunity_updated',
     targetCollection: COLLECTION_NAMES.opportunities,
     targetId: input.existing.id,
     targetLabel: input.form.title.trim(),
     performedByUid: input.actorUid,
     performedByRole: input.actorRole,
-    details: `Status: ${nextStatus}`,
+    details: `Status: ${nextStatus} · Verified: ${String(nextVerified)}`,
   });
 
   try {
@@ -1149,11 +1247,14 @@ export async function updateOpportunityRecord(input: {
       description: input.form.description.trim(),
       applicationUrl: input.form.applicationUrl.trim(),
       eligibility: input.form.eligibility?.trim() || undefined,
+      whoCanApply: input.form.whoCanApply?.trim() || undefined,
       requiredDocuments: input.form.requiredDocuments?.trim() || undefined,
       benefits: input.form.benefits?.trim() || undefined,
       applicationInstructions:
         input.form.applicationInstructions?.trim() || undefined,
       contactInfo: input.form.contactInfo?.trim() || undefined,
+      opensAt: opensMs ?? undefined,
+      isVerified: nextVerified,
       status: nextStatus,
       expiresAt: deadlineMs,
       updatedAt: Date.now(),
@@ -1165,6 +1266,249 @@ export async function updateOpportunityRecord(input: {
       `${COLLECTION_NAMES.opportunities}/${input.existing.id}`
     );
   }
+}
+
+export async function toggleOpportunityStatusRecord(input: {
+  opportunity: Opportunity;
+  nextStatus: OpportunityStatus;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<Opportunity> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Owner can update opportunity status.');
+  }
+
+  const deadlineMs = extractTimestampMs(input.opportunity.expiresAt) ?? 0;
+  if (input.nextStatus === 'active' && deadlineMs <= Date.now()) {
+    throw new Error(
+      'Cannot publish or reopen an opportunity whose deadline has already passed. Extend the deadline first.'
+    );
+  }
+
+  const batch = writeBatch(db);
+  batch.update(
+    doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id),
+    {
+      status: input.nextStatus,
+      updatedAt: serverTimestamp(),
+    }
+  );
+  attachAdminAuditLogToBatch(batch, {
+    action:
+      input.nextStatus === 'expired'
+        ? 'opportunity_expired'
+        : 'opportunity_updated',
+    targetCollection: COLLECTION_NAMES.opportunities,
+    targetId: input.opportunity.id,
+    targetLabel: input.opportunity.title,
+    performedByUid: input.actorUid,
+    performedByRole: input.actorRole,
+    details: `Status changed from ${input.opportunity.status} to ${input.nextStatus}`,
+  });
+
+  try {
+    await batch.commit();
+    return {
+      ...input.opportunity,
+      status: input.nextStatus,
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `${COLLECTION_NAMES.opportunities}/${input.opportunity.id}`
+    );
+  }
+}
+
+export async function toggleOpportunityVerifiedRecord(input: {
+  opportunity: Opportunity;
+  nextVerified: boolean;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<Opportunity> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Owner can verify opportunities.');
+  }
+
+  const batch = writeBatch(db);
+  batch.update(
+    doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id),
+    {
+      isVerified: input.nextVerified,
+      updatedAt: serverTimestamp(),
+    }
+  );
+  attachAdminAuditLogToBatch(batch, {
+    action: 'opportunity_updated',
+    targetCollection: COLLECTION_NAMES.opportunities,
+    targetId: input.opportunity.id,
+    targetLabel: input.opportunity.title,
+    performedByUid: input.actorUid,
+    performedByRole: input.actorRole,
+    details: `Verified status set to ${String(input.nextVerified)}`,
+  });
+
+  try {
+    await batch.commit();
+    return {
+      ...input.opportunity,
+      isVerified: input.nextVerified,
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `${COLLECTION_NAMES.opportunities}/${input.opportunity.id}`
+    );
+  }
+}
+
+export async function broadcastOpportunityNotification(input: {
+  opportunity: Opportunity;
+  kind: 'new' | 'deadline';
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<{ sentCount: number; opportunity: Opportunity }> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Owner can broadcast opportunity notices.');
+  }
+
+  const nowMs = Date.now();
+  const expiresMs = extractTimestampMs(input.opportunity.expiresAt) ?? 0;
+
+  if (
+    input.kind === 'new' &&
+    !canSendNewOpportunityNotice(input.opportunity, nowMs)
+  ) {
+    throw new Error(
+      'New-opportunity notice has already been sent or this opportunity is not open.'
+    );
+  }
+  if (
+    input.kind === 'deadline' &&
+    !canSendDeadlineUpdateNotice(input.opportunity, expiresMs, nowMs)
+  ) {
+    throw new Error(
+      'Deadline update notice has already been sent for this deadline date.'
+    );
+  }
+
+  const usersSnap = await getDocs(
+    query(
+      collection(db, COLLECTION_NAMES.users),
+      where('accountStatus', '==', 'active'),
+      limit(400)
+    )
+  );
+
+  const recipientUids = usersSnap.docs
+    .map((item) => item.data() as PublicUserProfile)
+    .filter((p) => !p.isHiddenFromDirectory && isValidFirestoreId(p.uid))
+    .map((p) => p.uid);
+
+  const categoryLabel = getOpportunityCategoryLabel(input.opportunity.category);
+  const formattedDeadline = expiresMs
+    ? new Date(expiresMs).toLocaleDateString('en-NG', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    : 'See details';
+
+  const notifTitle = (
+    input.kind === 'new'
+      ? `New ${categoryLabel}: ${input.opportunity.title}`
+      : `Deadline updated: ${input.opportunity.title}`
+  ).slice(0, 160);
+
+  const notifBody = (
+    input.kind === 'new'
+      ? `${input.opportunity.organisation} · Application closes ${formattedDeadline}.`
+      : `${input.opportunity.organisation} · New closing date: ${formattedDeadline}.`
+  ).slice(0, 500);
+
+  const targetPath = `/?view=opportunities&opportunityId=${input.opportunity.id}`;
+  const oppRef = doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id);
+
+  // Write notifications in chunks under the 500-op Firestore batch limit
+  const CHUNK_SIZE = 380;
+  let sentCount = 0;
+
+  if (recipientUids.length === 0) {
+    const batch = writeBatch(db);
+    batch.update(
+      oppRef,
+      input.kind === 'new'
+        ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
+        : { lastDeadlineNotifiedMs: expiresMs, updatedAt: serverTimestamp() }
+    );
+    await batch.commit();
+  } else {
+    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
+      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+
+      for (const uid of chunk) {
+        const notifId = buildOpportunityNotificationDocId(
+          input.kind,
+          input.opportunity.id,
+          uid,
+          expiresMs
+        );
+        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
+          id: notifId,
+          recipientUid: uid,
+          eventType: 'new_opportunity',
+          title: notifTitle,
+          body: notifBody,
+          targetPath,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        });
+        sentCount += 1;
+      }
+
+      if (i === 0) {
+        batch.update(
+          oppRef,
+          input.kind === 'new'
+            ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
+            : { lastDeadlineNotifiedMs: expiresMs, updatedAt: serverTimestamp() }
+        );
+        attachAdminAuditLogToBatch(batch, {
+          action: 'opportunity_updated',
+          targetCollection: COLLECTION_NAMES.opportunities,
+          targetId: input.opportunity.id,
+          targetLabel: input.opportunity.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details:
+            input.kind === 'new'
+              ? `Sent new-opportunity alert to ${recipientUids.length} active members.`
+              : `Sent deadline update alert (${formattedDeadline}) to ${recipientUids.length} active members.`,
+        });
+      }
+
+      await batch.commit();
+    }
+  }
+
+  return {
+    sentCount,
+    opportunity: {
+      ...input.opportunity,
+      notifiedNewAt:
+        input.kind === 'new' ? nowMs : input.opportunity.notifiedNewAt,
+      lastDeadlineNotifiedMs:
+        input.kind === 'deadline'
+          ? expiresMs
+          : input.opportunity.lastDeadlineNotifiedMs,
+      updatedAt: nowMs,
+    },
+  };
 }
 
 export async function deleteOpportunityRecord(input: {
@@ -1216,6 +1560,7 @@ export async function fetchAllCampusEvents(): Promise<CampusEvent[]> {
 
 export async function createCampusEventRecord(input: {
   form: CampusEventFormInput;
+  newImages?: CompressedImageResult[];
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CampusEvent> {
@@ -1227,27 +1572,89 @@ export async function createCampusEventRecord(input: {
     throw new Error(validationError);
   }
 
+  const newImages = (input.newImages ?? []).slice(
+    0,
+    BLUEPRINT_LIMITS.mediaPostMaxCount
+  );
   const eventId = generateFirestoreDocId(COLLECTION_NAMES.events);
   const eventMs = Date.parse(input.form.eventDateIso);
-  const status: CampusEventStatus = categorizeEventByDate(
-    eventMs,
-    Date.now(),
-    input.form.status ?? 'upcoming'
-  );
+  const endMs = input.form.endDateIso?.trim()
+    ? Date.parse(input.form.endDateIso)
+    : undefined;
+  const published = input.form.published !== false;
+  const nowMs = Date.now();
+
+  let status: CampusEventStatus = input.form.status ?? 'upcoming';
+  if (status !== 'cancelled' && status !== 'completed' && status !== 'past') {
+    const lifecycle = resolveEventLifecycle(
+      {
+        status,
+        eventDate: eventMs,
+        endDate: endMs,
+        published: true,
+      },
+      nowMs
+    );
+    status = lifecycle.isCompleted
+      ? 'completed'
+      : lifecycle.isOngoing
+        ? 'ongoing'
+        : 'upcoming';
+  }
+
+  const batch = writeBatch(db);
+  const mediaItems: PostMediaMeta[] = [];
+  const primedCache: { imageId: string; dataUrl: string }[] = [];
+
+  newImages.forEach((compressed, index) => {
+    const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
+    const mediaDoc = buildMediaImageFirestoreRecord({
+      imageId,
+      targetCollection: 'events',
+      targetId: eventId,
+      ownerUID: input.actorUid,
+      compressed,
+      createdAtValue: serverTimestamp(),
+    });
+    batch.set(doc(db, COLLECTION_NAMES.mediaImages, imageId), mediaDoc);
+    mediaItems.push({
+      imageId,
+      width: compressed.width,
+      height: compressed.height,
+      byteSize: compressed.byteSize,
+      mimeType: compressed.mimeType,
+      order: index,
+    });
+    primedCache.push({ imageId, dataUrl: compressed.dataUrl });
+  });
 
   const payload: Record<string, unknown> = {
     id: eventId,
     ownerUID: input.actorUid,
+    category: input.form.category ?? 'other',
     title: input.form.title.trim(),
     description: input.form.description.trim(),
     eventDate: Timestamp.fromMillis(eventMs),
     venue: input.form.venue.trim(),
     organiser: input.form.organiser.trim(),
+    registrationRequired: Boolean(input.form.registrationRequired),
     status,
+    published,
+    likesCount: 0,
+    commentsCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 
+  if (endMs && Number.isFinite(endMs)) {
+    payload.endDate = Timestamp.fromMillis(endMs);
+  }
+  if (mediaItems.length > 0) {
+    payload.mediaItems = mediaItems;
+  }
+  if (input.form.bannerUrl?.trim()) {
+    payload.bannerUrl = input.form.bannerUrl.trim().slice(0, 512);
+  }
   if (input.form.timeLabel?.trim()) {
     payload.timeLabel = input.form.timeLabel.trim().slice(0, 64);
   }
@@ -1257,11 +1664,13 @@ export async function createCampusEventRecord(input: {
   if (input.form.onlineMeetingUrl?.trim()) {
     payload.onlineMeetingUrl = input.form.onlineMeetingUrl.trim().slice(0, 512);
   }
+  if (input.form.contactInfo?.trim()) {
+    payload.contactInfo = input.form.contactInfo.trim().slice(0, 256);
+  }
   if (input.form.instructions?.trim()) {
     payload.instructions = input.form.instructions.trim().slice(0, 2000);
   }
 
-  const batch = writeBatch(db);
   batch.set(doc(db, COLLECTION_NAMES.events, eventId), payload);
   attachAdminAuditLogToBatch(batch, {
     action: 'event_created',
@@ -1270,16 +1679,20 @@ export async function createCampusEventRecord(input: {
     targetLabel: input.form.title.trim(),
     performedByUid: input.actorUid,
     performedByRole: input.actorRole,
-    details: `${input.form.venue.trim()} · ${input.form.organiser.trim()}`,
+    details: `${published ? 'Published' : 'Saved draft'} · ${input.form.venue.trim()} · ${input.form.organiser.trim()}`,
   });
 
   try {
     await batch.commit();
+    for (const item of primedCache) {
+      primeMediaImageCache(item.imageId, item.dataUrl);
+    }
     return {
       ...(payload as unknown as CampusEvent),
       eventDate: eventMs,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      endDate: endMs,
+      createdAt: nowMs,
+      updatedAt: nowMs,
     };
   } catch (error) {
     handleFirestoreError(
@@ -1293,6 +1706,8 @@ export async function createCampusEventRecord(input: {
 export async function updateCampusEventRecord(input: {
   existing: CampusEvent;
   form: CampusEventFormInput;
+  retainedMediaItems?: PostMediaMeta[];
+  newImages?: CompressedImageResult[];
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CampusEvent> {
@@ -1304,38 +1719,129 @@ export async function updateCampusEventRecord(input: {
     throw new Error(validationError);
   }
 
+  const existingMedia = Array.isArray(input.existing.mediaItems)
+    ? input.existing.mediaItems
+    : [];
+  const retainedMedia =
+    input.retainedMediaItems !== undefined
+      ? input.retainedMediaItems
+      : existingMedia;
+  const newImages = (input.newImages ?? []).slice(
+    0,
+    Math.max(0, BLUEPRINT_LIMITS.mediaPostMaxCount - retainedMedia.length)
+  );
+
+  const retainedIds = new Set(retainedMedia.map((m) => m.imageId));
+  const removedMediaIds = existingMedia
+    .map((m) => m.imageId)
+    .filter((id) => !retainedIds.has(id) && isValidFirestoreId(id));
+
   const eventMs = Date.parse(input.form.eventDateIso);
-  const status: CampusEventStatus =
-    input.form.status === 'cancelled'
-      ? 'cancelled'
-      : categorizeEventByDate(eventMs, Date.now(), input.form.status ?? 'upcoming');
+  const endMs = input.form.endDateIso?.trim()
+    ? Date.parse(input.form.endDateIso)
+    : undefined;
+  const published =
+    input.form.published !== undefined
+      ? input.form.published
+      : input.existing.published !== false;
+  const nowMs = Date.now();
+
+  let status: CampusEventStatus = input.form.status ?? 'upcoming';
+  if (status !== 'cancelled' && status !== 'completed' && status !== 'past') {
+    const lifecycle = resolveEventLifecycle(
+      {
+        status,
+        eventDate: eventMs,
+        endDate: endMs,
+        published: true,
+      },
+      nowMs
+    );
+    status = lifecycle.isCompleted
+      ? 'completed'
+      : lifecycle.isOngoing
+        ? 'ongoing'
+        : 'upcoming';
+  }
+
+  const batch = writeBatch(db);
+  const nextMediaItems: PostMediaMeta[] = retainedMedia.map((item, idx) => ({
+    ...item,
+    order: idx,
+  }));
+  const primedCache: { imageId: string; dataUrl: string }[] = [];
+
+  newImages.forEach((compressed, idx) => {
+    const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
+    const mediaDoc = buildMediaImageFirestoreRecord({
+      imageId,
+      targetCollection: 'events',
+      targetId: input.existing.id,
+      ownerUID: input.actorUid,
+      compressed,
+      createdAtValue: serverTimestamp(),
+    });
+    batch.set(doc(db, COLLECTION_NAMES.mediaImages, imageId), mediaDoc);
+    nextMediaItems.push({
+      imageId,
+      width: compressed.width,
+      height: compressed.height,
+      byteSize: compressed.byteSize,
+      mimeType: compressed.mimeType,
+      order: nextMediaItems.length + idx,
+    });
+    primedCache.push({ imageId, dataUrl: compressed.dataUrl });
+  });
+
+  // Normalize sequential order indices
+  const normalizedMedia = nextMediaItems.map((m, idx) => ({
+    ...m,
+    order: idx,
+  }));
+
+  for (const removedId of removedMediaIds) {
+    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
+  }
 
   const updates: Record<
     string,
-    FieldValue | string | number | boolean | Timestamp | undefined
+    FieldValue | PostMediaMeta[] | string | number | boolean | Timestamp | undefined
   > = {
+    category: input.form.category ?? input.existing.category ?? 'other',
     title: input.form.title.trim(),
     description: input.form.description.trim(),
     eventDate: Timestamp.fromMillis(eventMs),
+    endDate:
+      endMs && Number.isFinite(endMs)
+        ? Timestamp.fromMillis(endMs)
+        : deleteField(),
+    mediaItems: normalizedMedia.length > 0 ? normalizedMedia : deleteField(),
+    bannerUrl: input.form.bannerUrl?.trim()
+      ? input.form.bannerUrl.trim().slice(0, 512)
+      : deleteField(),
     venue: input.form.venue.trim(),
     organiser: input.form.organiser.trim(),
     timeLabel: input.form.timeLabel?.trim()
       ? input.form.timeLabel.trim().slice(0, 64)
       : deleteField(),
+    registrationRequired: Boolean(input.form.registrationRequired),
     registrationUrl: input.form.registrationUrl?.trim()
       ? input.form.registrationUrl.trim().slice(0, 512)
       : deleteField(),
     onlineMeetingUrl: input.form.onlineMeetingUrl?.trim()
       ? input.form.onlineMeetingUrl.trim().slice(0, 512)
       : deleteField(),
+    contactInfo: input.form.contactInfo?.trim()
+      ? input.form.contactInfo.trim().slice(0, 256)
+      : deleteField(),
     instructions: input.form.instructions?.trim()
       ? input.form.instructions.trim().slice(0, 2000)
       : deleteField(),
     status,
+    published,
     updatedAt: serverTimestamp(),
   };
 
-  const batch = writeBatch(db);
   batch.update(doc(db, COLLECTION_NAMES.events, input.existing.id), updates);
   attachAdminAuditLogToBatch(batch, {
     action:
@@ -1347,24 +1853,37 @@ export async function updateCampusEventRecord(input: {
     targetLabel: input.form.title.trim(),
     performedByUid: input.actorUid,
     performedByRole: input.actorRole,
-    details: `Event status: ${status}`,
+    details: `Event ${published ? 'published' : 'draft'} · status: ${status}`,
   });
 
   try {
     await batch.commit();
+    for (const removedId of removedMediaIds) {
+      evictMediaImageCache(removedId);
+    }
+    for (const item of primedCache) {
+      primeMediaImageCache(item.imageId, item.dataUrl);
+    }
     return {
       ...input.existing,
+      category: input.form.category ?? input.existing.category ?? 'other',
       title: input.form.title.trim(),
       description: input.form.description.trim(),
       eventDate: eventMs,
+      endDate: endMs,
+      mediaItems: normalizedMedia.length > 0 ? normalizedMedia : undefined,
+      bannerUrl: input.form.bannerUrl?.trim() || undefined,
       venue: input.form.venue.trim(),
       organiser: input.form.organiser.trim(),
       timeLabel: input.form.timeLabel?.trim() || undefined,
+      registrationRequired: Boolean(input.form.registrationRequired),
       registrationUrl: input.form.registrationUrl?.trim() || undefined,
       onlineMeetingUrl: input.form.onlineMeetingUrl?.trim() || undefined,
+      contactInfo: input.form.contactInfo?.trim() || undefined,
       instructions: input.form.instructions?.trim() || undefined,
       status,
-      updatedAt: Date.now(),
+      published,
+      updatedAt: nowMs,
     };
   } catch (error) {
     handleFirestoreError(
@@ -1375,6 +1894,215 @@ export async function updateCampusEventRecord(input: {
   }
 }
 
+export async function toggleCampusEventPublishedRecord(input: {
+  event: CampusEvent;
+  nextPublished: boolean;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<CampusEvent> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Owner can publish or unpublish events.');
+  }
+  const batch = writeBatch(db);
+  batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
+    published: input.nextPublished,
+    updatedAt: serverTimestamp(),
+  });
+  attachAdminAuditLogToBatch(batch, {
+    action: 'event_updated',
+    targetCollection: COLLECTION_NAMES.events,
+    targetId: input.event.id,
+    targetLabel: input.event.title,
+    performedByUid: input.actorUid,
+    performedByRole: input.actorRole,
+    details: input.nextPublished ? 'Published campus event' : 'Unpublished to draft',
+  });
+  try {
+    await batch.commit();
+    return {
+      ...input.event,
+      published: input.nextPublished,
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `${COLLECTION_NAMES.events}/${input.event.id}`
+    );
+  }
+}
+
+export async function markCampusEventCompletedRecord(input: {
+  event: CampusEvent;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<CampusEvent> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Owner can mark events completed.');
+  }
+  const batch = writeBatch(db);
+  batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
+    status: 'completed',
+    updatedAt: serverTimestamp(),
+  });
+  attachAdminAuditLogToBatch(batch, {
+    action: 'event_updated',
+    targetCollection: COLLECTION_NAMES.events,
+    targetId: input.event.id,
+    targetLabel: input.event.title,
+    performedByUid: input.actorUid,
+    performedByRole: input.actorRole,
+    details: 'Marked campus event as completed',
+  });
+  try {
+    await batch.commit();
+    return {
+      ...input.event,
+      status: 'completed',
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `${COLLECTION_NAMES.events}/${input.event.id}`
+    );
+  }
+}
+
+export async function broadcastCampusEventNotification(input: {
+  event: CampusEvent;
+  kind: EventNotificationKind;
+  customMessage?: string;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<{ sentCount: number; event: CampusEvent }> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Owner can send event alerts.');
+  }
+
+  const nowMs = Date.now();
+  if (
+    input.kind === 'new' &&
+    !canSendNewEventNotice(input.event, nowMs)
+  ) {
+    throw new Error(
+      'New-event notification has already been sent or this event is not an active published event.'
+    );
+  }
+
+  const usersSnap = await getDocs(
+    query(
+      collection(db, COLLECTION_NAMES.users),
+      where('accountStatus', '==', 'active'),
+      limit(400)
+    )
+  );
+
+  const recipientUids = usersSnap.docs
+    .map((item) => item.data() as PublicUserProfile)
+    .filter((p) => !p.isHiddenFromDirectory && isValidFirestoreId(p.uid))
+    .map((p) => p.uid);
+
+  const categoryLabel = getEventCategoryLabel(input.event.category);
+  const whenSummary = formatEventDateTimeRange(input.event);
+  const customTrimmed = input.customMessage?.trim() ?? '';
+
+  const notifTitle = (
+    input.kind === 'new'
+      ? `New Event: ${input.event.title}`
+      : input.kind === 'cancelled'
+        ? `Event Cancelled: ${input.event.title}`
+        : input.kind === 'announcement'
+          ? `Event Update: ${input.event.title}`
+          : `Schedule Updated: ${input.event.title}`
+  ).slice(0, 160);
+
+  const notifBody = (
+    customTrimmed
+      ? `${customTrimmed} (${whenSummary} · ${input.event.venue})`
+      : input.kind === 'cancelled'
+        ? `${input.event.organiser} cancelled this event originally scheduled for ${whenSummary}.`
+        : `${categoryLabel} by ${input.event.organiser} · ${whenSummary} at ${input.event.venue}.`
+  ).slice(0, 500);
+
+  const targetPath = `/?view=upcoming-events&eventId=${input.event.id}`;
+  const eventRef = doc(db, COLLECTION_NAMES.events, input.event.id);
+  const versionBucket = Math.floor(nowMs / (60 * 1000));
+  const CHUNK_SIZE = 380;
+  let sentCount = 0;
+
+  if (recipientUids.length === 0) {
+    const batch = writeBatch(db);
+    batch.update(
+      eventRef,
+      input.kind === 'new'
+        ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
+        : { lastUpdatedNoticeMs: nowMs, updatedAt: serverTimestamp() }
+    );
+    await batch.commit();
+  } else {
+    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
+      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+
+      for (const uid of chunk) {
+        const notifId = buildEventNotificationDocId(
+          input.kind,
+          input.event.id,
+          uid,
+          versionBucket
+        );
+        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
+          id: notifId,
+          recipientUid: uid,
+          eventType: 'new_event',
+          title: notifTitle,
+          body: notifBody,
+          targetPath,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        });
+        sentCount += 1;
+      }
+
+      if (i === 0) {
+        batch.update(
+          eventRef,
+          input.kind === 'new'
+            ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
+            : { lastUpdatedNoticeMs: nowMs, updatedAt: serverTimestamp() }
+        );
+        attachAdminAuditLogToBatch(batch, {
+          action:
+            input.kind === 'cancelled' ? 'event_cancelled' : 'event_updated',
+          targetCollection: COLLECTION_NAMES.events,
+          targetId: input.event.id,
+          targetLabel: input.event.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Sent ${input.kind} event alert to ${recipientUids.length} active members.`,
+        });
+      }
+
+      await batch.commit();
+    }
+  }
+
+  return {
+    sentCount,
+    event: {
+      ...input.event,
+      notifiedNewAt:
+        input.kind === 'new' ? nowMs : input.event.notifiedNewAt,
+      lastUpdatedNoticeMs:
+        input.kind !== 'new' ? nowMs : input.event.lastUpdatedNoticeMs,
+      updatedAt: nowMs,
+    },
+  };
+}
+
 export async function deleteCampusEventRecord(input: {
   event: CampusEvent;
   actorUid: string;
@@ -1383,25 +2111,69 @@ export async function deleteCampusEventRecord(input: {
   if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
     throw new Error('Only Supreme Admin or Owner can remove campus events.');
   }
-  const batch = writeBatch(db);
-  batch.delete(doc(db, COLLECTION_NAMES.events, input.event.id));
-  attachAdminAuditLogToBatch(batch, {
-    action: 'event_deleted',
-    targetCollection: COLLECTION_NAMES.events,
-    targetId: input.event.id,
-    targetLabel: input.event.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Removed campus event (${input.event.venue})`,
-  });
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(
-      error,
-      OperationType.DELETE,
-      `${COLLECTION_NAMES.events}/${input.event.id}`
-    );
+
+  // Gather associated comments, reactions, mediaImages, and actor bookmarks for cascading cleanup
+  const [commentsSnap, reactionsSnap] = await Promise.all([
+    getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.postComments),
+        where('postId', '==', input.event.id),
+        limit(250)
+      )
+    ),
+    getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.postReactions),
+        where('targetCollection', '==', 'events'),
+        where('targetId', '==', input.event.id),
+        limit(250)
+      )
+    ),
+  ]);
+
+  const mediaIds = (input.event.mediaItems ?? [])
+    .map((m) => m.imageId)
+    .filter(isValidFirestoreId);
+
+  const deleteRefs = [
+    doc(db, COLLECTION_NAMES.events, input.event.id),
+    ...mediaIds.map((id) => doc(db, COLLECTION_NAMES.mediaImages, id)),
+    ...commentsSnap.docs.map((d) => d.ref),
+    ...reactionsSnap.docs.map((d) => d.ref),
+  ];
+
+  // Commit deletions cleanly in chunks under the 500-op Firestore limit
+  const CHUNK_SIZE = 380;
+  for (let i = 0; i < deleteRefs.length; i += CHUNK_SIZE) {
+    const chunk = deleteRefs.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    for (const ref of chunk) {
+      batch.delete(ref);
+    }
+    if (i === 0) {
+      attachAdminAuditLogToBatch(batch, {
+        action: 'event_deleted',
+        targetCollection: COLLECTION_NAMES.events,
+        targetId: input.event.id,
+        targetLabel: input.event.title,
+        performedByUid: input.actorUid,
+        performedByRole: input.actorRole,
+        details: `Removed campus event (${input.event.venue})`,
+      });
+    }
+    try {
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(
+        error,
+        OperationType.DELETE,
+        `${COLLECTION_NAMES.events}/${input.event.id}`
+      );
+    }
+  }
+
+  for (const id of mediaIds) {
+    evictMediaImageCache(id);
   }
 }
 
@@ -1409,9 +2181,13 @@ export async function updateTrustedContactWithAudit(input: {
   existing: TrustedContact;
   fullName: string;
   category: TrustedContactCategory;
+  badgeLabel?: string;
   roleTitle: string;
   department?: string;
   faculty?: string;
+  photoUrl?: string;
+  compressedPhoto?: CompressedImageResult | null;
+  removePhoto?: boolean;
   contactNumber?: string;
   whatsappLink?: string;
   description?: string;
@@ -1423,9 +2199,29 @@ export async function updateTrustedContactWithAudit(input: {
   }
   const cleanName = input.fullName.trim();
   const cleanRoleTitle = input.roleTitle.trim();
+  const cleanBadgeLabel = input.badgeLabel?.trim() || undefined;
   const cleanWhatsapp = input.whatsappLink?.trim() || undefined;
+  const cleanPhotoUrl = input.photoUrl?.trim() || undefined;
   if (cleanWhatsapp && !isSafeMediaUrl(cleanWhatsapp)) {
     throw new Error('WhatsApp link must start with https:// or http://.');
+  }
+  if (cleanPhotoUrl && !isSafeMediaUrl(cleanPhotoUrl)) {
+    throw new Error('Photo URL must start with https:// or http://.');
+  }
+
+  let nextPhotoImageId: string | undefined = input.existing.photoImageId;
+  let nextPhotoUrl: string | undefined = cleanPhotoUrl;
+  const oldPhotoImageIdToDelete =
+    (input.compressedPhoto || input.removePhoto) && input.existing.photoImageId
+      ? input.existing.photoImageId
+      : undefined;
+
+  if (input.compressedPhoto) {
+    nextPhotoImageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
+    nextPhotoUrl = undefined;
+  } else if (input.removePhoto) {
+    nextPhotoImageId = undefined;
+    nextPhotoUrl = undefined;
   }
 
   const nextRecord: TrustedContact = {
@@ -1434,9 +2230,12 @@ export async function updateTrustedContactWithAudit(input: {
     isUserAccount: false,
     fullName: cleanName,
     category: input.category,
+    badgeLabel: cleanBadgeLabel,
     roleTitle: cleanRoleTitle,
     department: input.department?.trim() || undefined,
     faculty: input.faculty?.trim() || undefined,
+    photoUrl: nextPhotoUrl,
+    photoImageId: nextPhotoImageId,
     contactNumber: input.contactNumber?.trim() || undefined,
     whatsappLink: cleanWhatsapp,
     description: input.description?.trim() || undefined,
@@ -1449,14 +2248,35 @@ export async function updateTrustedContactWithAudit(input: {
   batch.update(doc(db, COLLECTION_NAMES.trustedContacts, input.existing.id), {
     fullName: cleanName,
     category: input.category,
+    badgeLabel: nextRecord.badgeLabel ?? deleteField(),
     roleTitle: cleanRoleTitle,
     department: nextRecord.department ?? deleteField(),
     faculty: nextRecord.faculty ?? deleteField(),
+    photoUrl: nextRecord.photoUrl ?? deleteField(),
+    photoImageId: nextRecord.photoImageId ?? deleteField(),
     contactNumber: nextRecord.contactNumber ?? deleteField(),
     whatsappLink: nextRecord.whatsappLink ?? deleteField(),
     description: nextRecord.description ?? deleteField(),
     updatedAt: serverTimestamp(),
   });
+
+  if (input.compressedPhoto && nextPhotoImageId) {
+    batch.set(
+      doc(db, COLLECTION_NAMES.mediaImages, nextPhotoImageId),
+      buildMediaImageFirestoreRecord({
+        imageId: nextPhotoImageId,
+        targetCollection: 'trustedContacts',
+        targetId: input.existing.id,
+        ownerUID: input.actorUid,
+        compressed: input.compressedPhoto,
+        createdAtValue: serverTimestamp(),
+      })
+    );
+  }
+  if (oldPhotoImageIdToDelete && isValidFirestoreId(oldPhotoImageIdToDelete)) {
+    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, oldPhotoImageIdToDelete));
+  }
+
   attachAdminAuditLogToBatch(batch, {
     action: 'trusted_contact_updated',
     targetCollection: COLLECTION_NAMES.trustedContacts,
@@ -1469,6 +2289,12 @@ export async function updateTrustedContactWithAudit(input: {
 
   try {
     await batch.commit();
+    if (oldPhotoImageIdToDelete) {
+      evictMediaImageCache(oldPhotoImageIdToDelete);
+    }
+    if (input.compressedPhoto && nextPhotoImageId) {
+      primeMediaImageCache(nextPhotoImageId, input.compressedPhoto.dataUrl);
+    }
     return nextRecord;
   } catch (error) {
     handleFirestoreError(
@@ -1482,9 +2308,12 @@ export async function updateTrustedContactWithAudit(input: {
 export async function createTrustedContactWithAudit(input: {
   fullName: string;
   category: TrustedContactCategory;
+  badgeLabel?: string;
   roleTitle: string;
   department?: string;
   faculty?: string;
+  photoUrl?: string;
+  compressedPhoto?: CompressedImageResult | null;
   contactNumber?: string;
   whatsappLink?: string;
   description?: string;
@@ -1498,10 +2327,19 @@ export async function createTrustedContactWithAudit(input: {
   const contactId = generateFirestoreDocId(COLLECTION_NAMES.trustedContacts);
   const cleanName = input.fullName.trim();
   const cleanRoleTitle = input.roleTitle.trim();
+  const cleanBadgeLabel = input.badgeLabel?.trim() || undefined;
   const cleanWhatsapp = input.whatsappLink?.trim() || undefined;
+  const cleanPhotoUrl = input.photoUrl?.trim() || undefined;
   if (cleanWhatsapp && !isSafeMediaUrl(cleanWhatsapp)) {
     throw new Error('WhatsApp link must start with https:// or http://.');
   }
+  if (cleanPhotoUrl && !isSafeMediaUrl(cleanPhotoUrl)) {
+    throw new Error('Photo URL must start with https:// or http://.');
+  }
+
+  const photoImageId = input.compressedPhoto
+    ? generateFirestoreDocId(COLLECTION_NAMES.mediaImages)
+    : undefined;
 
   const record: TrustedContact = {
     id: contactId,
@@ -1509,9 +2347,12 @@ export async function createTrustedContactWithAudit(input: {
     isUserAccount: false,
     fullName: cleanName,
     category: input.category,
+    badgeLabel: cleanBadgeLabel,
     roleTitle: cleanRoleTitle,
     department: input.department?.trim() || undefined,
     faculty: input.faculty?.trim() || undefined,
+    photoUrl: photoImageId ? undefined : cleanPhotoUrl,
+    photoImageId,
     contactNumber: input.contactNumber?.trim() || undefined,
     whatsappLink: cleanWhatsapp,
     description: input.description?.trim() || undefined,
@@ -1533,14 +2374,32 @@ export async function createTrustedContactWithAudit(input: {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
+  if (record.badgeLabel) firestorePayload.badgeLabel = record.badgeLabel;
   if (record.department) firestorePayload.department = record.department;
   if (record.faculty) firestorePayload.faculty = record.faculty;
+  if (record.photoUrl) firestorePayload.photoUrl = record.photoUrl;
+  if (record.photoImageId) firestorePayload.photoImageId = record.photoImageId;
   if (record.contactNumber) firestorePayload.contactNumber = record.contactNumber;
   if (record.whatsappLink) firestorePayload.whatsappLink = record.whatsappLink;
   if (record.description) firestorePayload.description = record.description;
 
   const batch = writeBatch(db);
   batch.set(doc(db, COLLECTION_NAMES.trustedContacts, contactId), firestorePayload);
+
+  if (input.compressedPhoto && photoImageId) {
+    batch.set(
+      doc(db, COLLECTION_NAMES.mediaImages, photoImageId),
+      buildMediaImageFirestoreRecord({
+        imageId: photoImageId,
+        targetCollection: 'trustedContacts',
+        targetId: contactId,
+        ownerUID: input.actorUid,
+        compressed: input.compressedPhoto,
+        createdAtValue: serverTimestamp(),
+      })
+    );
+  }
+
   attachAdminAuditLogToBatch(batch, {
     action: 'trusted_contact_created',
     targetCollection: COLLECTION_NAMES.trustedContacts,
@@ -1553,6 +2412,9 @@ export async function createTrustedContactWithAudit(input: {
 
   try {
     await batch.commit();
+    if (input.compressedPhoto && photoImageId) {
+      primeMediaImageCache(photoImageId, input.compressedPhoto.dataUrl);
+    }
     return record;
   } catch (error) {
     handleFirestoreError(
@@ -1573,6 +2435,14 @@ export async function deleteTrustedContactWithAudit(input: {
   }
   const batch = writeBatch(db);
   batch.delete(doc(db, COLLECTION_NAMES.trustedContacts, input.contact.id));
+  if (
+    input.contact.photoImageId &&
+    isValidFirestoreId(input.contact.photoImageId)
+  ) {
+    batch.delete(
+      doc(db, COLLECTION_NAMES.mediaImages, input.contact.photoImageId)
+    );
+  }
   attachAdminAuditLogToBatch(batch, {
     action: 'trusted_contact_deleted',
     targetCollection: COLLECTION_NAMES.trustedContacts,
@@ -1585,6 +2455,9 @@ export async function deleteTrustedContactWithAudit(input: {
 
   try {
     await batch.commit();
+    if (input.contact.photoImageId) {
+      evictMediaImageCache(input.contact.photoImageId);
+    }
   } catch (error) {
     handleFirestoreError(
       error,

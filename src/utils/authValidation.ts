@@ -538,6 +538,9 @@ export function isFirebaseErrorCode(error: unknown, expectedCode: string): boole
   );
 }
 
+const FIRESTORE_CONNECTION_FAILURE_PATTERN =
+  /Connection failed|the client is offline|Request time out|Failed to get document/i;
+
 export function formatFirestoreOrAppError(
   error: unknown,
   fallbackMessage: string
@@ -554,6 +557,9 @@ export function formatFirestoreOrAppError(
         if (/Missing or insufficient permissions/i.test(parsed.error)) {
           return 'Permission denied by database security rules. Please verify your details and try again.';
         }
+        if (FIRESTORE_CONNECTION_FAILURE_PATTERN.test(parsed.error)) {
+          return 'Network connection interrupted while reaching campus servers. Please check your internet connection and try again.';
+        }
         return parsed.error.trim();
       }
     } catch {
@@ -563,6 +569,10 @@ export function formatFirestoreOrAppError(
 
   if (/Missing or insufficient permissions/i.test(rawMessage)) {
     return 'Permission denied by database security rules. Please verify your details and try again.';
+  }
+
+  if (FIRESTORE_CONNECTION_FAILURE_PATTERN.test(rawMessage)) {
+    return 'Network connection interrupted while reaching campus servers. Please check your internet connection and try again.';
   }
 
   return rawMessage;

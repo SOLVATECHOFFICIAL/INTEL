@@ -42,6 +42,7 @@ import {
   type AnonymousReport,
   type AnonymousReportReason,
   type AnonymousReportTargetType,
+  type CampusEvent,
   type CommunityPost,
   type MarketplaceListing,
   type Opportunity,
@@ -66,6 +67,11 @@ import {
   toPublicProfileProjection,
 } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
+import {
+  computeNextReactionTransactionState,
+  isFirestoreSdkError,
+  runWithFirestoreConnectionRetry,
+} from '../utils/firestoreRetry';
 import type { CompressedImageResult } from '../utils/imageCompression';
 import {
   buildMediaImageFirestoreRecord,
@@ -962,72 +968,58 @@ export async function togglePostReaction(input: {
   const reactionRef = doc(db, COLLECTION_NAMES.postReactions, reactionId);
   const path = `${collectionName}/${input.postId}`;
 
-  const executeReactionTx = async (shouldUnlike: boolean) => {
-    return runTransaction(db, async (tx) => {
-      const postSnap = await tx.get(postRef);
-
-      if (!postSnap.exists()) {
-        throw new Error('This post is no longer available.');
-      }
-
-      const currentLikes = Number(
-        (postSnap.data() as { likesCount?: number }).likesCount ?? 0
-      );
-
-      if (shouldUnlike) {
-        const nextLikes = Math.max(0, currentLikes - 1);
-        tx.delete(reactionRef);
-        if (nextLikes !== currentLikes) {
-          tx.update(postRef, { likesCount: nextLikes });
-        }
-        return { liked: false, likesCount: nextLikes };
-      }
-
-      const nextLikes = currentLikes + 1;
-      tx.set(reactionRef, {
-        targetCollection: input.kind,
-        targetId: input.postId,
-        ownerUID: input.actorUid,
-        reactionType: input.reactionType ?? 'like',
-        createdAt: serverTimestamp(),
-      });
-      tx.update(postRef, { likesCount: nextLikes });
-      return { liked: true, likesCount: nextLikes };
-    });
-  };
-
-  let initialShouldUnlike = input.currentlyLiked;
-  if (initialShouldUnlike === undefined) {
-    const likedIds = await fetchViewerLikedPostIds(input.kind, input.actorUid);
-    initialShouldUnlike = likedIds.has(input.postId);
-  }
-
   try {
-    return await executeReactionTx(initialShouldUnlike);
-  } catch (error) {
-    if (
-      input.currentlyLiked !== undefined &&
-      isFirebaseErrorCode(error, 'permission-denied')
-    ) {
-      try {
-        const authoritativeLikedIds = await fetchViewerLikedPostIds(
-          input.kind,
-          input.actorUid
-        );
-        const authoritativeLiked = authoritativeLikedIds.has(input.postId);
-        if (authoritativeLiked !== initialShouldUnlike) {
-          return await executeReactionTx(authoritativeLiked);
+    return await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const [postSnap, reactionSnap] = await Promise.all([
+          tx.get(postRef),
+          tx.get(reactionRef),
+        ]);
+
+        if (!postSnap.exists()) {
+          throw new Error('This post is no longer available.');
         }
-      } catch (retryError) {
-        handleFirestoreError(retryError, OperationType.WRITE, path);
-      }
+
+        const nextState = computeNextReactionTransactionState({
+          alreadyLiked: reactionSnap.exists(),
+          currentLikesCount: (postSnap.data() as { likesCount?: number })
+            .likesCount,
+        });
+
+        if (!nextState.liked) {
+          tx.delete(reactionRef);
+          if (nextState.shouldUpdatePostLikesCount) {
+            tx.update(postRef, { likesCount: nextState.likesCount });
+          }
+          return { liked: false, likesCount: nextState.likesCount };
+        }
+
+        tx.set(reactionRef, {
+          targetCollection: input.kind,
+          targetId: input.postId,
+          ownerUID: input.actorUid,
+          reactionType: input.reactionType ?? 'like',
+          createdAt: serverTimestamp(),
+        });
+        tx.update(postRef, { likesCount: nextState.likesCount });
+        return { liked: true, likesCount: nextState.likesCount };
+      })
+    );
+  } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
     }
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
 export async function fetchViewerLikedPostIds(
-  kind: 'posts' | 'anonymousPosts' | 'anonymousComments',
+  kind:
+    | 'posts'
+    | 'anonymousPosts'
+    | 'anonymousComments'
+    | 'events'
+    | 'postComments',
   viewerUid: string | null | undefined
 ): Promise<Set<string>> {
   if (!viewerUid || !isValidFirestoreId(viewerUid)) {
@@ -1067,67 +1059,45 @@ export async function toggleAnonymousCommentReaction(input: {
   const reactionRef = doc(db, COLLECTION_NAMES.postReactions, reactionId);
   const path = `${COLLECTION_NAMES.anonymousComments}/${input.commentId}`;
 
-  const executeReactionTx = async (shouldUnlike: boolean) => {
-    return runTransaction(db, async (tx) => {
-      const commentSnap = await tx.get(commentRef);
-      if (!commentSnap.exists()) {
-        throw new Error('This comment is no longer available.');
-      }
-
-      const currentLikes = Number(
-        (commentSnap.data() as { likesCount?: number }).likesCount ?? 0
-      );
-
-      if (shouldUnlike) {
-        const nextLikes = Math.max(0, currentLikes - 1);
-        tx.delete(reactionRef);
-        if (nextLikes !== currentLikes) {
-          tx.update(commentRef, { likesCount: nextLikes });
-        }
-        return { liked: false, likesCount: nextLikes };
-      }
-
-      const nextLikes = currentLikes + 1;
-      tx.set(reactionRef, {
-        targetCollection: 'anonymousComments',
-        targetId: input.commentId,
-        ownerUID: input.actorUid,
-        reactionType: 'like',
-        createdAt: serverTimestamp(),
-      });
-      tx.update(commentRef, { likesCount: nextLikes });
-      return { liked: true, likesCount: nextLikes };
-    });
-  };
-
-  let initialShouldUnlike = input.currentlyLiked;
-  if (initialShouldUnlike === undefined) {
-    const likedIds = await fetchViewerLikedPostIds(
-      'anonymousComments',
-      input.actorUid
-    );
-    initialShouldUnlike = likedIds.has(input.commentId);
-  }
-
   try {
-    return await executeReactionTx(initialShouldUnlike);
-  } catch (error) {
-    if (
-      input.currentlyLiked !== undefined &&
-      isFirebaseErrorCode(error, 'permission-denied')
-    ) {
-      try {
-        const authoritativeLikedIds = await fetchViewerLikedPostIds(
-          'anonymousComments',
-          input.actorUid
-        );
-        const authoritativeLiked = authoritativeLikedIds.has(input.commentId);
-        if (authoritativeLiked !== initialShouldUnlike) {
-          return await executeReactionTx(authoritativeLiked);
+    return await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const [commentSnap, reactionSnap] = await Promise.all([
+          tx.get(commentRef),
+          tx.get(reactionRef),
+        ]);
+        if (!commentSnap.exists()) {
+          throw new Error('This comment is no longer available.');
         }
-      } catch (retryError) {
-        handleFirestoreError(retryError, OperationType.WRITE, path);
-      }
+
+        const nextState = computeNextReactionTransactionState({
+          alreadyLiked: reactionSnap.exists(),
+          currentLikesCount: (commentSnap.data() as { likesCount?: number })
+            .likesCount,
+        });
+
+        if (!nextState.liked) {
+          tx.delete(reactionRef);
+          if (nextState.shouldUpdatePostLikesCount) {
+            tx.update(commentRef, { likesCount: nextState.likesCount });
+          }
+          return { liked: false, likesCount: nextState.likesCount };
+        }
+
+        tx.set(reactionRef, {
+          targetCollection: 'anonymousComments',
+          targetId: input.commentId,
+          ownerUID: input.actorUid,
+          reactionType: 'like',
+          createdAt: serverTimestamp(),
+        });
+        tx.update(commentRef, { likesCount: nextState.likesCount });
+        return { liked: true, likesCount: nextState.likesCount };
+      })
+    );
+  } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
     }
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -1204,6 +1174,7 @@ export interface SavedContentBundle {
   anonymousPosts: AnonymousPost[];
   listings: MarketplaceListing[];
   opportunities: Opportunity[];
+  events: CampusEvent[];
 }
 
 export async function fetchViewerSavedPostIds(
@@ -1268,16 +1239,18 @@ export async function toggleSavedPost(input: {
 
   try {
     if (shouldUnsave) {
-      await deleteDoc(savedRef);
+      await runWithFirestoreConnectionRetry(() => deleteDoc(savedRef));
       return { saved: false };
     }
-    await setDoc(savedRef, {
-      id: savedId,
-      ownerUID: input.actorUid,
-      targetCollection: input.targetCollection,
-      targetId: input.targetId,
-      createdAt: serverTimestamp(),
-    });
+    await runWithFirestoreConnectionRetry(() =>
+      setDoc(savedRef, {
+        id: savedId,
+        ownerUID: input.actorUid,
+        targetCollection: input.targetCollection,
+        targetId: input.targetId,
+        createdAt: serverTimestamp(),
+      })
+    );
     return { saved: true };
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
@@ -1288,7 +1261,13 @@ export async function fetchOwnerSavedContentBundle(
   ownerUid: string
 ): Promise<SavedContentBundle> {
   if (!isValidFirestoreId(ownerUid)) {
-    return { posts: [], anonymousPosts: [], listings: [], opportunities: [] };
+    return {
+      posts: [],
+      anonymousPosts: [],
+      listings: [],
+      opportunities: [],
+      events: [],
+    };
   }
 
   const q = query(
@@ -1309,6 +1288,7 @@ export async function fetchOwnerSavedContentBundle(
   const anonIds: string[] = [];
   const listingIds: string[] = [];
   const opportunityIds: string[] = [];
+  const eventIds: string[] = [];
 
   for (const entry of entries) {
     if (!isValidFirestoreId(entry.targetId)) continue;
@@ -1316,9 +1296,10 @@ export async function fetchOwnerSavedContentBundle(
     else if (entry.targetCollection === 'anonymousPosts') anonIds.push(entry.targetId);
     else if (entry.targetCollection === 'marketplaceListings') listingIds.push(entry.targetId);
     else if (entry.targetCollection === 'opportunities') opportunityIds.push(entry.targetId);
+    else if (entry.targetCollection === 'events') eventIds.push(entry.targetId);
   }
 
-  const [postSnaps, anonSnaps, listingSnaps, oppSnaps] = await Promise.all([
+  const [postSnaps, anonSnaps, listingSnaps, oppSnaps, eventSnaps] = await Promise.all([
     Promise.allSettled(
       postIds.map((id) => getDoc(doc(db, COLLECTION_NAMES.posts, id)))
     ),
@@ -1334,6 +1315,9 @@ export async function fetchOwnerSavedContentBundle(
       opportunityIds.map((id) =>
         getDoc(doc(db, COLLECTION_NAMES.opportunities, id))
       )
+    ),
+    Promise.allSettled(
+      eventIds.map((id) => getDoc(doc(db, COLLECTION_NAMES.events, id)))
     ),
   ]);
 
@@ -1384,7 +1368,20 @@ export async function fetchOwnerSavedContentBundle(
   const opportunities: Opportunity[] = [];
   for (const res of oppSnaps) {
     if (res.status === 'fulfilled' && res.value.exists()) {
-      opportunities.push(res.value.data() as Opportunity);
+      const data = res.value.data() as Opportunity;
+      if (data.status !== 'unpublished') {
+        opportunities.push(data);
+      }
+    }
+  }
+
+  const events: CampusEvent[] = [];
+  for (const res of eventSnaps) {
+    if (res.status === 'fulfilled' && res.value.exists()) {
+      const data = res.value.data() as CampusEvent;
+      if (data.published !== false) {
+        events.push(data);
+      }
     }
   }
 
@@ -1396,6 +1393,7 @@ export async function fetchOwnerSavedContentBundle(
     anonymousPosts,
     listings,
     opportunities,
+    events,
   };
 }
 
@@ -1699,34 +1697,36 @@ export async function addPostComment(input: {
 
   const path = `${commentCollection}/${commentId}`;
   try {
-    const commentsCount = await runTransaction(db, async (tx) => {
-      const postSnap = await tx.get(postRef);
-      if (!postSnap.exists()) {
-        throw new Error('This post is no longer available.');
-      }
-      const currentCount = Number(
-        (postSnap.data() as { commentsCount?: number }).commentsCount ?? 0
-      );
-      const nextCount = currentCount + 1;
-
-      tx.set(commentRef, commentPayload);
-      tx.update(postRef, { commentsCount: nextCount });
-
-      if (input.kind === 'anonymousPosts') {
-        tx.set(
-          doc(db, COLLECTION_NAMES.anonymousIdentityMappings, commentId),
-          {
-            entryId: commentId,
-            entryType: 'anonymousComments',
-            authorUid: input.actorUid,
-            authorRole: mappingRole,
-            createdAt: serverTimestamp(),
-          }
+    const commentsCount = await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const postSnap = await tx.get(postRef);
+        if (!postSnap.exists()) {
+          throw new Error('This post is no longer available.');
+        }
+        const currentCount = Number(
+          (postSnap.data() as { commentsCount?: number }).commentsCount ?? 0
         );
-      }
+        const nextCount = currentCount + 1;
 
-      return nextCount;
-    });
+        tx.set(commentRef, commentPayload);
+        tx.update(postRef, { commentsCount: nextCount });
+
+        if (input.kind === 'anonymousPosts') {
+          tx.set(
+            doc(db, COLLECTION_NAMES.anonymousIdentityMappings, commentId),
+            {
+              entryId: commentId,
+              entryType: 'anonymousComments',
+              authorUid: input.actorUid,
+              authorRole: mappingRole,
+              createdAt: serverTimestamp(),
+            }
+          );
+        }
+
+        return nextCount;
+      })
+    );
 
     if (input.kind === 'anonymousPosts' && ownership?.exists) {
       const nextIds = [
@@ -1748,6 +1748,9 @@ export async function addPostComment(input: {
       commentsCount,
     };
   } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
@@ -1814,26 +1817,28 @@ export async function deletePostComment(input: {
 
   const path = `${commentCollection}/${input.commentId}`;
   try {
-    const nextCount = await runTransaction(db, async (tx) => {
-      const postSnap = await tx.get(postRef);
-      const currentCount = postSnap.exists()
-        ? Number((postSnap.data() as { commentsCount?: number }).commentsCount ?? 0)
-        : 0;
-      const computedNextCount = Math.max(0, currentCount - idsToDelete.length);
+    const nextCount = await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const postSnap = await tx.get(postRef);
+        const currentCount = postSnap.exists()
+          ? Number((postSnap.data() as { commentsCount?: number }).commentsCount ?? 0)
+          : 0;
+        const computedNextCount = Math.max(0, currentCount - idsToDelete.length);
 
-      for (const id of idsToDelete) {
-        tx.delete(doc(db, commentCollection, id));
-        if (input.kind === 'anonymousPosts') {
-          tx.delete(doc(db, COLLECTION_NAMES.anonymousIdentityMappings, id));
+        for (const id of idsToDelete) {
+          tx.delete(doc(db, commentCollection, id));
+          if (input.kind === 'anonymousPosts') {
+            tx.delete(doc(db, COLLECTION_NAMES.anonymousIdentityMappings, id));
+          }
         }
-      }
 
-      if (postSnap.exists() && computedNextCount !== currentCount) {
-        tx.update(postRef, { commentsCount: computedNextCount });
-      }
+        if (postSnap.exists() && computedNextCount !== currentCount) {
+          tx.update(postRef, { commentsCount: computedNextCount });
+        }
 
-      return computedNextCount;
-    });
+        return computedNextCount;
+      })
+    );
 
     if (input.kind === 'anonymousPosts' && ownership?.exists) {
       const deletedSet = new Set(idsToDelete);

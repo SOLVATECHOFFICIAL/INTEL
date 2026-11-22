@@ -41,6 +41,8 @@ import { TrustedCircleSection } from './sections/TrustedCircleSection';
 
 interface SectionWorkspaceProps {
   sectionId: Exclude<SectionId, 'for-you' | 'following' | 'latest'>;
+  selectedOpportunityId?: string | null;
+  selectedEventId?: string | null;
   sectionStates: Record<SectionId, ViewState>;
   onNavigate: (
     route: ActiveRoute,
@@ -48,6 +50,8 @@ interface SectionWorkspaceProps {
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      opportunityId?: string | null;
+      eventId?: string | null;
     }
   ) => void;
   onRetry: (sectionId: SectionId) => void;
@@ -56,6 +60,8 @@ interface SectionWorkspaceProps {
 
 export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   sectionId,
+  selectedOpportunityId = null,
+  selectedEventId = null,
   sectionStates,
   onNavigate,
   onRetry,
@@ -613,13 +619,36 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
               </div>
             )
           ) : sectionId === 'marketplace' ? (
-            <MarketplaceSection onRequireAuth={onRequireAuth} />
+            <MarketplaceSection
+              onRequireAuth={onRequireAuth}
+              onNavigateProfile={(uname) =>
+                onNavigate('profile', { username: uname })
+              }
+            />
           ) : sectionId === 'opportunities' ? (
-            <OpportunitiesSection onRequireAuth={onRequireAuth} />
+            <OpportunitiesSection
+              selectedOpportunityId={selectedOpportunityId}
+              onSelectOpportunity={(oppId) =>
+                onNavigate('opportunities', { opportunityId: oppId })
+              }
+              onRequireAuth={onRequireAuth}
+            />
           ) : sectionId === 'upcoming-events' ? (
-            <EventsSection />
+            <EventsSection
+              selectedEventId={selectedEventId}
+              onSelectEvent={(evtId) =>
+                onNavigate('upcoming-events', { eventId: evtId })
+              }
+              onNavigateProfile={(uname) =>
+                onNavigate('profile', { username: uname })
+              }
+              onRequireAuth={onRequireAuth}
+            />
           ) : sectionId === 'trusted-circle' ? (
-            <TrustedCircleSection onNavigate={onNavigate} />
+            <TrustedCircleSection
+              onNavigate={onNavigate}
+              onRequireAuth={onRequireAuth}
+            />
           ) : (
             <>
               {fallbackState === 'loading' && (

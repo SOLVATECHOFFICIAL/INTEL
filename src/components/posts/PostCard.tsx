@@ -60,6 +60,7 @@ import {
 import { extractTimestampMs } from '../../utils/contextualSearch';
 import { mediaMetaToGridItems } from '../../utils/mediaGrid';
 import { RoleBadge } from '../RoleBadge';
+import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
@@ -958,6 +959,14 @@ export const PostCard: React.FC<PostCardProps> = ({
                     @{author.username}
                   </span>
                 )}
+
+                {author?.username && (
+                  <TikTokFollowButton
+                    targetUsername={author.username}
+                    compact
+                    onRequireAuth={() => onRequireAuth('login', returnRoute)}
+                  />
+                )}
               </div>
 
               <p className="mt-0.5 text-xs text-slate-500">
@@ -1452,6 +1461,13 @@ export const PostCard: React.FC<PostCardProps> = ({
                               </span>
                             </button>
                             <RoleBadge badge={commentAuthor.badge} size="xs" />
+                            <TikTokFollowButton
+                              targetUsername={commentAuthor.username}
+                              compact
+                              onRequireAuth={() =>
+                                onRequireAuth('login', returnRoute)
+                              }
+                            />
                           </>
                         ) : (
                           <span className="font-bold text-[#0B1A2E]">
@@ -1675,6 +1691,13 @@ export const PostCard: React.FC<PostCardProps> = ({
                                         <RoleBadge
                                           badge={replyAuthor.badge}
                                           size="xs"
+                                        />
+                                        <TikTokFollowButton
+                                          targetUsername={replyAuthor.username}
+                                          compact
+                                          onRequireAuth={() =>
+                                            onRequireAuth('login', returnRoute)
+                                          }
                                         />
                                       </>
                                     ) : (

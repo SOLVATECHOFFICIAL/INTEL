@@ -9,14 +9,17 @@ import {
   type BadgeType,
   type CampusEvent,
   type CampusEventStatus,
+  type EventCategory,
   type MarketplaceListing,
   type Opportunity,
   type OpportunityCategory,
+  type OpportunityStatus,
   type PublicUserProfile,
   type UserRole,
 } from '../types/database';
 import type { EffectiveAccountTier } from './authValidation';
 import { extractTimestampMs } from './contextualSearch';
+import { resolveEventLifecycle } from './events';
 
 export type AdminDashboardSectionId =
   | 'overview'
@@ -261,8 +264,8 @@ export function computePlatformOverviewStats(input: {
 
   let upcomingEvents = 0;
   for (const evt of input.events) {
-    const dateMs = extractTimestampMs(evt.eventDate) ?? 0;
-    if (evt.status !== 'cancelled' && dateMs >= nowMs) {
+    const lifecycle = resolveEventLifecycle(evt, nowMs);
+    if (lifecycle.isPublished && (lifecycle.isUpcoming || lifecycle.isOngoing)) {
       upcomingEvents += 1;
     }
   }
@@ -374,13 +377,16 @@ export interface OpportunityFormInput {
   organisation: string;
   description: string;
   eligibility?: string;
+  whoCanApply?: string;
   requiredDocuments?: string;
   benefits?: string;
   applicationInstructions?: string;
   applicationUrl: string;
   contactInfo?: string;
+  opensAtIso?: string;
   expiresAtIso: string;
-  status?: 'active' | 'expired';
+  isVerified?: boolean;
+  status?: OpportunityStatus;
 }
 
 export function validateOpportunityFormInput(
@@ -390,6 +396,7 @@ export function validateOpportunityFormInput(
   const org = input.organisation.trim();
   const desc = input.description.trim();
   const appUrl = input.applicationUrl.trim();
+  const whoCanApply = input.whoCanApply?.trim() ?? '';
 
   if (
     title.length < BLUEPRINT_LIMITS.opportunityTitleMin ||
@@ -406,6 +413,9 @@ export function validateOpportunityFormInput(
   if (desc.length < 5 || desc.length > BLUEPRINT_LIMITS.postBodyMax) {
     return 'Opportunity description must be between 5 and 5000 characters.';
   }
+  if (whoCanApply.length > 1000) {
+    return 'Who Can Apply details must be 1000 characters or fewer.';
+  }
   if (appUrl && !isSafeMediaUrl(appUrl)) {
     return 'Application link must be a valid http(s) URL (max 512 characters).';
   }
@@ -413,20 +423,35 @@ export function validateOpportunityFormInput(
   if (!Number.isFinite(deadlineMs)) {
     return 'Provide a valid deadline date and time.';
   }
+  if (input.opensAtIso?.trim()) {
+    const opensMs = Date.parse(input.opensAtIso);
+    if (!Number.isFinite(opensMs)) {
+      return 'Provide a valid opening date and time.';
+    }
+    if (opensMs > deadlineMs) {
+      return 'Opening date cannot be later than the application deadline.';
+    }
+  }
   return null;
 }
 
 export interface CampusEventFormInput {
+  category?: EventCategory;
   title: string;
   description: string;
   eventDateIso: string;
+  endDateIso?: string;
   timeLabel?: string;
   venue: string;
   organiser: string;
+  registrationRequired?: boolean;
   registrationUrl?: string;
   onlineMeetingUrl?: string;
+  contactInfo?: string;
   instructions?: string;
+  bannerUrl?: string;
   status?: CampusEventStatus;
+  published?: boolean;
 }
 
 export function validateCampusEventFormInput(
@@ -457,7 +482,19 @@ export function validateCampusEventFormInput(
   }
   const eventMs = Date.parse(input.eventDateIso);
   if (!Number.isFinite(eventMs)) {
-    return 'Provide a valid event date and time.';
+    return 'Provide a valid start date and time.';
+  }
+  if (input.endDateIso?.trim()) {
+    const endMs = Date.parse(input.endDateIso);
+    if (!Number.isFinite(endMs)) {
+      return 'Provide a valid event end date and time.';
+    }
+    if (endMs <= eventMs) {
+      return 'Event end time must be after the start time.';
+    }
+  }
+  if (input.bannerUrl?.trim() && !isSafeMediaUrl(input.bannerUrl)) {
+    return 'Cover image link must start with https:// or http://.';
   }
   if (input.registrationUrl?.trim() && !isSafeMediaUrl(input.registrationUrl)) {
     return 'Registration link must start with https:// or http://.';
@@ -467,6 +504,9 @@ export function validateCampusEventFormInput(
     !isSafeMediaUrl(input.onlineMeetingUrl)
   ) {
     return 'Meeting link must start with https:// or http://.';
+  }
+  if (input.contactInfo && input.contactInfo.trim().length > 256) {
+    return 'Contact details must be 256 characters or fewer.';
   }
   return null;
 }

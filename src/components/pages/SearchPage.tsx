@@ -9,7 +9,12 @@ interface SearchPageProps {
   initialScope: SearchScopeId;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      searchScope?: SearchScopeId;
+      opportunityId?: string | null;
+      eventId?: string | null;
+    }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
 }

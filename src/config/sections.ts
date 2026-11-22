@@ -91,25 +91,25 @@ export const PLATFORM_SECTIONS: readonly SectionDefinition[] = [
     shortTitle: 'Opportunities',
     group: 'Campus Hub',
     summary:
-      'Scholarships, internships, SIWES openings, fellowships, grants, and student programmes.',
+      'Scholarships, grants, internships, job openings, competitions, skill programmes, trainings, and conferences for LASUED students.',
     emptyTitle: 'No opportunities listed yet',
     emptyDescription:
-      'Verified internships, scholarships, grants, and campus career openings will appear here once published.',
+      'Scholarships, grants, internships, fellowships, and campus career openings will appear here once published.',
     errorTitle: 'Unable to load Opportunities',
     errorDescription:
       'Opportunity listings could not be retrieved right now. Please try again.',
   },
   {
     id: 'upcoming-events',
-    title: 'Upcoming Events',
+    title: 'Events',
     shortTitle: 'Events',
     group: 'Campus Hub',
     summary:
-      'Academic calendar milestones, faculty seminars, workshops, and recognized campus gatherings.',
-    emptyTitle: 'No upcoming events scheduled yet',
+      'Departmental programmes, faculty seminars, workshops, orientations, competitions, and campus activities.',
+    emptyTitle: 'No campus events scheduled yet',
     emptyDescription:
       'Campus calendar items, academic dates, and student events will appear here once published.',
-    errorTitle: 'Unable to load Upcoming Events',
+    errorTitle: 'Unable to load Events',
     errorDescription:
       'The campus events schedule could not be loaded. Retry to check again.',
   },

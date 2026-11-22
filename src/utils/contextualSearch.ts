@@ -9,6 +9,7 @@ import type {
   TrustedContact,
 } from '../types/database';
 import type { SearchScopeId } from '../types/platform';
+import { getOpportunityCategoryLabel } from './opportunities';
 
 export interface SearchScopeMeta {
   id: SearchScopeId;
@@ -49,9 +50,10 @@ export const SEARCH_SCOPE_CONFIG: Record<SearchScopeId, SearchScopeMeta> = {
   opportunities: {
     id: 'opportunities',
     label: 'Opportunities',
-    placeholder: 'Search scholarships, internships, grants, and trainings...',
+    placeholder:
+      'Search scholarships, grants, internships, jobs, or conferences...',
     description:
-      'Matches active, non-expired opportunities by title, organisation, category, or details.',
+      'Matches active scholarships, grants, internships, jobs, competitions, programmes, trainings, and conferences.',
   },
   'upcoming-events': {
     id: 'upcoming-events',
@@ -62,7 +64,7 @@ export const SEARCH_SCOPE_CONFIG: Record<SearchScopeId, SearchScopeMeta> = {
 };
 
 export const FIRESTORE_SEARCH_SCOPE_NOTE =
-  'Search evaluates recent published Firestore records loaded cleanly within security boundaries rather than an external paid search index.';
+  'Search evaluates recent published campus records available in this section.';
 
 export function sanitizeAnonymousPostForSearch(
   raw: Record<string, unknown>
@@ -291,11 +293,16 @@ export function filterOpportunities(
     if (expiresMs !== null && nowMs >= expiresMs) {
       return false;
     }
+    const categoryLabel = getOpportunityCategoryLabel(item.category).toLowerCase();
     return (
       item.title.toLowerCase().includes(normalized) ||
       item.organisation.toLowerCase().includes(normalized) ||
       item.category.toLowerCase().includes(normalized) ||
-      item.description.toLowerCase().includes(normalized)
+      categoryLabel.includes(normalized) ||
+      item.description.toLowerCase().includes(normalized) ||
+      (item.eligibility ?? '').toLowerCase().includes(normalized) ||
+      (item.whoCanApply ?? '').toLowerCase().includes(normalized) ||
+      (item.benefits ?? '').toLowerCase().includes(normalized)
     );
   });
 }
@@ -308,12 +315,16 @@ export function filterCampusEvents(
   if (!normalized) return [];
 
   return events.filter((item) => {
+    if (item.published === false) return false;
     if (item.status === 'cancelled') return false;
+    const categoryText = (item.category ?? '').replace(/_/g, ' ').toLowerCase();
     return (
       item.title.toLowerCase().includes(normalized) ||
       item.organiser.toLowerCase().includes(normalized) ||
       item.venue.toLowerCase().includes(normalized) ||
-      item.description.toLowerCase().includes(normalized)
+      item.description.toLowerCase().includes(normalized) ||
+      (item.instructions ?? '').toLowerCase().includes(normalized) ||
+      categoryText.includes(normalized)
     );
   });
 }

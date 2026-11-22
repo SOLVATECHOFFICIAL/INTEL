@@ -79,6 +79,8 @@ export interface ParsedRouteLocation {
   profileUsername: string | null;
   profileTab: ProfileTab | null;
   searchScope: SearchScopeId;
+  opportunityId: string | null;
+  eventId: string | null;
 }
 
 export function parseLocationSearch(search: string): ParsedRouteLocation {
@@ -93,12 +95,24 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
   const profileTab = isValidProfileTab(rawTab) ? rawTab : null;
   const rawScope = params.get('scope');
   const searchScope = isValidSearchScope(rawScope) ? rawScope : 'home';
+  const rawOppId = params.get('opportunityId');
+  const opportunityId =
+    rawOppId && /^[a-zA-Z0-9_-]{1,128}$/.test(rawOppId.trim())
+      ? rawOppId.trim()
+      : null;
+  const rawEventId = params.get('eventId');
+  const eventId =
+    rawEventId && /^[a-zA-Z0-9_-]{1,128}$/.test(rawEventId.trim())
+      ? rawEventId.trim()
+      : null;
 
   return {
     route,
     profileUsername,
     profileTab,
     searchScope,
+    opportunityId,
+    eventId,
   };
 }
 
@@ -112,6 +126,8 @@ export function buildSearchForRoute(
     username?: string | null;
     profileTab?: ProfileTab | null;
     searchScope?: SearchScopeId | null;
+    opportunityId?: string | null;
+    eventId?: string | null;
   }
 ): string {
   if (route === 'for-you') {
@@ -130,6 +146,12 @@ export function buildSearchForRoute(
   }
   if (route === 'search' && options?.searchScope) {
     params.set('scope', options.searchScope);
+  }
+  if (route === 'opportunities' && options?.opportunityId) {
+    params.set('opportunityId', options.opportunityId);
+  }
+  if (route === 'upcoming-events' && options?.eventId) {
+    params.set('eventId', options.eventId);
   }
 
   return `${window.location.pathname}?${params.toString()}`;

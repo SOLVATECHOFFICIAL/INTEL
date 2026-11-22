@@ -1,16 +1,46 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, CheckCircle2 } from 'lucide-react';
+import { Bell, CheckCheck, CheckCircle2, Loader2 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
-import { subscribeUserNotifications } from '../../services/firestoreFoundation';
+import {
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+  subscribeUserNotifications,
+} from '../../services/firestoreFoundation';
 import type { NotificationItem } from '../../types/database';
 import { ActiveRoute } from '../../types/platform';
+import { formatFirestoreOrAppError } from '../../utils/authValidation';
+import { extractTimestampMs } from '../../utils/contextualSearch';
+import { extractActorUsernameFromNotification } from '../../utils/followRelations';
+import { parseLocationSearch } from '../../utils/urlRouting';
+import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { AvatarMedia } from '../media/FirestoreImage';
 
 interface NotificationsPageProps {
+  onNavigate: (
+    route: ActiveRoute,
+    options?: {
+      username?: string | null;
+      opportunityId?: string | null;
+      eventId?: string | null;
+    }
+  ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
 }
 
+function formatNotificationTime(value: unknown): string {
+  const ms = extractTimestampMs(value);
+  if (!ms) return 'Just now';
+  return new Date(ms).toLocaleString('en-NG', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export const NotificationsPage: React.FC<NotificationsPageProps> = ({
+  onNavigate,
   onRequireAuth,
 }) => {
   const { authReady, user, unreadNotificationsCount, isSuspended } =
@@ -19,13 +49,11 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(
     'loading'
   );
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!authReady) {
-      return;
-    }
-
-    if (!user) {
+    if (!authReady || !user) {
       return;
     }
 
@@ -38,6 +66,53 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
       unsubscribe();
     };
   }, [authReady, user]);
+
+  const handleMarkAllRead = async () => {
+    if (markingAllRead || isSuspended || unreadNotificationsCount === 0) return;
+    setMarkingAllRead(true);
+    setActionError(null);
+    try {
+      await markAllNotificationsAsRead(items);
+    } catch (err) {
+      setActionError(
+        formatFirestoreOrAppError(
+          err,
+          'Unable to mark notifications as read right now.'
+        )
+      );
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
+  const handleOpenNotification = (
+    item: NotificationItem,
+    actorUsername: string | null
+  ) => {
+    if (!item.isRead) {
+      void markNotificationAsRead(item.id).catch(() => {});
+    }
+
+    if (actorUsername) {
+      onNavigate('profile', { username: actorUsername });
+      return;
+    }
+
+    if (item.targetPath) {
+      const searchPart = item.targetPath.includes('?')
+        ? item.targetPath.slice(item.targetPath.indexOf('?'))
+        : '';
+      if (searchPart) {
+        const parsed = parseLocationSearch(searchPart);
+        onNavigate(parsed.route, {
+          username: parsed.profileUsername,
+          opportunityId: parsed.opportunityId,
+          eventId: parsed.eventId,
+        });
+        return;
+      }
+    }
+  };
 
   if (!authReady) {
     return (
@@ -69,7 +144,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         <div className="mt-5">
           <GuestPromptCard
             title="Sign in to view your notifications"
-            description="Receive updates on replies, reactions, marketplace listing approvals, new campus opportunities, and upcoming events."
+            description="Receive updates on followers, replies, reactions, marketplace listing approvals, new campus opportunities, and upcoming events."
             returnRoute="notifications"
             onRequireAuth={onRequireAuth}
           />
@@ -93,9 +168,32 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
             Notifications
           </h1>
         </div>
-        <p className="text-xs font-medium text-slate-500 tabular-nums">
-          {unreadNotificationsCount} unread
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs font-medium text-slate-500 tabular-nums">
+            {unreadNotificationsCount} unread
+          </p>
+          {!isSuspended && unreadNotificationsCount > 0 && (
+            <button
+              type="button"
+              disabled={markingAllRead}
+              onClick={() => void handleMarkAllRead()}
+              className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-100 disabled:opacity-60"
+            >
+              {markingAllRead ? (
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin text-[#1E88E5]"
+                  aria-hidden="true"
+                />
+              ) : (
+                <CheckCheck
+                  className="h-3.5 w-3.5 text-[#1E88E5]"
+                  aria-hidden="true"
+                />
+              )}
+              Mark all read
+            </button>
+          )}
+        </div>
       </div>
 
       {isSuspended && (
@@ -105,6 +203,15 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         >
           Your account is currently suspended. Interactive notification actions
           are restricted.
+        </div>
+      )}
+
+      {actionError && (
+        <div
+          role="alert"
+          className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800"
+        >
+          {actionError}
         </div>
       )}
 
@@ -130,48 +237,90 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
               No notifications yet
             </h2>
             <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-slate-600">
-              Your notification center is connected to your account. Real activity
-              alerts will appear here as you interact across LASUED Intel.
+              Your notification center is connected to your account. New
+              followers, replies, reactions, and official campus updates will
+              appear here.
             </p>
           </div>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {items.map((item) => (
-              <li
-                key={item.id}
-                className={`flex items-start justify-between gap-3 py-3.5 ${
-                  item.isRead ? 'opacity-80' : 'bg-[#1E88E5]/5 px-3 rounded-xl'
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    {!item.isRead && (
-                      <span
-                        aria-label="Unread notification"
-                        className="h-2 w-2 shrink-0 rounded-full bg-[#1E88E5]"
+          <ul className="space-y-2">
+            {items.map((item) => {
+              const actorUsername = extractActorUsernameFromNotification(item);
+              const isFollowEvent = item.eventType === 'follow';
+              const isActionable = Boolean(actorUsername || item.targetPath || !item.isRead);
+
+              return (
+                <li
+                  key={item.id}
+                  className={`flex items-start justify-between gap-3 rounded-xl border p-3.5 transition-colors ${
+                    item.isRead
+                      ? 'border-slate-200/80 bg-white opacity-90'
+                      : 'border-[#1E88E5]/25 bg-[#1E88E5]/5'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    disabled={!isActionable}
+                    onClick={() => handleOpenNotification(item, actorUsername)}
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left disabled:cursor-default"
+                  >
+                    {isFollowEvent && (item.actorName || actorUsername) && (
+                      <AvatarMedia
+                        fullName={item.actorName || actorUsername || 'Member'}
+                        photoImageId={item.actorPhotoImageId}
+                        photoUrl={item.actorPhotoUrl}
+                        sizeClass="h-10 w-10"
+                        roundedClass="rounded-full"
+                        textClass="text-xs"
                       />
                     )}
-                    <p className="text-sm font-semibold text-[#0B1A2E]">
-                      {item.title}
-                    </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        {!item.isRead && (
+                          <span
+                            aria-label="Unread notification"
+                            className="h-2 w-2 shrink-0 rounded-full bg-[#1E88E5]"
+                          />
+                        )}
+                        <p className="text-sm font-semibold text-[#0B1A2E]">
+                          {item.title}
+                        </p>
+                      </div>
+                      {item.body && (
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                          {item.body}
+                        </p>
+                      )}
+                      <p className="mt-1 text-[11px] font-medium text-slate-400">
+                        {formatNotificationTime(item.createdAt)}
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="flex shrink-0 items-center gap-2 pt-0.5">
+                    {isFollowEvent && actorUsername && !isSuspended && (
+                      <TikTokFollowButton
+                        targetUsername={actorUsername}
+                        compact
+                        onRequireAuth={() =>
+                          onRequireAuth('login', 'notifications')
+                        }
+                      />
+                    )}
+                    {item.isRead && (
+                      <CheckCircle2
+                        className="h-4 w-4 shrink-0 text-slate-400"
+                        aria-hidden="true"
+                      />
+                    )}
                   </div>
-                  {item.body && (
-                    <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                      {item.body}
-                    </p>
-                  )}
-                </div>
-                {item.isRead && (
-                  <CheckCircle2
-                    className="mt-0.5 h-4 w-4 shrink-0 text-slate-400"
-                    aria-hidden="true"
-                  />
-                )}
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
     </section>
   );
 };
+

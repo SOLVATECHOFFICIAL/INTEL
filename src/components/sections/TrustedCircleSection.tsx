@@ -1,30 +1,48 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Award,
   Building2,
+  Camera,
   CheckCircle2,
+  Crown,
+  Edit3,
   Loader2,
   MessageCircle,
   Plus,
+  ShieldCheck,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
 import {
-  createTrustedContactRecord,
-  deleteTrustedContactRecord,
-  fetchTrustedCircleDirectory,
-} from '../../services/governance';
+  createTrustedContactWithAudit,
+  deleteTrustedContactWithAudit,
+  updateTrustedContactWithAudit,
+} from '../../services/adminDashboard';
+import { fetchTrustedCircleDirectory } from '../../services/governance';
 import type {
   PublicProfileProjection,
   TrustedContact,
   TrustedContactCategory,
+  UserRole,
 } from '../../types/database';
 import type { ActiveRoute } from '../../types/platform';
 import {
   buildWhatsAppChatUrl,
   formatFirestoreOrAppError,
 } from '../../utils/authValidation';
+import {
+  partitionTrustedCircleDirectory,
+  TRUSTED_CONTACT_CATEGORY_LABELS,
+  type TrustedCircleCategoryFilter,
+} from '../../utils/followRelations';
+import {
+  compressImageFile,
+  type CompressedImageResult,
+} from '../../utils/imageCompression';
 import { RoleBadge } from '../RoleBadge';
+import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
 
 interface TrustedCircleSectionProps {
@@ -32,45 +50,74 @@ interface TrustedCircleSectionProps {
     route: ActiveRoute,
     options?: { username?: string }
   ) => void;
+  onRequireAuth?: (
+    authRoute: 'login' | 'register',
+    returnTo: ActiveRoute
+  ) => void;
 }
 
-const CONTACT_CATEGORY_LABELS: Record<TrustedContactCategory, string> = {
-  lecturer: 'Lecturer',
-  department_rep: 'Department Rep',
-  faculty_president: 'Faculty President',
-  class_rep: 'Class Rep',
-  departmental_executive: 'Departmental Executive',
-  student_union_rep: 'Student Union Rep',
-};
+const FILTER_TABS: Array<{
+  id: TrustedCircleCategoryFilter;
+  label: string;
+}> = [
+  { id: 'all', label: 'All' },
+  { id: 'supreme_admin', label: 'Supreme Admin' },
+  { id: 'officially_verified', label: 'Officially Verified' },
+  { id: 'community_recommended', label: 'Community Recommended' },
+  { id: 'official_contacts', label: 'Official Contacts' },
+];
 
 export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
   onNavigate,
+  onRequireAuth,
 }) => {
-  const { user, effectiveTier, isSuspended } = useFirebase();
+  const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const isSupremeAdminOrOwner =
     !isSuspended &&
     (effectiveTier === 'supreme_admin' || effectiveTier === 'owner');
+  const actorRole: UserRole =
+    effectiveTier === 'owner' ? 'owner' : 'supreme_admin';
 
+  const [supremeAdmins, setSupremeAdmins] = useState<PublicProfileProjection[]>(
+    []
+  );
   const [verifiedMembers, setVerifiedMembers] = useState<
     PublicProfileProjection[]
   >([]);
   const [officialContacts, setOfficialContacts] = useState<TrustedContact[]>(
     []
   );
+  const [activeFilter, setActiveFilter] =
+    useState<TrustedCircleCategoryFilter>('all');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const [showAddForm, setShowAddForm] = useState(false);
+  // Admin inline Create / Edit form state for Directory-Only profiles
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [editingContact, setEditingContact] = useState<TrustedContact | null>(
+    null
+  );
   const [fullName, setFullName] = useState('');
-  const [category, setCategory] =
-    useState<TrustedContactCategory>('lecturer');
+  const [category, setCategory] = useState<TrustedContactCategory>(
+    'community_recommended'
+  );
+  const [badgeLabel, setBadgeLabel] = useState('');
   const [roleTitle, setRoleTitle] = useState('');
   const [department, setDepartment] = useState('');
   const [faculty, setFaculty] = useState('');
   const [contactNumber, setContactNumber] = useState('');
+  const [whatsappLink, setWhatsappLink] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [compressedPhoto, setCompressedPhoto] =
+    useState<CompressedImageResult | null>(null);
+  const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
+  const [compressingPhoto, setCompressingPhoto] = useState(false);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -78,6 +125,7 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     fetchTrustedCircleDirectory()
       .then((data) => {
         if (!active) return;
+        setSupremeAdmins(data.supremeAdmins);
         setVerifiedMembers(data.verifiedMembers);
         setOfficialContacts(data.officialContacts);
         setErrorMessage(null);
@@ -100,56 +148,346 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     };
   }, []);
 
-  const handleAddContact = async (event: React.FormEvent<HTMLFormElement>) => {
+  const partitioned = useMemo(
+    () =>
+      partitionTrustedCircleDirectory({
+        supremeAdmins,
+        verifiedMembers,
+        officialContacts,
+      }),
+    [supremeAdmins, verifiedMembers, officialContacts]
+  );
+
+  const resetForm = () => {
+    setEditingContact(null);
+    setFullName('');
+    setCategory('community_recommended');
+    setBadgeLabel('');
+    setRoleTitle('');
+    setDepartment('');
+    setFaculty('');
+    setContactNumber('');
+    setWhatsappLink('');
+    setPhotoUrl('');
+    setCompressedPhoto(null);
+    setRemoveExistingPhoto(false);
+    setDescription('');
+    setShowContactForm(false);
+  };
+
+  const startEditContact = (contact: TrustedContact) => {
+    setEditingContact(contact);
+    setFullName(contact.fullName);
+    setCategory(contact.category);
+    setBadgeLabel(contact.badgeLabel ?? '');
+    setRoleTitle(contact.roleTitle);
+    setDepartment(contact.department ?? '');
+    setFaculty(contact.faculty ?? '');
+    setContactNumber(contact.contactNumber ?? '');
+    setWhatsappLink(contact.whatsappLink ?? '');
+    setPhotoUrl(contact.photoUrl ?? '');
+    setCompressedPhoto(null);
+    setRemoveExistingPhoto(false);
+    setDescription(contact.description ?? '');
+    setShowContactForm(true);
+  };
+
+  const handleSelectPhoto = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || compressingPhoto) return;
+    setCompressingPhoto(true);
+    setErrorMessage(null);
+    try {
+      const compressed = await compressImageFile(file, 'avatar');
+      setCompressedPhoto(compressed);
+      setRemoveExistingPhoto(false);
+      setPhotoUrl('');
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(error, 'Could not compress profile photo.')
+      );
+    } finally {
+      setCompressingPhoto(false);
+    }
+  };
+
+  const handleSaveContact = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!user || !isSupremeAdminOrOwner || submitting) return;
     setSubmitting(true);
     setErrorMessage(null);
     setStatusMessage(null);
+
     try {
-      const created = await createTrustedContactRecord({
-        fullName,
-        category,
-        roleTitle,
-        department,
-        faculty,
-        contactNumber,
-        description,
-        createdByUid: user.uid,
-      });
-      setOfficialContacts((prev) =>
-        [created, ...prev].sort((a, b) => a.fullName.localeCompare(b.fullName))
-      );
-      setFullName('');
-      setRoleTitle('');
-      setDepartment('');
-      setFaculty('');
-      setContactNumber('');
-      setDescription('');
-      setShowAddForm(false);
-      setStatusMessage('Official campus contact added to Trusted Circle.');
+      if (editingContact) {
+        const updated = await updateTrustedContactWithAudit({
+          existing: editingContact,
+          fullName,
+          category,
+          badgeLabel,
+          roleTitle,
+          department,
+          faculty,
+          photoUrl,
+          compressedPhoto,
+          removePhoto: removeExistingPhoto,
+          contactNumber,
+          whatsappLink,
+          description,
+          actorUid: user.uid,
+          actorRole,
+        });
+        setOfficialContacts((prev) =>
+          prev
+            .map((item) => (item.id === updated.id ? updated : item))
+            .sort((a, b) => a.fullName.localeCompare(b.fullName))
+        );
+        setStatusMessage(`Updated "${updated.fullName}" in Trusted Circle.`);
+      } else {
+        const created = await createTrustedContactWithAudit({
+          fullName,
+          category,
+          badgeLabel,
+          roleTitle,
+          department,
+          faculty,
+          photoUrl,
+          compressedPhoto,
+          contactNumber,
+          whatsappLink,
+          description,
+          actorUid: user.uid,
+          actorRole,
+        });
+        setOfficialContacts((prev) =>
+          [created, ...prev].sort((a, b) => a.fullName.localeCompare(b.fullName))
+        );
+        setStatusMessage(`Added "${created.fullName}" to Trusted Circle.`);
+      }
+      resetForm();
     } catch (error) {
       setErrorMessage(
-        formatFirestoreOrAppError(error, 'Could not add official campus contact.')
+        formatFirestoreOrAppError(
+          error,
+          'Could not save Trusted Circle entry.'
+        )
       );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDeleteContact = async (contactId: string) => {
-    if (!isSupremeAdminOrOwner) return;
+  const handleConfirmDeleteContact = async (contact: TrustedContact) => {
+    if (!user || !isSupremeAdminOrOwner || deletingId) return;
+    setDeletingId(contact.id);
     setErrorMessage(null);
+    setStatusMessage(null);
     try {
-      await deleteTrustedContactRecord(contactId);
+      await deleteTrustedContactWithAudit({
+        contact,
+        actorUid: user.uid,
+        actorRole,
+      });
       setOfficialContacts((prev) =>
-        prev.filter((item) => item.id !== contactId)
+        prev.filter((item) => item.id !== contact.id)
       );
+      setConfirmDeleteId(null);
+      setStatusMessage(`Removed "${contact.fullName}" from Trusted Circle.`);
     } catch (error) {
       setErrorMessage(
-        formatFirestoreOrAppError(error, 'Could not remove that contact.')
+        formatFirestoreOrAppError(error, 'Could not remove that entry.')
       );
+    } finally {
+      setDeletingId(null);
     }
+  };
+
+  const renderRegisteredAccountCard = (member: PublicProfileProjection) => {
+    const isSelf =
+      Boolean(profile?.username) &&
+      profile?.username.toLowerCase() === member.username.toLowerCase();
+
+    return (
+      <div
+        key={member.username}
+        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60"
+      >
+        <button
+          type="button"
+          onClick={() => onNavigate('profile', { username: member.username })}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <AvatarMedia
+            fullName={member.fullName}
+            photoImageId={member.photoImageId}
+            photoUrl={member.photoUrl}
+            sizeClass="h-11 w-11"
+            roundedClass="rounded-xl"
+            textClass="text-xs"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                {member.fullName}
+              </span>
+              <RoleBadge badge={member.badge} size="xs" />
+              {isSelf && (
+                <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                  You
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 truncate text-xs text-slate-600">
+              @{member.username}
+              {member.department ? ` · ${member.department}` : ''}
+            </p>
+            <p className="mt-0.5 text-[11px] font-medium text-slate-500 tabular-nums">
+              {member.followersCount} followers · {member.followingCount}{' '}
+              following
+            </p>
+          </div>
+        </button>
+
+        <TikTokFollowButton
+          targetUsername={member.username}
+          compact
+          onRequireAuth={() => onRequireAuth?.('login', 'trusted-circle')}
+        />
+      </div>
+    );
+  };
+
+  // Directory-only profiles strictly NEVER have user accounts, fake follower counts, or follow buttons.
+  const renderDirectoryOnlyCard = (contact: TrustedContact) => {
+    const waUrl = contact.contactNumber
+      ? buildWhatsAppChatUrl(contact.contactNumber)
+      : contact.whatsappLink || null;
+    const isConfirmingDelete = confirmDeleteId === contact.id;
+
+    return (
+      <article
+        key={contact.id}
+        data-directory-entry-id={contact.id}
+        className="rounded-xl border border-slate-200 bg-white p-4"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-start gap-3">
+            <AvatarMedia
+              fullName={contact.fullName}
+              photoImageId={contact.photoImageId}
+              photoUrl={contact.photoUrl}
+              sizeClass="h-11 w-11"
+              roundedClass="rounded-xl"
+              textClass="text-xs"
+            />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                  {contact.badgeLabel ||
+                    TRUSTED_CONTACT_CATEGORY_LABELS[contact.category] ||
+                    'Directory Profile'}
+                </span>
+                <span className="rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                  Directory Profile
+                </span>
+              </div>
+              <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E]">
+                {contact.fullName}
+              </h3>
+              <p className="text-xs font-medium text-[#1E88E5]">
+                {contact.roleTitle}
+              </p>
+            </div>
+          </div>
+
+          {isSupremeAdminOrOwner && (
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => startEditContact(contact)}
+                aria-label={`Edit ${contact.fullName}`}
+                className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]"
+              >
+                <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setConfirmDeleteId((prev) =>
+                    prev === contact.id ? null : contact.id
+                  )
+                }
+                aria-label={`Remove ${contact.fullName}`}
+                className="rounded-lg p-1.5 text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {(contact.department || contact.faculty) && (
+          <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-600">
+            <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {[contact.department, contact.faculty]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </p>
+        )}
+
+        {contact.description && (
+          <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+            {contact.description}
+          </p>
+        )}
+
+        {waUrl && (
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]"
+          >
+            <MessageCircle
+              className="h-3.5 w-3.5 text-[#1E88E5]"
+              aria-hidden="true"
+            />
+            WhatsApp Contact
+          </a>
+        )}
+
+        {isConfirmingDelete && isSupremeAdminOrOwner && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-900">
+            <span>Remove {contact.fullName} from Trusted Circle?</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={deletingId === contact.id}
+                onClick={() => void handleConfirmDeleteContact(contact)}
+                className="inline-flex min-h-[32px] items-center gap-1 rounded-md bg-red-700 px-2.5 py-1 font-semibold text-white hover:bg-red-800 disabled:opacity-60"
+              >
+                {deletingId === contact.id && (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                )}
+                Remove
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="min-h-[32px] rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-[#0B1A2E]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </article>
+    );
   };
 
   if (loading) {
@@ -164,8 +502,81 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     );
   }
 
+  const filterCounts: Record<TrustedCircleCategoryFilter, number> = {
+    all:
+      partitioned.supremeAdmins.length +
+      partitioned.officiallyVerifiedUsers.length +
+      partitioned.officiallyVerifiedContacts.length +
+      partitioned.communityRecommendedContacts.length +
+      partitioned.officialCampusContacts.length,
+    supreme_admin: partitioned.supremeAdmins.length,
+    officially_verified:
+      partitioned.officiallyVerifiedUsers.length +
+      partitioned.officiallyVerifiedContacts.length,
+    community_recommended: partitioned.communityRecommendedContacts.length,
+    official_contacts: partitioned.officialCampusContacts.length,
+  };
+
+  const showSupremeAdminSection =
+    activeFilter === 'all' || activeFilter === 'supreme_admin';
+  const showOfficiallyVerifiedSection =
+    activeFilter === 'all' || activeFilter === 'officially_verified';
+  const showCommunityRecommendedSection =
+    activeFilter === 'all' || activeFilter === 'community_recommended';
+  const showOfficialContactsSection =
+    activeFilter === 'all' || activeFilter === 'official_contacts';
+
+  const hasExistingStoredPhoto = Boolean(
+    editingContact &&
+      !removeExistingPhoto &&
+      (editingContact.photoImageId || editingContact.photoUrl)
+  );
+
   return (
     <div className="space-y-6">
+      {/* Category Filter Bar + Admin Entry Action */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div
+          role="tablist"
+          aria-label="Trusted Circle categories"
+          className="flex flex-wrap gap-1.5"
+        >
+          {FILTER_TABS.map((tab) => {
+            const isSelected = activeFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                onClick={() => setActiveFilter(tab.id)}
+                className={`min-h-[36px] rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  isSelected
+                    ? 'bg-[#0B1A2E] text-white'
+                    : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {tab.label} ({filterCounts[tab.id]})
+              </button>
+            );
+          })}
+        </div>
+
+        {isSupremeAdminOrOwner && (
+          <button
+            type="button"
+            onClick={() => {
+              if (showContactForm) resetForm();
+              else setShowContactForm(true);
+            }}
+            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#132844]"
+          >
+            <Plus className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+            {showContactForm ? 'Close Form' : 'Add Directory Entry'}
+          </button>
+        )}
+      </div>
+
       {statusMessage && (
         <div
           role="status"
@@ -185,226 +596,332 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         </div>
       )}
 
-      {/* 1. Verified Community Members */}
-      <div className="space-y-3">
-        <div>
-          <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-            Verified Community Members ({verifiedMembers.length})
-          </h2>
-          <p className="text-xs text-slate-600">
-            Recognized LASUED students, lecturers, graduates, and campus
-            contributors with the green VERIFIED badge.
-          </p>
-        </div>
-
-        {verifiedMembers.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
-            <Users
-              className="mx-auto mb-2 h-5 w-5 text-slate-400"
-              aria-hidden="true"
-            />
-            No public Verified members listed yet.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {verifiedMembers.map((member) => (
-              <button
-                key={member.username}
-                type="button"
-                onClick={() =>
-                  onNavigate('profile', { username: member.username })
-                }
-                className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 text-left transition-colors hover:border-[#1E88E5] hover:bg-slate-50"
-              >
-                <AvatarMedia
-                  fullName={member.fullName}
-                  photoImageId={member.photoImageId}
-                  photoUrl={member.photoUrl}
-                  sizeClass="h-11 w-11"
-                  roundedClass="rounded-xl"
-                  textClass="text-xs"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                      {member.fullName}
-                    </span>
-                    <RoleBadge badge="verified" size="xs" />
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-slate-600">
-                    @{member.username}
-                    {member.department ? ` · ${member.department}` : ''}
-                    {member.level ? ` · ${member.level}` : ''}
-                  </p>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 2. Official Campus Contacts */}
-      <div className="space-y-3 border-t border-slate-100 pt-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-              Official Campus Contacts ({officialContacts.length})
+      {/* Admin Inline Form: Create / Edit Directory-Only Profiles */}
+      {showContactForm && isSupremeAdminOrOwner && (
+        <form
+          onSubmit={handleSaveContact}
+          className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+              {editingContact
+                ? `Edit Directory Profile: ${editingContact.fullName}`
+                : 'Add Directory-Only Profile'}
             </h2>
-            <p className="text-xs text-slate-600">
-              Admin-curated lecturers, course advisers, and recognized student
-              representatives.
-            </p>
+            <span className="text-[11px] font-medium text-slate-500">
+              Non-account directory entry
+            </span>
           </div>
 
-          {isSupremeAdminOrOwner && (
-            <button
-              type="button"
-              onClick={() => setShowAddForm((prev) => !prev)}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#132844]"
-            >
-              <Plus className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
-              {showAddForm ? 'Close Form' : 'Add Official Contact'}
-            </button>
-          )}
-        </div>
-
-        {showAddForm && isSupremeAdminOrOwner && (
-          <form
-            onSubmit={handleAddContact}
-            className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4"
-          >
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <input
-                type="text"
-                required
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Full name / Office title"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            {compressedPhoto ? (
+              <img
+                src={compressedPhoto.dataUrl}
+                alt="Contact preview"
+                className="h-12 w-12 rounded-xl object-cover"
               />
-              <select
-                value={category}
-                onChange={(e) =>
-                  setCategory(e.target.value as TrustedContactCategory)
-                }
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
-              >
-                {Object.entries(CONTACT_CATEGORY_LABELS).map(([val, label]) => (
+            ) : hasExistingStoredPhoto && editingContact ? (
+              <AvatarMedia
+                fullName={editingContact.fullName}
+                photoImageId={editingContact.photoImageId}
+                photoUrl={editingContact.photoUrl}
+                sizeClass="h-12 w-12"
+                roundedClass="rounded-xl"
+                textClass="text-xs"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                <Camera className="h-5 w-5" aria-hidden="true" />
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex min-h-[34px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]">
+                  {compressingPhoto ? (
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Camera
+                      className="h-3.5 w-3.5 text-[#1E88E5]"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span>
+                    {compressingPhoto ? 'Compressing...' : 'Upload Photo'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={compressingPhoto}
+                    onChange={handleSelectPhoto}
+                    className="sr-only"
+                  />
+                </label>
+
+                {(compressedPhoto || hasExistingStoredPhoto) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompressedPhoto(null);
+                      setPhotoUrl('');
+                      setRemoveExistingPhoto(true);
+                    }}
+                    className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    Remove
+                  </button>
+                )}
+              </div>
+              <input
+                type="url"
+                value={photoUrl}
+                disabled={Boolean(compressedPhoto)}
+                onChange={(e) => {
+                  setPhotoUrl(e.target.value);
+                  setRemoveExistingPhoto(false);
+                }}
+                placeholder="Or external https:// photo URL (optional)"
+                className="min-h-[32px] w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-[#0B1A2E] disabled:opacity-50"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Full name / Office title"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+            <select
+              value={category}
+              onChange={(e) =>
+                setCategory(e.target.value as TrustedContactCategory)
+              }
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            >
+              {Object.entries(TRUSTED_CONTACT_CATEGORY_LABELS).map(
+                ([val, label]) => (
                   <option key={val} value={val}>
                     {label}
                   </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <input
-                type="text"
-                required
-                value={roleTitle}
-                onChange={(e) => setRoleTitle(e.target.value)}
-                placeholder="Role (e.g. Level Adviser)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
-              />
-              <input
-                type="text"
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                placeholder="Department"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
-              />
-              <input
-                type="tel"
-                value={contactNumber}
-                onChange={(e) => setContactNumber(e.target.value)}
-                placeholder="Phone / WhatsApp (+234...)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
-              />
-            </div>
+                )
+              )}
+            </select>
+            <input
+              type="text"
+              maxLength={64}
+              value={badgeLabel}
+              onChange={(e) => setBadgeLabel(e.target.value)}
+              placeholder="Recognition badge label (optional)"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              required
+              value={roleTitle}
+              onChange={(e) => setRoleTitle(e.target.value)}
+              placeholder="Role / Position (e.g. Level Adviser)"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+            <input
+              type="text"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              placeholder="Department (optional)"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+            <input
+              type="text"
+              value={faculty}
+              onChange={(e) => setFaculty(e.target.value)}
+              placeholder="Faculty / College (optional)"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              type="tel"
+              value={contactNumber}
+              onChange={(e) => setContactNumber(e.target.value)}
+              placeholder="Phone / WhatsApp (+234...)"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+            <input
+              type="url"
+              value={whatsappLink}
+              onChange={(e) => setWhatsappLink(e.target.value)}
+              placeholder="WhatsApp link (optional https://wa.me/...)"
+              className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+            />
+          </div>
+
+          <textarea
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Description, role summary, or office hours (optional)..."
+            className="block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+          />
+
+          <div className="flex flex-wrap gap-2">
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || compressingPhoto}
               className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
             >
               {submitting && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
               )}
-              Save Official Contact
+              {editingContact ? 'Update Entry' : 'Save Directory Entry'}
             </button>
-          </form>
-        )}
-
-        {officialContacts.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
-            No official campus contacts added yet.
+            <button
+              type="button"
+              onClick={resetForm}
+              className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E]"
+            >
+              Cancel
+            </button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {officialContacts.map((contact) => {
-              const waUrl = contact.contactNumber
-                ? buildWhatsAppChatUrl(contact.contactNumber)
-                : contact.whatsappLink || null;
+        </form>
+      )}
 
-              return (
-                <article
-                  key={contact.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                        {CONTACT_CATEGORY_LABELS[contact.category] ||
-                          'Official Contact'}
-                      </span>
-                      <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E]">
-                        {contact.fullName}
-                      </h3>
-                      <p className="text-xs font-medium text-[#1E88E5]">
-                        {contact.roleTitle}
-                      </p>
-                    </div>
-                    {isSupremeAdminOrOwner && (
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteContact(contact.id)}
-                        aria-label={`Remove ${contact.fullName}`}
-                        className="rounded-lg p-1.5 text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-
-                  {(contact.department || contact.faculty) && (
-                    <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
-                      <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>
-                        {[contact.department, contact.faculty]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    </p>
-                  )}
-
-                  {waUrl && (
-                    <a
-                      href={waUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]"
-                    >
-                      <MessageCircle
-                        className="h-3.5 w-3.5 text-[#1E88E5]"
-                        aria-hidden="true"
-                      />
-                      WhatsApp Contact
-                    </a>
-                  )}
-                </article>
-              );
-            })}
+      {/* 1. Supreme Admin (Registered Public Administrators with Blue Star Badge) */}
+      {showSupremeAdminSection && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Crown className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+              Supreme Admin ({partitioned.supremeAdmins.length})
+            </h2>
           </div>
-        )}
-      </div>
+          <p className="text-xs text-slate-600">
+            Publicly visible LASUED Intel Supreme Administrators responsible for
+            campus governance and official verification.
+          </p>
+
+          {partitioned.supremeAdmins.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-center text-xs text-slate-600">
+              No public Supreme Admin profiles listed yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {partitioned.supremeAdmins.map(renderRegisteredAccountCard)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. Officially Verified (Registered Verified Badge Holders + Admin-Listed Verified Profiles) */}
+      {showOfficiallyVerifiedSection && (
+        <div className="space-y-3 border-t border-slate-100 pt-5">
+          <div className="flex items-center gap-2">
+            <ShieldCheck
+              className="h-4 w-4 text-emerald-600"
+              aria-hidden="true"
+            />
+            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+              Officially Verified ({filterCounts.officially_verified})
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600">
+            Recognized LASUED contributors with the official green VERIFIED
+            badge and administrator-verified campus figures.
+          </p>
+
+          {filterCounts.officially_verified === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
+              <Users
+                className="mx-auto mb-2 h-5 w-5 text-slate-400"
+                aria-hidden="true"
+              />
+              No Officially Verified entries listed yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {partitioned.officiallyVerifiedUsers.length > 0 && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {partitioned.officiallyVerifiedUsers.map(
+                    renderRegisteredAccountCard
+                  )}
+                </div>
+              )}
+              {partitioned.officiallyVerifiedContacts.length > 0 && (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {partitioned.officiallyVerifiedContacts.map(
+                    renderDirectoryOnlyCard
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. Community Recommended (Admin-Listed Non-Account Directory Profiles) */}
+      {showCommunityRecommendedSection && (
+        <div className="space-y-3 border-t border-slate-100 pt-5">
+          <div className="flex items-center gap-2">
+            <Award className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+              Community Recommended (
+              {partitioned.communityRecommendedContacts.length})
+            </h2>
+          </div>
+          <p className="text-xs text-slate-600">
+            Trusted community figures, student mentors, and recommended campus
+            resources curated by LASUED Intel administrators.
+          </p>
+
+          {partitioned.communityRecommendedContacts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-center text-xs text-slate-600">
+              No Community Recommended directory profiles added yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {partitioned.communityRecommendedContacts.map(
+                renderDirectoryOnlyCard
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 4. Official Campus Contacts (Lecturers, Faculty Presidents, Reps — Directory-Only) */}
+      {showOfficialContactsSection && (
+        <div className="space-y-3 border-t border-slate-100 pt-5">
+          <div>
+            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+              Official Campus Contacts (
+              {partitioned.officialCampusContacts.length})
+            </h2>
+            <p className="text-xs text-slate-600">
+              Admin-curated lecturers, faculty presidents, course advisers, and
+              student representatives (directory entries, not user accounts).
+            </p>
+          </div>
+
+          {partitioned.officialCampusContacts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
+              No official campus contacts added yet.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {partitioned.officialCampusContacts.map(renderDirectoryOnlyCard)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

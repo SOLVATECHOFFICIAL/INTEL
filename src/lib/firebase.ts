@@ -1,7 +1,13 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
+import {
+  doc,
+  getDocFromServer,
+  getFirestore,
+  initializeFirestore,
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { isTransientFirestoreConnectionError } from '../utils/firestoreRetry';
 
 export enum OperationType {
   CREATE = 'create',
@@ -31,7 +37,21 @@ export interface FirestoreErrorInfo {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+function createFirestoreClient() {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalAutoDetectLongPolling: true,
+      },
+      firebaseConfig.firestoreDatabaseId
+    );
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db = createFirestoreClient();
 export const auth = getAuth(app);
 
 export const FIREBASE_RUNTIME_INFO = {
@@ -85,6 +105,12 @@ export async function testConnection(): Promise<ConnectionCheckResult> {
       return {
         connected: false,
         offlineError: 'Please check your Firebase configuration.',
+      };
+    }
+    if (isTransientFirestoreConnectionError(error)) {
+      return {
+        connected: false,
+        offlineError: 'Unable to reach Firestore right now.',
       };
     }
     // Permission denied on nonexistent test/connection doc means server responded cleanly.

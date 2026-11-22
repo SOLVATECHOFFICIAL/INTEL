@@ -16,7 +16,9 @@ export type MediaTargetCollection =
   | 'users_cover'
   | 'posts'
   | 'anonymousPosts'
-  | 'marketplaceListings';
+  | 'marketplaceListings'
+  | 'trustedContacts'
+  | 'events';
 
 export type SupportedImageMimeType = 'image/webp' | 'image/jpeg';
 
@@ -52,6 +54,8 @@ export type MarketplaceStatus =
   | 'rejected';
 
 export type TrustedContactCategory =
+  | 'officially_verified'
+  | 'community_recommended'
   | 'lecturer'
   | 'department_rep'
   | 'faculty_president'
@@ -61,18 +65,38 @@ export type TrustedContactCategory =
 
 export type OpportunityCategory =
   | 'scholarship'
+  | 'grant'
   | 'internship'
   | 'job'
   | 'competition'
-  | 'grant'
+  | 'programme'
   | 'training'
-  | 'programme';
+  | 'conference'
+  | 'other';
 
-export type CampusEventStatus = 'upcoming' | 'past' | 'cancelled';
+export type EventCategory =
+  | 'departmental'
+  | 'faculty'
+  | 'student_association'
+  | 'seminar_workshop'
+  | 'conference'
+  | 'orientation'
+  | 'public_lecture'
+  | 'competition'
+  | 'social_cultural'
+  | 'other';
+
+export type CampusEventStatus =
+  | 'upcoming'
+  | 'ongoing'
+  | 'completed'
+  | 'past'
+  | 'cancelled';
 
 export type ReactionType = 'like' | 'insightful' | 'support';
 
 export type NotificationEventType =
+  | 'follow'
   | 'comment'
   | 'reply'
   | 'anonymous_reply'
@@ -408,10 +432,12 @@ export function resolveOrdinaryPostType(
 export interface PostComment {
   id: string;
   postId: string;
+  targetCollection?: 'posts' | 'events';
   parentCommentId?: string;
   ownerUID: string;
   body: string;
   status: PostStatus;
+  likesCount?: number;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -423,7 +449,12 @@ export interface FollowEdge {
 }
 
 export interface PostReaction {
-  targetCollection: 'posts' | 'anonymousPosts' | 'anonymousComments';
+  targetCollection:
+    | 'posts'
+    | 'anonymousPosts'
+    | 'anonymousComments'
+    | 'events'
+    | 'postComments';
   targetId: string;
   ownerUID: string;
   reactionType: ReactionType;
@@ -521,7 +552,8 @@ export interface SavedPost {
     | 'posts'
     | 'anonymousPosts'
     | 'marketplaceListings'
-    | 'opportunities';
+    | 'opportunities'
+    | 'events';
   targetId: string;
   createdAt: unknown;
 }
@@ -536,6 +568,7 @@ export interface MarketplaceListing {
   price: number;
   quantity: number;
   mediaUrls?: string[];
+  mediaItems?: PostMediaMeta[];
   whatsappNumber: string;
   approvalStatus: MarketplaceApprovalStatus;
   status: MarketplaceStatus;
@@ -553,10 +586,12 @@ export interface TrustedContact {
   isUserAccount: false;
   fullName: string;
   category: TrustedContactCategory;
+  badgeLabel?: string;
   roleTitle: string;
   department?: string;
   faculty?: string;
   photoUrl?: string;
+  photoImageId?: string;
   contactNumber?: string;
   whatsappLink?: string;
   description?: string;
@@ -564,6 +599,8 @@ export interface TrustedContact {
   createdAt: unknown;
   updatedAt: unknown;
 }
+
+export type OpportunityStatus = 'active' | 'expired' | 'unpublished';
 
 export interface Opportunity {
   id: string;
@@ -573,12 +610,17 @@ export interface Opportunity {
   organisation: string;
   description: string;
   eligibility?: string;
+  whoCanApply?: string;
   requiredDocuments?: string;
   benefits?: string;
   applicationInstructions?: string;
   applicationUrl: string;
   contactInfo?: string;
-  status: 'active' | 'expired';
+  opensAt?: unknown;
+  isVerified?: boolean;
+  notifiedNewAt?: unknown;
+  lastDeadlineNotifiedMs?: number;
+  status: OpportunityStatus;
   expiresAt: unknown;
   createdAt: unknown;
   updatedAt: unknown;
@@ -587,17 +629,27 @@ export interface Opportunity {
 export interface CampusEvent {
   id: string;
   ownerUID: string;
+  category?: EventCategory;
   title: string;
   description: string;
   bannerUrl?: string;
+  mediaItems?: PostMediaMeta[];
   eventDate: unknown;
+  endDate?: unknown;
   timeLabel?: string;
   venue: string;
   onlineMeetingUrl?: string;
   organiser: string;
+  registrationRequired?: boolean;
   registrationUrl?: string;
+  contactInfo?: string;
   instructions?: string;
   status: CampusEventStatus;
+  published?: boolean;
+  likesCount?: number;
+  commentsCount?: number;
+  notifiedNewAt?: unknown;
+  lastUpdatedNoticeMs?: number;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -609,6 +661,11 @@ export interface NotificationItem {
   title: string;
   body?: string;
   targetPath?: string;
+  actorUid?: string;
+  actorUsername?: string;
+  actorName?: string;
+  actorPhotoUrl?: string;
+  actorPhotoImageId?: string;
   isRead: boolean;
   createdAt: unknown;
 }
@@ -1104,6 +1161,12 @@ export function validateTrustedContactPayload(contact: TrustedContact): void {
   if (contact.photoUrl && !isSafeMediaUrl(contact.photoUrl)) {
     throw new Error('TrustedContact photoUrl must be a valid URL.');
   }
+  if (contact.photoImageId && !isValidFirestoreId(contact.photoImageId)) {
+    throw new Error('TrustedContact photoImageId is invalid.');
+  }
+  if (contact.badgeLabel && contact.badgeLabel.trim().length > 48) {
+    throw new Error('TrustedContact badgeLabel must be 48 characters or fewer.');
+  }
 }
 
 export function resolveBadgeForRole(role: UserRole): BadgeType {
@@ -1314,7 +1377,7 @@ export function resolveOpportunityEffectiveStatus(
   expiresAtMs: number | null,
   nowMs: number = Date.now()
 ): 'active' | 'expired' {
-  if (opp.status === 'expired') {
+  if (opp.status === 'expired' || opp.status === 'unpublished') {
     return 'expired';
   }
   if (expiresAtMs !== null && expiresAtMs <= nowMs) {

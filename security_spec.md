@@ -40,3 +40,6 @@
    - `postType` is immutable after creation.
 3. **Target Post Integrity on Reactions & Comments**: `postReactions` and `postComments` creation verify that the target post exists and has `status == 'published'`, while deterministic reaction IDs (`posts_{postId}_{uid}`) prevent duplicate likes per account.
 
+## 5. Prompt 10 Trusted Circle & Public Following Invariants
+1. **Atomic Follow Notification Guard**: Authenticated active users may create `'follow'` notifications ONLY inside an atomic transaction transitioning `follows/{actorUid}_{targetUid}` from non-existent (`!exists`) to existing (`existsAfter`), preventing self-notifications, spoofed actors, and duplicate follow notifications.
+2. **Non-Account Directory Separation**: Admin-managed `/trustedContacts` records enforce `entryType == 'admin_listed_contact'` and `isUserAccount == false`, support compressed profile images (`targetCollection == 'trustedContacts'`, Supreme Admin / Owner only), and never receive user accounts or follow controls.

@@ -10,6 +10,7 @@ import {
   runTransaction,
   serverTimestamp,
   startAfter,
+  updateDoc,
   where,
   writeBatch,
   type DocumentData,
@@ -58,6 +59,7 @@ import {
   validateUsernameCandidate,
   type ProfileSettingsFormInput,
 } from '../utils/authValidation';
+import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
   extractTimestampMs,
   filterAnonymousPosts,
@@ -850,8 +852,9 @@ export async function followMemberByUsername(
   const actorRef = doc(db, COLLECTION_NAMES.users, actorUid);
 
   try {
-    await runTransaction(db, async (tx) => {
-      const [followSnap, targetSnap, actorSnap] = await Promise.all([
+    await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const [followSnap, targetSnap, actorSnap] = await Promise.all([
         tx.get(followRef),
         tx.get(targetRef),
         tx.get(actorRef),
@@ -894,7 +897,30 @@ export async function followMemberByUsername(
         followingCount: (actorData.followingCount ?? 0) + 1,
         updatedAt: serverTimestamp(),
       });
-    });
+
+      const notifId = doc(collection(db, COLLECTION_NAMES.notifications)).id;
+      const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+      const notifPayload: Record<string, unknown> = {
+        id: notifId,
+        recipientUid: targetUid,
+        eventType: 'follow',
+        title: `${actorData.fullName} started following you`,
+        body: `@${actorData.username} is now following your campus profile.`,
+        targetPath: `/?view=profile&username=${actorData.username}`,
+        actorUid,
+        actorUsername: actorData.username,
+        actorName: actorData.fullName,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      };
+      if (actorData.photoImageId && isValidFirestoreId(actorData.photoImageId)) {
+        notifPayload.actorPhotoImageId = actorData.photoImageId;
+      } else if (actorData.photoUrl && isSafeMediaUrl(actorData.photoUrl)) {
+        notifPayload.actorPhotoUrl = actorData.photoUrl;
+      }
+        tx.set(notifRef, notifPayload);
+      })
+    );
   } catch (error) {
     if (error instanceof DomainValidationError || (error instanceof Error && !('code' in error))) {
       throw error;
@@ -929,8 +955,9 @@ export async function unfollowMemberByUsername(
   const actorRef = doc(db, COLLECTION_NAMES.users, actorUid);
 
   try {
-    await runTransaction(db, async (tx) => {
-      const [followSnap, targetSnap, actorSnap] = await Promise.all([
+    await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const [followSnap, targetSnap, actorSnap] = await Promise.all([
         tx.get(followRef),
         tx.get(targetRef),
         tx.get(actorRef),
@@ -960,8 +987,9 @@ export async function unfollowMemberByUsername(
             updatedAt: serverTimestamp(),
           });
         }
-      }
-    });
+        }
+      })
+    );
   } catch (error) {
     handleFirestoreError(
       error,
@@ -971,7 +999,7 @@ export async function unfollowMemberByUsername(
   }
 }
 
-async function fetchPublicProfileProjectionsByUids(
+export async function fetchPublicProfileProjectionsByUids(
   uids: string[]
 ): Promise<Map<string, PublicProfileProjection>> {
   const uniqueUids = Array.from(new Set(uids.filter(isValidFirestoreId)));
@@ -998,54 +1026,71 @@ async function fetchPublicProfileProjectionsByUids(
   return result;
 }
 
-export async function fetchFollowersListByUsername(
-  username: string
-): Promise<PublicProfileProjection[]> {
-  const resolved = await resolveUsernameToUidInternal(username);
-  if (!resolved) return [];
+export interface FollowDirectoryPageResult {
+  items: PublicProfileProjection[];
+  nextCursor: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+export async function fetchFollowDirectoryPage(input: {
+  username: string;
+  kind: 'followers' | 'following';
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+}): Promise<FollowDirectoryPageResult> {
+  const resolved = await resolveUsernameToUidInternal(input.username);
+  if (!resolved) {
+    return { items: [], nextCursor: null, hasMore: false };
+  }
+  const pageSize = Math.max(5, Math.min(50, input.pageSize ?? 25));
+  const field = input.kind === 'followers' ? 'targetUid' : 'followerUid';
 
   try {
     const q = query(
       collection(db, COLLECTION_NAMES.follows),
-      where('targetUid', '==', resolved.uid),
-      limit(60)
+      where(field, '==', resolved.uid),
+      ...(input.cursor ? [startAfter(input.cursor)] : []),
+      limit(pageSize + 1)
     );
     const snap = await getDocs(q);
-    const followerUids = snap.docs.map(
-      (item) => (item.data() as FollowEdge).followerUid
-    );
-    const map = await fetchPublicProfileProjectionsByUids(followerUids);
-    return followerUids
+    const hasMore = snap.docs.length > pageSize;
+    const pageDocs = snap.docs.slice(0, pageSize);
+    const nextCursor =
+      hasMore && pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+    const targetUids = pageDocs.map((item) => {
+      const edge = item.data() as FollowEdge;
+      return input.kind === 'followers' ? edge.followerUid : edge.targetUid;
+    });
+    const map = await fetchPublicProfileProjectionsByUids(targetUids);
+    const items = targetUids
       .map((uid) => map.get(uid))
       .filter((item): item is PublicProfileProjection => Boolean(item));
+    return { items, nextCursor, hasMore };
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
   }
 }
 
+export async function fetchFollowersListByUsername(
+  username: string
+): Promise<PublicProfileProjection[]> {
+  const page = await fetchFollowDirectoryPage({
+    username,
+    kind: 'followers',
+    pageSize: 50,
+  });
+  return page.items;
+}
+
 export async function fetchFollowingListByUsername(
   username: string
 ): Promise<PublicProfileProjection[]> {
-  const resolved = await resolveUsernameToUidInternal(username);
-  if (!resolved) return [];
-
-  try {
-    const q = query(
-      collection(db, COLLECTION_NAMES.follows),
-      where('followerUid', '==', resolved.uid),
-      limit(60)
-    );
-    const snap = await getDocs(q);
-    const targetUids = snap.docs.map(
-      (item) => (item.data() as FollowEdge).targetUid
-    );
-    const map = await fetchPublicProfileProjectionsByUids(targetUids);
-    return targetUids
-      .map((uid) => map.get(uid))
-      .filter((item): item is PublicProfileProjection => Boolean(item));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
-  }
+  const page = await fetchFollowDirectoryPage({
+    username,
+    kind: 'following',
+    pageSize: 50,
+  });
+  return page.items;
 }
 
 export async function fetchViewerFollowingUsernames(
@@ -1059,7 +1104,7 @@ export async function fetchViewerFollowingUsernames(
     const q = query(
       collection(db, COLLECTION_NAMES.follows),
       where('followerUid', '==', viewerUid),
-      limit(100)
+      limit(200)
     );
     const snap = await getDocs(q);
     const targetUids = snap.docs.map(
@@ -1067,11 +1112,104 @@ export async function fetchViewerFollowingUsernames(
     );
     const profiles = await fetchPublicProfileProjectionsByUids(targetUids);
     return new Set(
-      Array.from(profiles.values()).map((profile) => profile.username)
+      Array.from(profiles.values()).map((profile) =>
+        profile.username.toLowerCase()
+      )
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
   }
+}
+
+export function subscribeViewerFollowUsernames(
+  viewerUid: string,
+  uidToUsernameCache: Map<string, string>,
+  onUpdate: (state: {
+    followingUsernames: Set<string>;
+    followerUsernames: Set<string>;
+  }) => void
+): Unsubscribe {
+  if (!isValidFirestoreId(viewerUid)) {
+    return () => {};
+  }
+
+  let active = true;
+  let followingUids: string[] = [];
+  let followerUids: string[] = [];
+
+  const syncResolvedSets = async () => {
+    const missing = Array.from(
+      new Set([...followingUids, ...followerUids])
+    ).filter((uid) => isValidFirestoreId(uid) && !uidToUsernameCache.has(uid));
+
+    if (missing.length > 0) {
+      const profiles = await fetchPublicProfileProjectionsByUids(missing).catch(
+        () => new Map<string, PublicProfileProjection>()
+      );
+      for (const uid of missing) {
+        const proj = profiles.get(uid);
+        if (proj?.username) {
+          uidToUsernameCache.set(uid, proj.username.toLowerCase());
+        }
+      }
+    }
+
+    if (!active) return;
+
+    const followingUsernames = new Set<string>();
+    for (const uid of followingUids) {
+      const uname = uidToUsernameCache.get(uid);
+      if (uname) followingUsernames.add(uname);
+    }
+
+    const followerUsernames = new Set<string>();
+    for (const uid of followerUids) {
+      const uname = uidToUsernameCache.get(uid);
+      if (uname) followerUsernames.add(uname);
+    }
+
+    onUpdate({ followingUsernames, followerUsernames });
+  };
+
+  const unsubFollowing = onSnapshot(
+    query(
+      collection(db, COLLECTION_NAMES.follows),
+      where('followerUid', '==', viewerUid),
+      limit(250)
+    ),
+    (snapshot) => {
+      followingUids = snapshot.docs.map(
+        (item) => (item.data() as FollowEdge).targetUid
+      );
+      void syncResolvedSets();
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
+    }
+  );
+
+  const unsubFollowers = onSnapshot(
+    query(
+      collection(db, COLLECTION_NAMES.follows),
+      where('targetUid', '==', viewerUid),
+      limit(250)
+    ),
+    (snapshot) => {
+      followerUids = snapshot.docs.map(
+        (item) => (item.data() as FollowEdge).followerUid
+      );
+      void syncResolvedSets();
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
+    }
+  );
+
+  return () => {
+    active = false;
+    unsubFollowing();
+    unsubFollowers();
+  };
 }
 
 export type CommunityFeedCursor =
@@ -1674,7 +1812,7 @@ export function subscribeUserNotifications(
   const q = query(
     collection(db, COLLECTION_NAMES.notifications),
     where('recipientUid', '==', uid),
-    limit(40)
+    limit(50)
   );
   return onSnapshot(
     q,
@@ -1682,13 +1820,46 @@ export function subscribeUserNotifications(
       onItems(
         sortByCreatedAtDesc(
           snapshot.docs.map((item) => item.data() as NotificationItem)
-        ).slice(0, 25)
+        ).slice(0, 40)
       );
     },
     (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
     }
   );
+}
+
+export async function markNotificationAsRead(
+  notificationId: string
+): Promise<void> {
+  if (!isValidFirestoreId(notificationId)) return;
+  const path = `${COLLECTION_NAMES.notifications}/${notificationId}`;
+  try {
+    await updateDoc(doc(db, COLLECTION_NAMES.notifications, notificationId), {
+      isRead: true,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function markAllNotificationsAsRead(
+  notifications: readonly NotificationItem[]
+): Promise<void> {
+  const unreadIds = notifications
+    .filter((item) => !item.isRead && isValidFirestoreId(item.id))
+    .map((item) => item.id);
+  if (unreadIds.length === 0) return;
+
+  const batch = writeBatch(db);
+  for (const id of unreadIds) {
+    batch.update(doc(db, COLLECTION_NAMES.notifications, id), { isRead: true });
+  }
+  try {
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, COLLECTION_NAMES.notifications);
+  }
 }
 
 /**

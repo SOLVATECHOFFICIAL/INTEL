@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Building2,
   Calendar,
+  CheckCircle2,
   ExternalLink,
   Image as ImageIcon,
   Loader2,
@@ -9,22 +10,16 @@ import {
   Search,
   ShoppingBag,
   Sparkles,
-  UserCheck,
-  UserPlus,
   X,
 } from 'lucide-react';
 import { getAnonymousBackgroundTheme } from '../config/anonymousBackgrounds';
-import { useFirebase } from '../context/firebaseContext';
 import {
-  fetchViewerFollowingUsernames,
-  followMemberByUsername,
   searchAnonymousScope,
   searchEventsScope,
   searchHomeScope,
   searchMarketplaceScope,
   searchOpportunitiesScope,
   searchTrustedCircleScope,
-  unfollowMemberByUsername,
   type HomeSearchResult,
 } from '../services/firestoreFoundation';
 import type {
@@ -40,7 +35,20 @@ import {
   FIRESTORE_SEARCH_SCOPE_NOTE,
   SEARCH_SCOPE_CONFIG,
 } from '../utils/contextualSearch';
+import { TRUSTED_CONTACT_CATEGORY_LABELS } from '../utils/followRelations';
+import {
+  formatOpportunityDeadlineSummary,
+  getOpportunityCategoryLabel,
+  getSafeApplicationUrl,
+  resolveOpportunityLifecycle,
+} from '../utils/opportunities';
+import {
+  formatEventDateTimeRange,
+  getEventCategoryLabel,
+  resolveEventLifecycle,
+} from '../utils/events';
 import { RoleBadge } from './RoleBadge';
+import { TikTokFollowButton } from './TikTokFollowButton';
 import { GuestPromptCard } from './auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from './media/FirestoreImage';
 
@@ -48,7 +56,12 @@ interface ContextualSearchBarProps {
   scope: SearchScopeId;
   onNavigate: (
     route: ActiveRoute,
-    options?: { username?: string; searchScope?: SearchScopeId }
+    options?: {
+      username?: string;
+      searchScope?: SearchScopeId;
+      opportunityId?: string | null;
+      eventId?: string | null;
+    }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
   returnRoute: ActiveRoute;
@@ -62,7 +75,6 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   returnRoute,
   embedded = false,
 }) => {
-  const { user, profile, isSuspended, refreshAccountState } = useFirebase();
   const scopeMeta = SEARCH_SCOPE_CONFIG[scope];
 
   const [queryText, setQueryText] = useState('');
@@ -85,31 +97,9 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   );
   const [eventResults, setEventResults] = useState<CampusEvent[]>([]);
 
-  const [followingSet, setFollowingSet] = useState<Set<string>>(new Set());
-  const [pendingFollowUser, setPendingFollowUser] = useState<string | null>(
-    null
-  );
   const [guestPromptTarget, setGuestPromptTarget] = useState<string | null>(
     null
   );
-  const [followError, setFollowError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!user || scope !== 'home') {
-      return;
-    }
-    let active = true;
-    fetchViewerFollowingUsernames(user.uid)
-      .then((usernames) => {
-        if (active) setFollowingSet(usernames);
-      })
-      .catch(() => {
-        // Non-blocking enrichment
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, scope]);
 
   const executeSearch = useCallback(
     async (rawTerm: string) => {
@@ -121,7 +111,6 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       }
 
       setStatus('loading');
-      setFollowError(null);
 
       try {
         if (scope === 'home') {
@@ -171,54 +160,6 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       setStatus('idle');
     }
   };
-
-  const handleToggleFollow = async (targetUsername: string) => {
-    if (pendingFollowUser) return;
-    setFollowError(null);
-
-    if (!user) {
-      setGuestPromptTarget(targetUsername);
-      return;
-    }
-    if (isSuspended) {
-      setFollowError('Suspended accounts cannot follow other members.');
-      return;
-    }
-    if (profile?.username === targetUsername) {
-      return;
-    }
-
-    const wasFollowing = followingSet.has(targetUsername);
-    setPendingFollowUser(targetUsername);
-
-    try {
-      if (wasFollowing) {
-        await unfollowMemberByUsername(user.uid, targetUsername);
-      } else {
-        await followMemberByUsername(user.uid, targetUsername);
-      }
-      setFollowingSet((prev) => {
-        const next = new Set(prev);
-        if (wasFollowing) {
-          next.delete(targetUsername);
-        } else {
-          next.add(targetUsername);
-        }
-        return next;
-      });
-      await refreshAccountState();
-    } catch (error) {
-      setFollowError(
-        error instanceof Error
-          ? error.message
-          : 'Unable to update follow status right now.'
-      );
-    } finally {
-      setPendingFollowUser(null);
-    }
-  };
-
-  const activeFollowingSet = user ? followingSet : new Set<string>();
 
   const hasResults =
     (scope === 'home' &&
@@ -300,15 +241,6 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         </div>
       )}
 
-      {followError && (
-        <div
-          role="alert"
-          className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
-        >
-          {followError}
-        </div>
-      )}
-
       {status === 'loading' && (
         <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
           <Loader2
@@ -353,87 +285,54 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                     Campus Members ({homeResults.members.length})
                   </p>
                   <div className="space-y-2.5">
-                    {homeResults.members.map((member) => {
-                      const isOwn = profile?.username === member.username;
-                      const isFollowing = activeFollowingSet.has(
-                        member.username
-                      );
-                      const isBusy = pendingFollowUser === member.username;
-
-                      return (
-                        <div
-                          key={member.username}
-                          className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center"
+                    {homeResults.members.map((member) => (
+                      <div
+                        key={member.username}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onNavigate('profile', {
+                              username: member.username,
+                            })
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onNavigate('profile', {
-                                username: member.username,
-                              })
-                            }
-                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                          >
-                            <AvatarMedia
-                              fullName={member.fullName}
-                              photoImageId={member.photoImageId}
-                              photoUrl={member.photoUrl}
-                              sizeClass="h-11 w-11"
-                              roundedClass="rounded-xl"
-                              textClass="text-xs"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                                  {member.fullName}
-                                </span>
-                                <RoleBadge badge={member.badge} size="xs" />
-                              </div>
-                              <p className="truncate text-xs text-slate-600">
-                                @{member.username}
-                                {member.department
-                                  ? ` · ${member.department}`
-                                  : ''}
-                                {member.level ? ` · ${member.level}` : ''}
-                              </p>
+                          <AvatarMedia
+                            fullName={member.fullName}
+                            photoImageId={member.photoImageId}
+                            photoUrl={member.photoUrl}
+                            sizeClass="h-11 w-11"
+                            roundedClass="rounded-xl"
+                            textClass="text-xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                                {member.fullName}
+                              </span>
+                              <RoleBadge badge={member.badge} size="xs" />
                             </div>
-                          </button>
+                            <p className="truncate text-xs text-slate-600">
+                              @{member.username}
+                              {member.department
+                                ? ` · ${member.department}`
+                                : ''}
+                              {member.level ? ` · ${member.level}` : ''}
+                            </p>
+                          </div>
+                        </button>
 
-                          {!isOwn && (
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() =>
-                                void handleToggleFollow(member.username)
-                              }
-                              className={`inline-flex min-h-[38px] shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
-                                isFollowing
-                                  ? 'border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
-                                  : 'bg-[#1E88E5] text-white hover:bg-[#1565C0]'
-                              }`}
-                            >
-                              {isBusy ? (
-                                <Loader2
-                                  className="h-3.5 w-3.5 animate-spin"
-                                  aria-hidden="true"
-                                />
-                              ) : isFollowing ? (
-                                <UserCheck
-                                  className="h-3.5 w-3.5 text-[#1E88E5]"
-                                  aria-hidden="true"
-                                />
-                              ) : (
-                                <UserPlus
-                                  className="h-3.5 w-3.5"
-                                  aria-hidden="true"
-                                />
-                              )}
-                              <span>{isFollowing ? 'Following' : 'Follow'}</span>
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
+                        <TikTokFollowButton
+                          targetUsername={member.username}
+                          compact
+                          onRequireAuth={() =>
+                            setGuestPromptTarget(member.username)
+                          }
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -464,6 +363,13 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                                 {author.fullName} (@{author.username})
                               </button>
                               <RoleBadge badge={author.badge} size="xs" />
+                              <TikTokFollowButton
+                                targetUsername={author.username}
+                                compact
+                                onRequireAuth={() =>
+                                  setGuestPromptTarget(author.username)
+                                }
+                              />
                             </div>
                           ) : (
                             <span>Campus Contributor</span>
@@ -634,25 +540,41 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                   key={contact.id}
                   className="rounded-xl border border-slate-200 p-3.5"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
-                      {contact.fullName}
-                    </h3>
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                      Official Contact (Admin-Listed)
-                    </span>
+                  <div className="flex items-start gap-3">
+                    {(contact.photoImageId || contact.photoUrl) && (
+                      <AvatarMedia
+                        fullName={contact.fullName}
+                        photoImageId={contact.photoImageId}
+                        photoUrl={contact.photoUrl}
+                        sizeClass="h-10 w-10"
+                        roundedClass="rounded-xl"
+                        textClass="text-xs"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
+                          {contact.fullName}
+                        </h3>
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                          {contact.badgeLabel ||
+                            TRUSTED_CONTACT_CATEGORY_LABELS[contact.category] ||
+                            'Directory Profile'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs font-medium text-[#1E88E5]">
+                        {contact.roleTitle}
+                      </p>
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
+                        <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>
+                          {[contact.department, contact.faculty]
+                            .filter(Boolean)
+                            .join(' · ') || 'Campus Office'}
+                        </span>
+                      </p>
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs font-medium text-[#1E88E5]">
-                    {contact.roleTitle}
-                  </p>
-                  <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
-                    <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>
-                      {[contact.department, contact.faculty]
-                        .filter(Boolean)
-                        .join(' · ') || 'Campus Office'}
-                    </span>
-                  </p>
                 </article>
               ))}
             </div>
@@ -660,61 +582,142 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
           {scope === 'opportunities' && (
             <div className="space-y-2.5">
-              {opportunityResults.map((opp) => (
-                <article
-                  key={opp.id}
-                  className="rounded-xl border border-slate-200 p-3.5"
-                >
-                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
-                    <span className="inline-flex items-center gap-1 font-medium text-[#1E88E5]">
-                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                      {opp.category}
-                    </span>
-                    <span>{opp.organisation}</span>
-                  </div>
-                  <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
-                    {opp.title}
-                  </h3>
-                  <p className="mt-1 line-clamp-2 text-xs text-slate-600">
-                    {opp.description}
-                  </p>
-                  <a
-                    href={opp.applicationUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
+              {opportunityResults.map((opp) => {
+                const lifecycle = resolveOpportunityLifecycle(opp);
+                const safeUrl = getSafeApplicationUrl(opp.applicationUrl);
+                return (
+                  <article
+                    key={opp.id}
+                    className="rounded-xl border border-slate-200 p-3.5"
                   >
-                    Open Application Link
-                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  </a>
-                </article>
-              ))}
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <span className="inline-flex items-center gap-1.5 font-medium text-[#1E88E5]">
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>{getOpportunityCategoryLabel(opp.category)}</span>
+                        <span aria-hidden="true">·</span>
+                        <span
+                          className={
+                            lifecycle.state === 'closing_soon'
+                              ? 'font-semibold text-amber-700'
+                              : lifecycle.state === 'closed'
+                                ? 'text-slate-600'
+                                : 'font-semibold text-emerald-700'
+                          }
+                        >
+                          {lifecycle.label}
+                        </span>
+                      </span>
+                      <span className="inline-flex items-center gap-1 font-medium text-slate-600">
+                        {opp.organisation}
+                        {opp.isVerified === true && (
+                          <CheckCircle2
+                            className="h-3.5 w-3.5 text-[#1E88E5]"
+                            aria-label="Verified opportunity"
+                          />
+                        )}
+                      </span>
+                    </div>
+                    <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
+                      {opp.title}
+                    </h3>
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">
+                      {opp.description}
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500">
+                        {formatOpportunityDeadlineSummary(lifecycle)}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onNavigate('opportunities', {
+                              opportunityId: opp.id,
+                            })
+                          }
+                          className="text-xs font-semibold text-[#0B1A2E] hover:text-[#1E88E5] hover:underline"
+                        >
+                          View Details
+                        </button>
+                        {safeUrl && !lifecycle.isPastDeadline && (
+                          <a
+                            href={safeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
+                          >
+                            Apply
+                            <ExternalLink
+                              className="h-3 w-3"
+                              aria-hidden="true"
+                            />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
 
           {scope === 'upcoming-events' && (
             <div className="space-y-2.5">
-              {eventResults.map((ev) => (
-                <article
-                  key={ev.id}
-                  className="rounded-xl border border-slate-200 p-3.5"
-                >
-                  <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
-                    <span className="inline-flex items-center gap-1 font-medium text-[#1E88E5]">
-                      <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
-                      {ev.status === 'past' ? 'Past Event' : 'Upcoming Event'}
-                    </span>
-                    <span>{ev.organiser}</span>
-                  </div>
-                  <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
-                    {ev.title}
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Venue: {ev.venue}
-                    {ev.timeLabel ? ` · ${ev.timeLabel}` : ''}
-                  </p>
-                </article>
-              ))}
+              {eventResults.map((ev) => {
+                const lifecycle = resolveEventLifecycle(ev);
+                return (
+                  <article
+                    key={ev.id}
+                    className="rounded-xl border border-slate-200 p-3.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <span className="inline-flex items-center gap-1.5 font-medium text-[#1E88E5]">
+                        <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>{getEventCategoryLabel(ev.category)}</span>
+                        <span aria-hidden="true">·</span>
+                        <span
+                          className={
+                            lifecycle.state === 'ongoing'
+                              ? 'font-semibold text-[#1E88E5]'
+                              : lifecycle.state === 'upcoming'
+                                ? 'font-semibold text-emerald-700'
+                                : lifecycle.state === 'cancelled'
+                                  ? 'font-semibold text-red-700'
+                                  : 'text-slate-600'
+                          }
+                        >
+                          {lifecycle.label}
+                        </span>
+                      </span>
+                      <span className="font-medium text-slate-600">
+                        {ev.organiser}
+                      </span>
+                    </div>
+                    <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
+                      {ev.title}
+                    </h3>
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">
+                      {ev.description}
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500">
+                        {formatEventDateTimeRange(ev)} · {ev.venue}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onNavigate('upcoming-events', {
+                            eventId: ev.id,
+                          })
+                        }
+                        className="text-xs font-semibold text-[#0B1A2E] hover:text-[#1E88E5] hover:underline"
+                      >
+                        View Details
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
 
