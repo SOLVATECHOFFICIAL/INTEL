@@ -4,6 +4,7 @@ import {
   fetchMediaImageDataUrl,
   getCachedMediaImageDataUrl,
 } from '../../services/mediaStorage';
+import type { MediaCacheKeyOptions } from '../../utils/mediaCache';
 
 interface FirestoreImageProps {
   imageId?: string | null;
@@ -13,6 +14,8 @@ interface FirestoreImageProps {
   className?: string;
   placeholderClassName?: string;
   eager?: boolean;
+  cacheScope?: MediaCacheKeyOptions;
+  fallbackNode?: React.ReactNode;
   onClick?: () => void;
 }
 
@@ -30,14 +33,25 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
   className = 'h-full w-full object-cover',
   placeholderClassName = 'bg-[#0B1A2E]',
   eager = false,
+  cacheScope,
+  fallbackNode,
   onClick,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [inViewId, setInViewId] = useState<string | null>(null);
   const [asyncState, setAsyncState] = useState<AsyncFetchState | null>(null);
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
 
-  const cachedSrc = imageId ? getCachedMediaImageDataUrl(imageId) : null;
+  const scopeKind = cacheScope?.scope ?? 'public';
+  const scopeUid = cacheScope?.viewerUid ?? null;
+
+  const cachedSrc = imageId
+    ? getCachedMediaImageDataUrl(imageId, {
+        scope: scopeKind,
+        viewerUid: scopeUid,
+      })
+    : null;
   const matchedAsync =
     imageId && asyncState?.forImageId === imageId ? asyncState : null;
 
@@ -53,6 +67,11 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
   const isWaitingInView = Boolean(
     !activeSrc && imageId && !matchedAsync?.failed
   );
+  const isInstantHit = Boolean(directSrc || cachedSrc);
+  const isDecoded = Boolean(
+    activeSrc && (isInstantHit || loadedSrc === activeSrc)
+  );
+
   const shouldFetch = Boolean(
     imageId &&
       !directSrc &&
@@ -77,7 +96,7 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
           observer.disconnect();
         }
       },
-      { rootMargin: '240px 0px' }
+      { rootMargin: '320px 0px' }
     );
     observer.observe(node);
     return () => observer.disconnect();
@@ -87,7 +106,10 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
     if (!shouldFetch || !imageId) return;
 
     let active = true;
-    fetchMediaImageDataUrl(imageId)
+    fetchMediaImageDataUrl(imageId, {
+      scope: scopeKind,
+      viewerUid: scopeUid,
+    })
       .then((dataUrl) => {
         if (!active) return;
         setAsyncState({
@@ -108,7 +130,7 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
     return () => {
       active = false;
     };
-  }, [shouldFetch, imageId, fallbackUrl]);
+  }, [shouldFetch, imageId, fallbackUrl, scopeKind, scopeUid]);
 
   return (
     <div
@@ -116,21 +138,37 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
       className={`relative h-full w-full overflow-hidden ${placeholderClassName}`}
     >
       {activeSrc ? (
-        <img
-          src={activeSrc}
-          alt={alt}
-          loading={eager ? 'eager' : 'lazy'}
-          decoding="async"
-          referrerPolicy="no-referrer"
-          onClick={onClick}
-          onError={() => setBrokenSrc(activeSrc)}
-          className={className}
-        />
+        <>
+          {!isDecoded && (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 animate-pulse bg-[#132946]"
+            />
+          )}
+          <img
+            src={activeSrc}
+            alt={alt}
+            loading={eager ? 'eager' : 'lazy'}
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onClick={onClick}
+            onLoad={() => setLoadedSrc(activeSrc)}
+            onError={() => {
+              setLoadedSrc(null);
+              setBrokenSrc(activeSrc);
+            }}
+            className={`${className} transition-opacity duration-200 ${
+              isDecoded ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+        </>
       ) : isWaitingInView && !isImgBroken ? (
         <div
           aria-label="Loading photograph"
           className="h-full w-full animate-pulse bg-[#132946]"
         />
+      ) : fallbackNode ? (
+        fallbackNode
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-[#0B1A2E] text-slate-300">
           <ImageOff className="h-5 w-5 text-slate-400" aria-hidden="true" />
@@ -150,6 +188,7 @@ interface AvatarMediaProps {
   sizeClass?: string;
   roundedClass?: string;
   textClass?: string;
+  eager?: boolean;
 }
 
 function computeInitials(name: string): string {
@@ -166,8 +205,10 @@ export const AvatarMedia: React.FC<AvatarMediaProps> = ({
   sizeClass = 'h-10 w-10',
   roundedClass = 'rounded-full',
   textClass = 'text-xs',
+  eager = false,
 }) => {
   const hasPhoto = Boolean(photoImageId || photoUrl);
+  const initials = computeInitials(fullName);
 
   return (
     <div
@@ -178,11 +219,17 @@ export const AvatarMedia: React.FC<AvatarMediaProps> = ({
           imageId={photoImageId}
           fallbackUrl={photoUrl}
           alt={fullName}
+          eager={eager}
           className="h-full w-full object-cover"
           placeholderClassName="bg-[#0B1A2E]"
+          fallbackNode={
+            <div className="flex h-full w-full items-center justify-center bg-[#0B1A2E] font-bold text-white">
+              <span className={textClass}>{initials}</span>
+            </div>
+          }
         />
       ) : (
-        <span className={textClass}>{computeInitials(fullName)}</span>
+        <span className={textClass}>{initials}</span>
       )}
     </div>
   );

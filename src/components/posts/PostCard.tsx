@@ -101,6 +101,8 @@ interface PostCardProps {
   onPostDeleted: (postId: string) => void;
   onSaveChanged?: (postId: string, saved: boolean) => void;
   onAnonymousCommentTracked?: (commentId: string, action: 'add' | 'remove') => void;
+  allowAnonymousReport?: boolean;
+  onOpenPost?: (postId: string) => void;
 }
 
 const ANONYMOUS_REPORT_REASON_LABELS: Record<AnonymousReportReason, string> = {
@@ -146,6 +148,8 @@ export const PostCard: React.FC<PostCardProps> = ({
   onPostDeleted,
   onSaveChanged,
   onAnonymousCommentTracked,
+  allowAnonymousReport = false,
+  onOpenPost,
 }) => {
   const targetCollection = kind === 'ordinary' ? 'posts' : 'anonymousPosts';
 
@@ -1539,7 +1543,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         </div>
 
         <div className="flex items-center gap-1 sm:gap-1.5">
-          {kind === 'anonymous' && (
+          {kind === 'anonymous' && allowAnonymousReport && (
             <button
               type="button"
               disabled={reportedTargetIds.has(post.id)}
@@ -1583,10 +1587,20 @@ export const PostCard: React.FC<PostCardProps> = ({
               {savedState ? 'Saved' : 'Save'}
             </span>
           </button>
+
+          {onOpenPost && (
+            <button
+              type="button"
+              onClick={() => onOpenPost(post.id)}
+              className="inline-flex min-h-[40px] items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:border-[#1E88E5] hover:text-[#1E88E5]"
+            >
+              Open Post
+            </button>
+          )}
         </div>
       </div>
 
-      {kind === 'anonymous' && renderInlineReportBox(post.id)}
+      {kind === 'anonymous' && allowAnonymousReport && renderInlineReportBox(post.id)}
 
       {/* Expandable Comments & Nested Replies Drawer */}
       {commentsOpen && (
@@ -1752,7 +1766,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                         >
                           Reply
                         </button>
-                        {kind === 'anonymous' && (
+                        {kind === 'anonymous' && allowAnonymousReport && (
                           <button
                             type="button"
                             disabled={
@@ -1834,7 +1848,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                       </p>
                     )}
 
-                    {kind === 'anonymous' && renderInlineReportBox(comment.id)}
+                    {kind === 'anonymous' && allowAnonymousReport && renderInlineReportBox(comment.id)}
 
                     {/* Reply Input */}
                     {replyingToId === comment.id && (
@@ -1975,7 +1989,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                                           Number(reply.likesCount ?? 0)}
                                       </span>
                                     </button>
-                                    {kind === 'anonymous' && (
+                                    {kind === 'anonymous' && allowAnonymousReport && (
                                       <button
                                         type="button"
                                         disabled={

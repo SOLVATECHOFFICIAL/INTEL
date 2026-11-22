@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   Eye,
   ImagePlus,
@@ -50,6 +52,10 @@ import {
   formatByteSize,
   validatePostImageCountAfterAdd,
 } from '../../utils/imageCompression';
+import {
+  partitionDuplicateSelectedFiles,
+  reorderArrayItem,
+} from '../../utils/mediaCache';
 import type { GridPhotoItem } from '../../utils/mediaGrid';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
@@ -264,19 +270,36 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     const files = Array.from(fileList);
     setErrorMessage(null);
 
+    const existingFingerprints = new Set<string>(
+      attachments
+        .map((att) => att.compressed?.fingerprint)
+        .filter((fp): fp is string => Boolean(fp))
+    );
+    const { unique: uniqueFiles, duplicateCount } =
+      partitionDuplicateSelectedFiles(files, existingFingerprints);
+
+    if (uniqueFiles.length === 0) {
+      setErrorMessage(
+        duplicateCount > 0
+          ? 'Those photos are already selected in this post.'
+          : null
+      );
+      return;
+    }
+
     const countError = validatePostImageCountAfterAdd(
       attachments.length,
-      files.length
+      uniqueFiles.length
     );
     if (countError) {
       setErrorMessage(countError);
       return;
     }
 
-    setCompressingCount((prev) => prev + files.length);
+    setCompressingCount((prev) => prev + uniqueFiles.length);
     try {
       const nextAttachments: ComposerImageAttachment[] = [];
-      for (const file of files) {
+      for (const file of uniqueFiles) {
         const compressed = await compressImageFile(file, 'post');
         const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
         nextAttachments.push({
@@ -300,6 +323,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         }
         return [...prev, ...nextAttachments];
       });
+
+      if (duplicateCount > 0) {
+        setErrorMessage(
+          `Skipped ${duplicateCount} duplicate photo${duplicateCount === 1 ? '' : 's'} already attached.`
+        );
+      }
     } catch (error) {
       setErrorMessage(
         formatFirestoreOrAppError(
@@ -308,7 +337,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         )
       );
     } finally {
-      setCompressingCount((prev) => Math.max(0, prev - files.length));
+      setCompressingCount((prev) => Math.max(0, prev - uniqueFiles.length));
     }
   };
 
@@ -316,6 +345,11 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     if (isSubmitting) return;
     setErrorMessage(null);
     setAttachments((prev) => prev.filter((item) => item.clientId !== clientId));
+  };
+
+  const handleMoveAttachment = (fromIndex: number, toIndex: number) => {
+    if (isSubmitting) return;
+    setAttachments((prev) => reorderArrayItem(prev, fromIndex, toIndex));
   };
 
   const handleTriggerReplaceAttachment = (clientId: string) => {
@@ -332,6 +366,21 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     const targetClientId = replacingClientIdRef.current;
     replacingClientIdRef.current = null;
     if (!file || !targetClientId || isSubmitting) return;
+
+    const otherFingerprints = new Set<string>(
+      attachments
+        .filter((att) => att.clientId !== targetClientId)
+        .map((att) => att.compressed?.fingerprint)
+        .filter((fp): fp is string => Boolean(fp))
+    );
+    const { duplicateCount } = partitionDuplicateSelectedFiles(
+      [file],
+      otherFingerprints
+    );
+    if (duplicateCount > 0) {
+      setErrorMessage('That photo is already selected in another slot.');
+      return;
+    }
 
     setErrorMessage(null);
     setCompressingCount((prev) => prev + 1);
@@ -992,14 +1041,24 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                               >
                                 <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-[#0B1A2E]">
                                   {att.previewUrl ? (
-                                    <img
-                                      src={att.previewUrl}
-                                      alt={`Selected photograph ${idx + 1}`}
-                                      className="h-full w-full object-cover"
-                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setLightboxIndex(idx)}
+                                      aria-label={`Preview photograph ${idx + 1} full screen`}
+                                      className="block h-full w-full cursor-zoom-in"
+                                    >
+                                      <img
+                                        src={att.previewUrl}
+                                        alt={`Selected photograph ${idx + 1}`}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </button>
                                   ) : (
                                     <div className="h-full w-full animate-pulse bg-[#132946]" />
                                   )}
+                                  <span className="pointer-events-none absolute top-1 left-1 rounded bg-[#0B1A2E]/80 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                                    #{idx + 1}
+                                  </span>
                                   <button
                                     type="button"
                                     disabled={isSubmitting}
@@ -1012,33 +1071,63 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                                   </button>
                                 </div>
-                                  <div className="flex items-center justify-between gap-1">
-                                    <button
-                                      type="button"
-                                      disabled={isSubmitting || compressingCount > 0}
-                                      onClick={() =>
-                                        handleTriggerReplaceAttachment(att.clientId)
-                                      }
-                                      aria-label={`Replace photograph ${idx + 1}`}
-                                      className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
-                                    >
-                                      <RefreshCw
-                                        className="h-3 w-3 text-[#1E88E5]"
-                                        aria-hidden="true"
-                                      />
-                                      Replace
-                                    </button>
+                                <div className="flex items-center justify-between gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={isSubmitting || compressingCount > 0}
+                                    onClick={() =>
+                                      handleTriggerReplaceAttachment(att.clientId)
+                                    }
+                                    aria-label={`Replace photograph ${idx + 1}`}
+                                    className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
+                                  >
+                                    <RefreshCw
+                                      className="h-3 w-3 text-[#1E88E5]"
+                                      aria-hidden="true"
+                                    />
+                                    Replace
+                                  </button>
+                                  {attachments.length > 1 ? (
+                                    <div className="flex items-center gap-0.5">
+                                      <button
+                                        type="button"
+                                        disabled={isSubmitting || idx === 0}
+                                        onClick={() =>
+                                          handleMoveAttachment(idx, idx - 1)
+                                        }
+                                        aria-label={`Move photograph ${idx + 1} earlier`}
+                                        className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                      >
+                                        <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={
+                                          isSubmitting ||
+                                          idx === attachments.length - 1
+                                        }
+                                        onClick={() =>
+                                          handleMoveAttachment(idx, idx + 1)
+                                        }
+                                        aria-label={`Move photograph ${idx + 1} later`}
+                                        className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                      >
+                                        <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                                      </button>
+                                    </div>
+                                  ) : (
                                     <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums">
                                       {att.compressed
                                         ? formatByteSize(att.compressed.byteSize)
                                         : `#${idx + 1}`}
                                     </p>
-                                  </div>
+                                  )}
                                 </div>
-                              ))}
-                            </div>
+                              </div>
+                            ))}
                           </div>
-                        )}
+                        </div>
+                      )}
                       </div>
                     </>
                   ) : mode === 'anonymous' && anonPostType === 'text' ? (
@@ -1269,14 +1358,24 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                 >
                                   <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-[#0B1A2E]">
                                     {att.previewUrl ? (
-                                      <img
-                                        src={att.previewUrl}
-                                        alt={`Selected anonymous photograph ${idx + 1}`}
-                                        className="h-full w-full object-cover"
-                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setLightboxIndex(idx)}
+                                        aria-label={`Preview anonymous photograph ${idx + 1} full screen`}
+                                        className="block h-full w-full cursor-zoom-in"
+                                      >
+                                        <img
+                                          src={att.previewUrl}
+                                          alt={`Selected anonymous photograph ${idx + 1}`}
+                                          className="h-full w-full object-cover"
+                                        />
+                                      </button>
                                     ) : (
                                       <div className="h-full w-full animate-pulse bg-[#132946]" />
                                     )}
+                                    <span className="pointer-events-none absolute top-1 left-1 rounded bg-[#0B1A2E]/80 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                                      #{idx + 1}
+                                    </span>
                                     <button
                                       type="button"
                                       disabled={isSubmitting}
@@ -1305,11 +1404,41 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                       />
                                       Replace
                                     </button>
-                                    <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums">
-                                      {att.compressed
-                                        ? formatByteSize(att.compressed.byteSize)
-                                        : `#${idx + 1}`}
-                                    </p>
+                                    {attachments.length > 1 ? (
+                                      <div className="flex items-center gap-0.5">
+                                        <button
+                                          type="button"
+                                          disabled={isSubmitting || idx === 0}
+                                          onClick={() =>
+                                            handleMoveAttachment(idx, idx - 1)
+                                          }
+                                          aria-label={`Move photograph ${idx + 1} earlier`}
+                                          className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                        >
+                                          <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            isSubmitting ||
+                                            idx === attachments.length - 1
+                                          }
+                                          onClick={() =>
+                                            handleMoveAttachment(idx, idx + 1)
+                                          }
+                                          aria-label={`Move photograph ${idx + 1} later`}
+                                          className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                        >
+                                          <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums">
+                                        {att.compressed
+                                          ? formatByteSize(att.compressed.byteSize)
+                                          : `#${idx + 1}`}
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                               ))}

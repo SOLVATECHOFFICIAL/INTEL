@@ -1,56 +1,55 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Building2,
-  Calendar,
-  CheckCircle2,
-  ExternalLink,
-  Image as ImageIcon,
+  ArrowRight,
+  Clock,
   Loader2,
-  MessageCircle,
   Search,
-  ShoppingBag,
   Sparkles,
+  Tag,
+  User as UserIcon,
   X,
 } from 'lucide-react';
-import { getAnonymousBackgroundTheme } from '../config/anonymousBackgrounds';
+import { useFirebase } from '../context/firebaseContext';
 import {
-  searchAnonymousScope,
-  searchEventsScope,
-  searchHomeScope,
-  searchMarketplaceScope,
-  searchOpportunitiesScope,
-  searchTrustedCircleScope,
-  type HomeSearchResult,
-} from '../services/firestoreFoundation';
+  executeScopedSearchDiscovery,
+  fetchSearchSuggestionSeed,
+  fetchSearchViewerInteractions,
+  getCachedSearchBundle,
+  loadMoreSearchSlice,
+  type SearchCollectionKey,
+  type SearchDiscoveryBundle,
+  type SearchSuggestionSeed,
+  type SearchViewerInteractions,
+} from '../services/searchDiscovery';
+import { toggleEventReaction } from '../services/events';
+import { toggleSavedPost } from '../services/socialPosts';
 import type {
   AnonymousPost,
   CampusEvent,
-  MarketplaceListing,
-  Opportunity,
-  TrustedContact,
+  CommunityPost,
 } from '../types/database';
 import type { ActiveRoute, SearchScopeId } from '../types/platform';
-import { buildWhatsAppChatUrl } from '../utils/authValidation';
 import {
+  buildSearchSuggestions,
   FIRESTORE_SEARCH_SCOPE_NOTE,
+  formatSearchUserError,
+  loadRecentSearches,
+  normalizeSearchInput,
+  saveRecentSearch,
   SEARCH_SCOPE_CONFIG,
+  validateSearchQuery,
+  type SearchSuggestionItem,
 } from '../utils/contextualSearch';
-import { TRUSTED_CONTACT_CATEGORY_LABELS } from '../utils/followRelations';
-import {
-  formatOpportunityDeadlineSummary,
-  getOpportunityCategoryLabel,
-  getSafeApplicationUrl,
-  resolveOpportunityLifecycle,
-} from '../utils/opportunities';
-import {
-  formatEventDateTimeRange,
-  getEventCategoryLabel,
-  resolveEventLifecycle,
-} from '../utils/events';
-import { RoleBadge } from './RoleBadge';
-import { TikTokFollowButton } from './TikTokFollowButton';
+import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions';
 import { GuestPromptCard } from './auth/GuestPromptCard';
-import { AvatarMedia, FirestoreImage } from './media/FirestoreImage';
+import { PostCard } from './posts/PostCard';
+import { EventCard } from './sections/events/EventCard';
+import { MarketplaceListingCard } from './sections/marketplace/MarketplaceListingCard';
+import { OpportunityCard } from './sections/opportunities/OpportunityCard';
+import {
+  MemberDirectoryCard,
+  TrustedDirectoryCard,
+} from './sections/shared/DirectoryProfileCards';
 
 interface ContextualSearchBarProps {
   scope: SearchScopeId;
@@ -59,8 +58,11 @@ interface ContextualSearchBarProps {
     options?: {
       username?: string;
       searchScope?: SearchScopeId;
+      searchQuery?: string | null;
       opportunityId?: string | null;
       eventId?: string | null;
+      postId?: string | null;
+      listingId?: string | null;
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -75,65 +77,132 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   returnRoute,
   embedded = false,
 }) => {
+  const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const scopeMeta = SEARCH_SCOPE_CONFIG[scope];
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const activeRequestIdRef = useRef(0);
 
   const [queryText, setQueryText] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
-  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    'idle'
-  );
-
-  const [homeResults, setHomeResults] = useState<HomeSearchResult>({
-    members: [],
-    posts: [],
-  });
-  const [anonymousResults, setAnonymousResults] = useState<AnonymousPost[]>([]);
-  const [marketplaceResults, setMarketplaceResults] = useState<
-    MarketplaceListing[]
-  >([]);
-  const [trustedResults, setTrustedResults] = useState<TrustedContact[]>([]);
-  const [opportunityResults, setOpportunityResults] = useState<Opportunity[]>(
-    []
-  );
-  const [eventResults, setEventResults] = useState<CampusEvent[]>([]);
-
-  const [guestPromptTarget, setGuestPromptTarget] = useState<string | null>(
+  const [status, setStatus] = useState<
+    'idle' | 'short' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const [validationMessage, setValidationMessage] = useState<string | null>(
     null
   );
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [bundle, setBundle] = useState<SearchDiscoveryBundle | null>(null);
+  const [loadingMoreSlice, setLoadingMoreSlice] =
+    useState<SearchCollectionKey | null>(null);
+
+  const [suggestionSeed, setSuggestionSeed] =
+    useState<SearchSuggestionSeed | null>(null);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() =>
+    loadRecentSearches()
+  );
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+
+  const [interactions, setInteractions] = useState<SearchViewerInteractions>({
+    viewerUid: null,
+    likedPostIds: new Set(),
+    savedPostIds: new Set(),
+    likedAnonIds: new Set(),
+    savedAnonIds: new Set(),
+    ownedAnonPostIds: new Set(),
+    ownedAnonCommentIds: new Set(),
+    likedEventIds: new Set(),
+    savedEventIds: new Set(),
+    savedOpportunityIds: new Set(),
+    loadedForUid: null,
+  });
+  const [guestPromptTitle, setGuestPromptTitle] = useState<string | null>(null);
+  const [savingOppId, setSavingOppId] = useState<string | null>(null);
+  const [nowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    let active = true;
+    fetchSearchViewerInteractions(user?.uid ?? null)
+      .then((res) => {
+        if (active) setInteractions(res);
+      })
+      .catch(() => {
+        // Non-blocking
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setSuggestionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const ensureSuggestionSeed = useCallback(() => {
+    if (suggestionSeed) return;
+    void fetchSearchSuggestionSeed()
+      .then((seed) => setSuggestionSeed(seed))
+      .catch(() => {
+        // Non-blocking suggestion seed
+      });
+  }, [suggestionSeed]);
 
   const executeSearch = useCallback(
-    async (rawTerm: string) => {
-      const trimmed = rawTerm.trim();
-      setSubmittedQuery(trimmed);
-      if (!trimmed) {
+    async (rawTerm: string, options?: { recordRecent?: boolean }) => {
+      const validation = validateSearchQuery(rawTerm);
+      if (validation.reason === 'empty') {
+        setSubmittedQuery('');
+        setValidationMessage(null);
+        setErrorMessage(null);
         setStatus('idle');
+        setBundle(null);
         return;
       }
 
+      if (!validation.valid) {
+        setSubmittedQuery(validation.normalizedQuery);
+        setValidationMessage(validation.message ?? null);
+        setErrorMessage(null);
+        setStatus('short');
+        setBundle(null);
+        return;
+      }
+
+      const requestId = ++activeRequestIdRef.current;
+      const cleanQuery = validation.normalizedQuery;
+      setSubmittedQuery(cleanQuery);
+      setValidationMessage(null);
+      setErrorMessage(null);
+
+      if (options?.recordRecent) {
+        setRecentSearches(saveRecentSearch(cleanQuery));
+      }
+
+      const cached = getCachedSearchBundle(cleanQuery);
+      if (cached) {
+        setBundle(cached);
+      }
       setStatus('loading');
 
       try {
-        if (scope === 'home') {
-          const data = await searchHomeScope(trimmed);
-          setHomeResults(data);
-        } else if (scope === 'anonymous') {
-          const data = await searchAnonymousScope(trimmed);
-          setAnonymousResults(data);
-        } else if (scope === 'marketplace') {
-          const data = await searchMarketplaceScope(trimmed);
-          setMarketplaceResults(data);
-        } else if (scope === 'trusted-circle') {
-          const data = await searchTrustedCircleScope(trimmed);
-          setTrustedResults(data);
-        } else if (scope === 'opportunities') {
-          const data = await searchOpportunitiesScope(trimmed);
-          setOpportunityResults(data);
-        } else if (scope === 'upcoming-events') {
-          const data = await searchEventsScope(trimmed);
-          setEventResults(data);
-        }
+        const nextBundle = await executeScopedSearchDiscovery({
+          rawQuery: cleanQuery,
+          scope,
+        });
+        if (requestId !== activeRequestIdRef.current) return;
+        setBundle(nextBundle);
         setStatus('ready');
-      } catch {
+      } catch (err) {
+        if (requestId !== activeRequestIdRef.current) return;
+        setErrorMessage(formatSearchUserError(err));
         setStatus('error');
       }
     },
@@ -141,37 +210,221 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   );
 
   useEffect(() => {
-    const trimmed = queryText.trim();
+    const trimmed = normalizeSearchInput(queryText);
     if (!trimmed) {
       return;
     }
 
     const timer = window.setTimeout(() => {
       void executeSearch(trimmed);
-    }, 280);
+    }, 300);
 
     return () => window.clearTimeout(timer);
   }, [queryText, executeSearch]);
 
   const handleQueryChange = (value: string) => {
     setQueryText(value);
+    ensureSuggestionSeed();
     if (!value.trim()) {
+      activeRequestIdRef.current += 1;
       setSubmittedQuery('');
+      setValidationMessage(null);
+      setErrorMessage(null);
+      setBundle(null);
       setStatus('idle');
+      return;
+    }
+    setSuggestionsOpen(true);
+  };
+
+  const suggestions = useMemo(
+    () =>
+      buildSearchSuggestions({
+        rawQuery: queryText,
+        recentSearches,
+        members: suggestionSeed?.members ?? [],
+        dynamicTerms: suggestionSeed?.dynamicTerms ?? [],
+        scope,
+        maxItems: 6,
+      }),
+    [queryText, recentSearches, suggestionSeed, scope]
+  );
+
+  const handleSelectSuggestion = (item: SearchSuggestionItem) => {
+    setSuggestionsOpen(false);
+    if (item.kind === 'person' && item.username) {
+      setRecentSearches(saveRecentSearch(item.query));
+      onNavigate('profile', { username: item.username });
+      return;
+    }
+    setQueryText(item.query);
+    void executeSearch(item.query, { recordRecent: true });
+  };
+
+  const handleLoadMoreSlice = async (sliceKey: SearchCollectionKey) => {
+    if (!bundle || loadingMoreSlice) return;
+    setLoadingMoreSlice(sliceKey);
+    try {
+      const updated = await loadMoreSearchSlice({ bundle, sliceKey });
+      setBundle(updated);
+    } catch (err) {
+      setErrorMessage(formatSearchUserError(err));
+    } finally {
+      setLoadingMoreSlice(null);
     }
   };
 
+  const handleToggleEventLike = async (targetEvent: CampusEvent) => {
+    if (!user?.uid) {
+      setGuestPromptTitle('Sign in to like campus events');
+      return;
+    }
+    if (isSuspended) return;
+
+    const prevLiked = interactions.likedEventIds.has(targetEvent.id);
+    const prevCount = Number(targetEvent.likesCount ?? 0);
+    const { nextLiked, nextCount } = computeOptimisticReactionToggle({
+      currentlyLiked: prevLiked,
+      currentCount: prevCount,
+    });
+
+    setInteractions((prev) => {
+      const next = new Set(prev.likedEventIds);
+      if (nextLiked) next.add(targetEvent.id);
+      else next.delete(targetEvent.id);
+      return { ...prev, likedEventIds: next };
+    });
+    setBundle((prev) =>
+      prev
+        ? {
+            ...prev,
+            events: {
+              ...prev.events,
+              items: prev.events.items.map((ev) =>
+                ev.id === targetEvent.id ? { ...ev, likesCount: nextCount } : ev
+              ),
+            },
+          }
+        : prev
+    );
+
+    try {
+      const res = await toggleEventReaction({
+        eventId: targetEvent.id,
+        actorUid: user.uid,
+      });
+      setBundle((prev) =>
+        prev
+          ? {
+              ...prev,
+              events: {
+                ...prev.events,
+                items: prev.events.items.map((ev) =>
+                  ev.id === targetEvent.id
+                    ? { ...ev, likesCount: res.likesCount }
+                    : ev
+                ),
+              },
+            }
+          : prev
+      );
+    } catch {
+      setInteractions((prev) => {
+        const next = new Set(prev.likedEventIds);
+        if (prevLiked) next.add(targetEvent.id);
+        else next.delete(targetEvent.id);
+        return { ...prev, likedEventIds: next };
+      });
+    }
+  };
+
+  const handleToggleEventSave = async (targetEvent: CampusEvent) => {
+    if (!user?.uid) {
+      setGuestPromptTitle('Sign in to save campus events');
+      return;
+    }
+    if (isSuspended) return;
+    const prevSaved = interactions.savedEventIds.has(targetEvent.id);
+    setInteractions((prev) => {
+      const next = new Set(prev.savedEventIds);
+      if (!prevSaved) next.add(targetEvent.id);
+      else next.delete(targetEvent.id);
+      return { ...prev, savedEventIds: next };
+    });
+    try {
+      await toggleSavedPost({
+        actorUid: user.uid,
+        targetCollection: 'events',
+        targetId: targetEvent.id,
+        currentlySaved: prevSaved,
+      });
+    } catch {
+      setInteractions((prev) => {
+        const next = new Set(prev.savedEventIds);
+        if (prevSaved) next.add(targetEvent.id);
+        else next.delete(targetEvent.id);
+        return { ...prev, savedEventIds: next };
+      });
+    }
+  };
+
+  const handleToggleOpportunitySave = async (oppId: string) => {
+    if (!user?.uid) {
+      setGuestPromptTitle('Sign in to save opportunities');
+      return;
+    }
+    if (isSuspended || savingOppId === oppId) return;
+    setSavingOppId(oppId);
+    const prevSaved = interactions.savedOpportunityIds.has(oppId);
+    try {
+      const res = await toggleSavedPost({
+        actorUid: user.uid,
+        targetCollection: 'opportunities',
+        targetId: oppId,
+        currentlySaved: prevSaved,
+      });
+      setInteractions((prev) => {
+        const next = new Set(prev.savedOpportunityIds);
+        if (res.saved) next.add(oppId);
+        else next.delete(oppId);
+        return { ...prev, savedOpportunityIds: next };
+      });
+    } finally {
+      setSavingOppId(null);
+    }
+  };
+
+  const members = bundle?.people.items ?? [];
+  const posts = bundle?.posts.items ?? [];
+  const anonymousPosts = bundle?.anonymous.items ?? [];
+  const marketplaceListings = bundle?.marketplace.items ?? [];
+  const marketplaceSellers = bundle?.marketplaceSellers ?? new Map();
+  const trustedContacts = bundle?.trustedCircle.items ?? [];
+  const opportunities = bundle?.opportunities.items ?? [];
+  const events = bundle?.events.items ?? [];
+
   const hasResults =
-    (scope === 'home' &&
-      (homeResults.members.length > 0 || homeResults.posts.length > 0)) ||
-    (scope === 'anonymous' && anonymousResults.length > 0) ||
-    (scope === 'marketplace' && marketplaceResults.length > 0) ||
-    (scope === 'trusted-circle' && trustedResults.length > 0) ||
-    (scope === 'opportunities' && opportunityResults.length > 0) ||
-    (scope === 'upcoming-events' && eventResults.length > 0);
+    ((scope === 'home' || scope === 'all') &&
+      (members.length > 0 || posts.length > 0)) ||
+    (scope === 'all' &&
+      (anonymousPosts.length > 0 ||
+        marketplaceListings.length > 0 ||
+        trustedContacts.length > 0 ||
+        opportunities.length > 0 ||
+        events.length > 0)) ||
+    (scope === 'people' && members.length > 0) ||
+    (scope === 'posts' && posts.length > 0) ||
+    (scope === 'anonymous' && anonymousPosts.length > 0) ||
+    (scope === 'marketplace' && marketplaceListings.length > 0) ||
+    (scope === 'trusted-circle' && trustedContacts.length > 0) ||
+    (scope === 'opportunities' && opportunities.length > 0) ||
+    (scope === 'upcoming-events' && events.length > 0);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+    <div
+      ref={containerRef}
+      className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="font-display text-sm font-bold text-[#0B1A2E]">
@@ -182,10 +435,16 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         {embedded && (
           <button
             type="button"
-            onClick={() => onNavigate('search', { searchScope: scope })}
-            className="text-xs font-semibold text-[#1E88E5] hover:underline"
+            onClick={() =>
+              onNavigate('search', {
+                searchScope: scope === 'home' ? 'all' : scope,
+                searchQuery: queryText.trim() || null,
+              })
+            }
+            className="inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
           >
-            Open Full Search
+            <span>Open Full Search</span>
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         )}
       </div>
@@ -193,7 +452,8 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void executeSearch(queryText);
+          setSuggestionsOpen(false);
+          void executeSearch(queryText, { recordRecent: true });
         }}
         className="relative mt-3 flex gap-2"
       >
@@ -203,12 +463,25 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
             aria-hidden="true"
           />
           <input
-            type="search"
+            type="text"
+            inputMode="search"
             value={queryText}
+            onFocus={() => {
+              ensureSuggestionSeed();
+              setSuggestionsOpen(true);
+            }}
+            onBlur={() => {
+              window.setTimeout(() => setSuggestionsOpen(false), 120);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setSuggestionsOpen(false);
+              }
+            }}
             onChange={(e) => handleQueryChange(e.target.value)}
             aria-label={`Search ${scopeMeta.label}`}
             placeholder={scopeMeta.placeholder}
-            className="block min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-9 pl-10 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+            className="block min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-10 pl-10 text-sm text-[#0B1A2E] outline-none transition-colors focus:border-[#1E88E5] focus:ring-2 focus:ring-[#1E88E5]/20"
           />
           {queryText && (
             <button
@@ -217,10 +490,63 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
               aria-label="Clear search query"
               className="absolute top-1/2 right-2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E]"
             >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
+
+          {suggestionsOpen && suggestions.length > 0 && (
+            <div
+              role="listbox"
+              aria-label="Search suggestions"
+              className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+            >
+              {suggestions.map((sug) => (
+                <button
+                  key={sug.id}
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleSelectSuggestion(sug)}
+                  className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    {sug.kind === 'recent' ? (
+                      <Clock
+                        className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                        aria-hidden="true"
+                      />
+                    ) : sug.kind === 'person' ? (
+                      <UserIcon
+                        className="h-3.5 w-3.5 shrink-0 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                    ) : sug.kind === 'category' ? (
+                      <Tag
+                        className="h-3.5 w-3.5 shrink-0 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Sparkles
+                        className="h-3.5 w-3.5 shrink-0 text-[#1E88E5]"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className="truncate font-semibold text-[#0B1A2E]">
+                      {sug.label}
+                    </span>
+                  </span>
+                  {sug.subtitle && (
+                    <span className="shrink-0 text-[11px] text-slate-500">
+                      {sug.subtitle}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+
         <button
           type="submit"
           className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
@@ -229,15 +555,21 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         </button>
       </form>
 
-      {guestPromptTarget && (
+      {guestPromptTitle && (
         <div className="mt-4">
           <GuestPromptCard
-            title={`Sign in to follow @${guestPromptTarget}`}
-            description="Create a free account or sign in to follow campus members."
+            title={guestPromptTitle}
+            description="Sign in or create a free LASUED Intel account to interact, bookmark, or follow campus members."
             returnRoute={returnRoute}
             onRequireAuth={onRequireAuth}
-            onDismiss={() => setGuestPromptTarget(null)}
+            onDismiss={() => setGuestPromptTitle(null)}
           />
+        </div>
+      )}
+
+      {status === 'short' && validationMessage && (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+          {validationMessage}
         </div>
       )}
 
@@ -253,7 +585,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
       {status === 'error' && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
-          <span>Unable to run contextual search right now.</span>
+          <span>{errorMessage || 'Unable to run search right now.'}</span>
           <button
             type="button"
             onClick={() => void executeSearch(queryText)}
@@ -275,449 +607,286 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         </div>
       )}
 
-      {status === 'ready' && hasResults && (
-        <div className="mt-4 space-y-4">
-          {scope === 'home' && (
-            <>
-              {homeResults.members.length > 0 && (
-                <div>
-                  <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                    Campus Members ({homeResults.members.length})
-                  </p>
-                  <div className="space-y-2.5">
-                    {homeResults.members.map((member) => (
-                      <div
-                        key={member.username}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onNavigate('profile', {
-                              username: member.username,
-                            })
-                          }
-                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                        >
-                          <AvatarMedia
-                            fullName={member.fullName}
-                            photoImageId={member.photoImageId}
-                            photoUrl={member.photoUrl}
-                            sizeClass="h-11 w-11"
-                            roundedClass="rounded-xl"
-                            textClass="text-xs"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                                {member.fullName}
-                              </span>
-                              <RoleBadge badge={member.badge} size="xs" />
-                            </div>
-                            <p className="truncate text-xs text-slate-600">
-                              @{member.username}
-                              {member.department
-                                ? ` · ${member.department}`
-                                : ''}
-                              {member.level ? ` · ${member.level}` : ''}
-                            </p>
-                          </div>
-                        </button>
-
-                        <TikTokFollowButton
-                          targetUsername={member.username}
-                          compact
-                          onRequireAuth={() =>
-                            setGuestPromptTarget(member.username)
-                          }
-                        />
-                      </div>
-                    ))}
-                  </div>
+      {status === 'ready' && hasResults && bundle && (
+        <div className="mt-4 space-y-5">
+          {(scope === 'home' || scope === 'all' || scope === 'people') &&
+            members.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  Campus Members ({members.length})
+                </p>
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  {members.slice(0, 8).map((member) => (
+                    <MemberDirectoryCard
+                      key={member.username}
+                      member={member}
+                      viewerUsername={profile?.username}
+                      onOpenProfile={(uname) =>
+                        onNavigate('profile', { username: uname })
+                      }
+                      onRequireAuth={() =>
+                        setGuestPromptTitle(`Sign in to follow @${member.username}`)
+                      }
+                    />
+                  ))}
                 </div>
-              )}
+                {bundle.people.hasMore && (
+                  <button
+                    type="button"
+                    disabled={loadingMoreSlice === 'people'}
+                    onClick={() => void handleLoadMoreSlice('people')}
+                    className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
+                  >
+                    {loadingMoreSlice === 'people'
+                      ? 'Loading more members...'
+                      : 'Check more members'}
+                  </button>
+                )}
+              </div>
+            )}
 
-              {homeResults.posts.length > 0 && (
-                <div>
-                  <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                    Published Community Posts ({homeResults.posts.length})
-                  </p>
-                  <div className="space-y-2.5">
-                    {homeResults.posts.map(({ post, author }) => (
-                      <article
-                        key={post.id}
-                        className="rounded-xl border border-slate-200 p-3.5"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                          {author ? (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onNavigate('profile', {
-                                    username: author.username,
-                                  })
-                                }
-                                className="font-semibold text-[#0B1A2E] hover:text-[#1E88E5]"
-                              >
-                                {author.fullName} (@{author.username})
-                              </button>
-                              <RoleBadge badge={author.badge} size="xs" />
-                              <TikTokFollowButton
-                                targetUsername={author.username}
-                                compact
-                                onRequireAuth={() =>
-                                  setGuestPromptTarget(author.username)
-                                }
-                              />
-                            </div>
-                          ) : (
-                            <span>Campus Contributor</span>
-                          )}
-                          <div className="flex items-center gap-2">
-                            {post.mediaItems && post.mediaItems.length > 0 && (
-                              <span className="inline-flex items-center gap-1 font-medium text-[#1E88E5]">
-                                <ImageIcon className="h-3 w-3" aria-hidden="true" />
-                                {post.mediaItems.length}
-                              </span>
-                            )}
-                            <span>{post.category}</span>
-                          </div>
-                        </div>
-                        {post.title && (
-                          <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
-                            {post.title}
-                          </h3>
-                        )}
-                        {post.mediaItems && post.mediaItems.length > 0 && (
-                          <div className="mt-2 grid grid-cols-4 gap-1.5">
-                            {post.mediaItems.slice(0, 4).map((media) => (
-                              <div
-                                key={media.imageId}
-                                className="aspect-square overflow-hidden rounded-lg bg-[#0B1A2E]"
-                              >
-                                <FirestoreImage
-                                  imageId={media.imageId}
-                                  alt={media.caption || post.title || 'Post photograph'}
-                                  className="h-full w-full object-cover"
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {post.body && (
-                          <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-700 sm:text-sm">
-                            {post.body}
-                          </p>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {scope === 'anonymous' && (
-            <div className="space-y-2.5">
-              {anonymousResults.map((post) => {
-                const hasMedia =
-                  Boolean(post.mediaItems) && post.mediaItems!.length > 0;
-                const theme = getAnonymousBackgroundTheme(
-                  hasMedia ? 'plain' : post.backgroundStyle
-                );
-                const isStyledTextOnly = !hasMedia && theme.isDark;
-
-                return (
-                  <article
+          {(scope === 'home' || scope === 'all' || scope === 'posts') &&
+            posts.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                Community Posts ({posts.length})
+              </p>
+              <div className="space-y-3">
+                {posts.slice(0, 8).map(({ post, author }) => (
+                  <PostCard
                     key={post.id}
-                    style={
-                      isStyledTextOnly
-                        ? { background: theme.backgroundCss }
-                        : undefined
+                    kind="ordinary"
+                    post={post}
+                    author={author}
+                    viewerUid={user?.uid ?? null}
+                    viewerTier={effectiveTier}
+                    viewerSuspended={isSuspended}
+                    isLiked={interactions.likedPostIds.has(post.id)}
+                    isSaved={interactions.savedPostIds.has(post.id)}
+                    allowAnonymousReport={false}
+                    onOpenPost={(pid) =>
+                      onNavigate('for-you', { postId: pid })
                     }
-                    className={`rounded-xl border p-3.5 ${
-                      isStyledTextOnly
-                        ? theme.borderClass
-                        : 'border-slate-200 bg-slate-50/50'
-                    }`}
-                  >
-                    <div
-                      className={`flex items-center justify-between text-xs ${
-                        isStyledTextOnly
-                          ? theme.metaColorClass
-                          : 'text-slate-500'
-                      }`}
-                    >
-                      <span>Anonymous · {post.category}</span>
-                      <span>Identity hidden</span>
-                    </div>
-                    {hasMedia && (
-                      <div className="mt-2 grid grid-cols-4 gap-1.5">
-                        {post.mediaItems!.slice(0, 4).map((media) => (
-                          <div
-                            key={media.imageId}
-                            className="aspect-square overflow-hidden rounded-lg bg-[#0B1A2E]"
-                          >
-                            <FirestoreImage
-                              imageId={media.imageId}
-                              alt={media.caption || 'Anonymous photograph'}
-                              className="h-full w-full object-cover"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {post.body && (
-                      <p
-                        className={`mt-2 text-sm leading-relaxed ${
-                          isStyledTextOnly
-                            ? `${theme.textColorClass} font-semibold`
-                            : 'text-slate-700'
-                        }`}
-                      >
-                        {post.body}
-                      </p>
-                    )}
-                  </article>
-                );
-              })}
+                    onSaveChanged={(postId, saved) =>
+                      setInteractions((prev) => {
+                        const next = new Set(prev.savedPostIds);
+                        if (saved) next.add(postId);
+                        else next.delete(postId);
+                        return { ...prev, savedPostIds: next };
+                      })
+                    }
+                    onNavigateProfile={(uname) =>
+                      onNavigate('profile', { username: uname })
+                    }
+                    onRequireAuth={onRequireAuth}
+                    returnRoute={returnRoute}
+                    onPostUpdated={(updated) =>
+                      setBundle((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              posts: {
+                                ...prev.posts,
+                                items: prev.posts.items.map((item) =>
+                                  item.post.id === updated.id
+                                    ? { ...item, post: updated as CommunityPost }
+                                    : item
+                                ),
+                              },
+                            }
+                          : prev
+                      )
+                    }
+                    onPostDeleted={(deletedId) =>
+                      setBundle((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              posts: {
+                                ...prev.posts,
+                                items: prev.posts.items.filter(
+                                  (item) => item.post.id !== deletedId
+                                ),
+                              },
+                            }
+                          : prev
+                      )
+                    }
+                  />
+                ))}
+              </div>
+              {bundle.posts.hasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMoreSlice === 'posts'}
+                  onClick={() => void handleLoadMoreSlice('posts')}
+                  className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
+                >
+                  {loadingMoreSlice === 'posts'
+                    ? 'Loading more posts...'
+                    : 'Check more community posts'}
+                </button>
+              )}
             </div>
           )}
 
-          {scope === 'marketplace' && (
-            <div className="space-y-2.5">
-              {marketplaceResults.map((item) => (
-                <article
-                  key={item.id}
-                  className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-3.5 sm:flex-row sm:items-center"
+          {(scope === 'anonymous' || scope === 'all') &&
+            anonymousPosts.length > 0 && (
+            <div className="space-y-3">
+              {anonymousPosts.slice(0, 10).map((post) => (
+                <PostCard
+                  key={post.id}
+                  kind="anonymous"
+                  post={post}
+                  viewerUid={user?.uid ?? null}
+                  viewerTier={effectiveTier}
+                  viewerSuspended={isSuspended}
+                  isLiked={interactions.likedAnonIds.has(post.id)}
+                  isSaved={interactions.savedAnonIds.has(post.id)}
+                  isOwnedAnonymous={interactions.ownedAnonPostIds.has(post.id)}
+                  ownedAnonymousCommentIds={interactions.ownedAnonCommentIds}
+                  allowAnonymousReport={false}
+                  onOpenPost={(pid) => onNavigate('anonymous', { postId: pid })}
+                  onSaveChanged={(postId, saved) =>
+                    setInteractions((prev) => {
+                      const next = new Set(prev.savedAnonIds);
+                      if (saved) next.add(postId);
+                      else next.delete(postId);
+                      return { ...prev, savedAnonIds: next };
+                    })
+                  }
+                  onRequireAuth={onRequireAuth}
+                  returnRoute={returnRoute}
+                  onPostUpdated={(updated) =>
+                    setBundle((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            anonymous: {
+                              ...prev.anonymous,
+                              items: prev.anonymous.items.map((existing) =>
+                                existing.id === updated.id
+                                  ? (updated as AnonymousPost)
+                                  : existing
+                              ),
+                            },
+                          }
+                        : prev
+                    )
+                  }
+                  onPostDeleted={(deletedId) =>
+                    setBundle((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            anonymous: {
+                              ...prev.anonymous,
+                              items: prev.anonymous.items.filter(
+                                (existing) => existing.id !== deletedId
+                              ),
+                            },
+                          }
+                        : prev
+                    )
+                  }
+                />
+              ))}
+              {bundle.anonymous.hasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMoreSlice === 'anonymous'}
+                  onClick={() => void handleLoadMoreSlice('anonymous')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
                 >
-                  <div>
-                    <p className="flex items-center gap-1.5 text-xs text-slate-500">
-                      <ShoppingBag
-                        className="h-3.5 w-3.5 text-[#1E88E5]"
-                        aria-hidden="true"
-                      />
-                      <span>
-                        {item.listingKind} · {item.category}
-                      </span>
-                    </p>
-                    <h3 className="mt-0.5 font-display text-sm font-bold text-[#0B1A2E]">
-                      {item.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">
-                      {item.description}
-                    </p>
-                  </div>
-                  <div className="shrink-0 sm:text-right">
-                    <p className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
-                      ₦{item.price.toLocaleString()}
-                    </p>
-                    {buildWhatsAppChatUrl(item.whatsappNumber) && (
-                      <a
-                        href={buildWhatsAppChatUrl(item.whatsappNumber)!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-1.5 inline-flex min-h-[36px] items-center gap-1 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]"
-                      >
-                        <MessageCircle
-                          className="h-3 w-3 text-[#1E88E5]"
-                          aria-hidden="true"
-                        />
-                        WhatsApp Seller
-                      </a>
-                    )}
-                  </div>
-                </article>
+                  {loadingMoreSlice === 'anonymous'
+                    ? 'Loading more anonymous posts...'
+                    : 'Check more anonymous posts'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {(scope === 'marketplace' || scope === 'all') &&
+            marketplaceListings.length > 0 && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-4 min-[460px]:grid-cols-2 md:grid-cols-3">
+                {marketplaceListings.slice(0, 9).map((item) => (
+                  <MarketplaceListingCard
+                    key={item.id}
+                    listing={item}
+                    seller={marketplaceSellers.get(item.ownerUID) ?? null}
+                    onOpenListing={(lid) =>
+                      onNavigate('marketplace', { listingId: lid })
+                    }
+                    onNavigateProfile={(uname) =>
+                      onNavigate('profile', { username: uname })
+                    }
+                    onRequireAuth={() =>
+                      setGuestPromptTitle('Sign in to follow sellers')
+                    }
+                  />
+                ))}
+              </div>
+              {bundle.marketplace.hasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMoreSlice === 'marketplace'}
+                  onClick={() => void handleLoadMoreSlice('marketplace')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
+                >
+                  {loadingMoreSlice === 'marketplace'
+                    ? 'Loading more listings...'
+                    : 'Check more Marketplace listings'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {(scope === 'trusted-circle' || scope === 'all') &&
+            trustedContacts.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {trustedContacts.slice(0, 8).map((contact) => (
+                <TrustedDirectoryCard key={contact.id} contact={contact} />
               ))}
             </div>
           )}
 
-          {scope === 'trusted-circle' && (
-            <div className="space-y-2.5">
-              {trustedResults.map((contact) => (
-                <article
-                  key={contact.id}
-                  className="rounded-xl border border-slate-200 p-3.5"
-                >
-                  <div className="flex items-start gap-3">
-                    {(contact.photoImageId || contact.photoUrl) && (
-                      <AvatarMedia
-                        fullName={contact.fullName}
-                        photoImageId={contact.photoImageId}
-                        photoUrl={contact.photoUrl}
-                        sizeClass="h-10 w-10"
-                        roundedClass="rounded-xl"
-                        textClass="text-xs"
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
-                          {contact.fullName}
-                        </h3>
-                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                          {contact.badgeLabel ||
-                            TRUSTED_CONTACT_CATEGORY_LABELS[contact.category] ||
-                            'Directory Profile'}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs font-medium text-[#1E88E5]">
-                        {contact.roleTitle}
-                      </p>
-                      <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
-                        <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>
-                          {[contact.department, contact.faculty]
-                            .filter(Boolean)
-                            .join(' · ') || 'Campus Office'}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                </article>
+          {(scope === 'opportunities' || scope === 'all') &&
+            opportunities.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {opportunities.slice(0, 8).map((opp) => (
+                <OpportunityCard
+                  key={opp.id}
+                  opportunity={opp}
+                  nowMs={nowMs}
+                  isSaved={interactions.savedOpportunityIds.has(opp.id)}
+                  saving={savingOppId === opp.id}
+                  onToggleSave={(id) => void handleToggleOpportunitySave(id)}
+                  onOpenDetails={(id) =>
+                    onNavigate('opportunities', { opportunityId: id })
+                  }
+                />
               ))}
             </div>
           )}
 
-          {scope === 'opportunities' && (
-            <div className="space-y-2.5">
-              {opportunityResults.map((opp) => {
-                const lifecycle = resolveOpportunityLifecycle(opp);
-                const safeUrl = getSafeApplicationUrl(opp.applicationUrl);
-                return (
-                  <article
-                    key={opp.id}
-                    className="rounded-xl border border-slate-200 p-3.5"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-[#1E88E5]">
-                        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>{getOpportunityCategoryLabel(opp.category)}</span>
-                        <span aria-hidden="true">·</span>
-                        <span
-                          className={
-                            lifecycle.state === 'closing_soon'
-                              ? 'font-semibold text-amber-700'
-                              : lifecycle.state === 'closed'
-                                ? 'text-slate-600'
-                                : 'font-semibold text-emerald-700'
-                          }
-                        >
-                          {lifecycle.label}
-                        </span>
-                      </span>
-                      <span className="inline-flex items-center gap-1 font-medium text-slate-600">
-                        {opp.organisation}
-                        {opp.isVerified === true && (
-                          <CheckCircle2
-                            className="h-3.5 w-3.5 text-[#1E88E5]"
-                            aria-label="Verified opportunity"
-                          />
-                        )}
-                      </span>
-                    </div>
-                    <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
-                      {opp.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">
-                      {opp.description}
-                    </p>
-                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-500">
-                        {formatOpportunityDeadlineSummary(lifecycle)}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onNavigate('opportunities', {
-                              opportunityId: opp.id,
-                            })
-                          }
-                          className="text-xs font-semibold text-[#0B1A2E] hover:text-[#1E88E5] hover:underline"
-                        >
-                          View Details
-                        </button>
-                        {safeUrl && !lifecycle.isPastDeadline && (
-                          <a
-                            href={safeUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
-                          >
-                            Apply
-                            <ExternalLink
-                              className="h-3 w-3"
-                              aria-hidden="true"
-                            />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-
-          {scope === 'upcoming-events' && (
-            <div className="space-y-2.5">
-              {eventResults.map((ev) => {
-                const lifecycle = resolveEventLifecycle(ev);
-                return (
-                  <article
-                    key={ev.id}
-                    className="rounded-xl border border-slate-200 p-3.5"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-[#1E88E5]">
-                        <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>{getEventCategoryLabel(ev.category)}</span>
-                        <span aria-hidden="true">·</span>
-                        <span
-                          className={
-                            lifecycle.state === 'ongoing'
-                              ? 'font-semibold text-[#1E88E5]'
-                              : lifecycle.state === 'upcoming'
-                                ? 'font-semibold text-emerald-700'
-                                : lifecycle.state === 'cancelled'
-                                  ? 'font-semibold text-red-700'
-                                  : 'text-slate-600'
-                          }
-                        >
-                          {lifecycle.label}
-                        </span>
-                      </span>
-                      <span className="font-medium text-slate-600">
-                        {ev.organiser}
-                      </span>
-                    </div>
-                    <h3 className="mt-1 font-display text-sm font-bold text-[#0B1A2E]">
-                      {ev.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">
-                      {ev.description}
-                    </p>
-                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] text-slate-500">
-                        {formatEventDateTimeRange(ev)} · {ev.venue}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onNavigate('upcoming-events', {
-                            eventId: ev.id,
-                          })
-                        }
-                        className="text-xs font-semibold text-[#0B1A2E] hover:text-[#1E88E5] hover:underline"
-                      >
-                        View Details
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+          {(scope === 'upcoming-events' || scope === 'all') &&
+            events.length > 0 && (
+            <div className="space-y-4">
+              {events.slice(0, 8).map((ev) => (
+                <EventCard
+                  key={ev.id}
+                  event={ev}
+                  nowMs={nowMs}
+                  isLiked={interactions.likedEventIds.has(ev.id)}
+                  isSaved={interactions.savedEventIds.has(ev.id)}
+                  onOpenDetails={(id) =>
+                    onNavigate('upcoming-events', { eventId: id })
+                  }
+                  onToggleLike={(item) => void handleToggleEventLike(item)}
+                  onToggleSave={(item) => void handleToggleEventSave(item)}
+                />
+              ))}
             </div>
           )}
 

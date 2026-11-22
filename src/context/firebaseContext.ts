@@ -26,6 +26,7 @@ export interface FirebaseContextValue {
   loadingOlderNotifications: boolean;
   notificationError: string | null;
   notificationPrefs: NotificationPreferences;
+  interestCategories: string[];
   firestoreConnected: boolean | null;
   followingUsernames: Set<string>;
   followerUsernames: Set<string>;
@@ -38,6 +39,9 @@ export interface FirebaseContextValue {
   loadOlderNotifications: () => Promise<void>;
   updateNotificationPrefsOptimistic: (
     nextPrefs: NotificationPreferences
+  ) => Promise<void>;
+  updateInterestCategoriesOptimistic: (
+    nextInterests: readonly string[]
   ) => Promise<void>;
   clearNotificationError: () => void;
   refreshAccountState: () => Promise<void>;
@@ -57,6 +61,7 @@ export const FirebaseContext = createContext<FirebaseContextValue>({
   loadingOlderNotifications: false,
   notificationError: null,
   notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
+  interestCategories: [],
   firestoreConnected: null,
   followingUsernames: new Set(),
   followerUsernames: new Set(),
@@ -68,6 +73,7 @@ export const FirebaseContext = createContext<FirebaseContextValue>({
   deleteNotificationOptimistic: async () => {},
   loadOlderNotifications: async () => {},
   updateNotificationPrefsOptimistic: async () => {},
+  updateInterestCategoriesOptimistic: async () => {},
   clearNotificationError: () => {},
   refreshAccountState: async () => {},
 });

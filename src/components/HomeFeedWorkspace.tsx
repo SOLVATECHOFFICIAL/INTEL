@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   CheckCircle2,
@@ -9,20 +9,33 @@ import {
   Search,
   ShieldAlert,
   ShoppingBag,
+  SlidersHorizontal,
+  Sparkles,
   Users,
+  X,
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
+import { toggleEventReaction } from '../services/events';
 import {
   fetchCommunityFeedPage,
   type CommunityFeedCursor,
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
 import {
+  clearHomeFeedSessionCache,
+  getHomeFeedSessionSnapshot,
+  loadPersonalisationContextAndDiscovery,
+  saveHomeFeedSessionSnapshot,
+  type ForYouDiscoveryBundle,
+} from '../services/personalisedFeed';
+import {
   fetchSinglePublishedPostWithAuthor,
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
+  toggleSavedPost,
 } from '../services/socialPosts';
 import type {
+  CampusEvent,
   CommunityPost,
   OrdinaryPostType,
   UserRole,
@@ -39,12 +52,23 @@ import {
   canPublishOrdinaryPostStrict,
   toPublicProfileProjection,
 } from '../utils/authValidation';
+import {
+  buildForYouFeedStream,
+  loadDismissedRecommendationKeys,
+  saveDismissedRecommendationKey,
+  type ForYouRankingOptions,
+} from '../utils/feedRanking';
+import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions';
 import { getSectionById } from '../utils/sectionState';
+import type { AccountSettingsSection } from './pages/AccountPage';
 import { ContextualSearchBar } from './ContextualSearchBar';
 import { EmptyState, ErrorState, LoadingState } from './StateViews';
 import { GuestPromptCard } from './auth/GuestPromptCard';
 import { PostCard } from './posts/PostCard';
 import { PostComposer } from './posts/PostComposer';
+import { EventCard } from './sections/events/EventCard';
+import { OpportunityCard } from './sections/opportunities/OpportunityCard';
+import { MemberDirectoryCard } from './sections/shared/DirectoryProfileCards';
 
 interface HomeFeedWorkspaceProps {
   activeFeedTab: FeedTabId;
@@ -57,6 +81,12 @@ interface HomeFeedWorkspaceProps {
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      searchQuery?: string | null;
+      postId?: string | null;
+      commentId?: string | null;
+      eventId?: string | null;
+      opportunityId?: string | null;
+      accountSection?: AccountSettingsSection;
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -78,24 +108,84 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   onNavigate,
   onRequireAuth,
 }) => {
-  const { user, profile, roleRecord, effectiveTier, isSuspended, authReady } =
-    useFirebase();
-  const [postItems, setPostItems] = useState<CommunityPostWithAuthor[]>([]);
+  const {
+    user,
+    profile,
+    roleRecord,
+    effectiveTier,
+    isSuspended,
+    authReady,
+    interestCategories,
+    followingUsernames,
+  } = useFirebase();
+
+  const viewerKey = user?.uid ?? 'guest';
+  const interestSignature = useMemo(
+    () =>
+      [
+        profile?.department ?? '',
+        profile?.faculty ?? '',
+        profile?.level ?? '',
+        ...interestCategories,
+      ]
+        .join('|')
+        .toLowerCase(),
+    [profile?.department, profile?.faculty, profile?.level, interestCategories]
+  );
+
+  const initialCache = useMemo(() => {
+    const snap = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
+    if (!snap) return null;
+    if (
+      activeFeedTab === 'for-you' &&
+      snap.interestSignature !== interestSignature
+    ) {
+      return null;
+    }
+    return snap;
+  }, [viewerKey, activeFeedTab, interestSignature]);
+
+  const [postItems, setPostItems] = useState<CommunityPostWithAuthor[]>(
+    () => initialCache?.postItems ?? []
+  );
   const [deepLinkedPost, setDeepLinkedPost] = useState<{
     targetId: string;
     item: CommunityPostWithAuthor | null;
   } | null>(null);
-  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
-  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
-  const [followingCount, setFollowingCount] = useState<number>(0);
-  const [followedUids, setFollowedUids] = useState<string[]>([]);
-  const [feedCursor, setFeedCursor] = useState<CommunityFeedCursor | null>(null);
-  const [hasMorePosts, setHasMorePosts] = useState(false);
+  const [likedPostIds, setLikedPostIds] = useState<Set<string>>(
+    () => initialCache?.likedPostIds ?? new Set()
+  );
+  const [savedPostIds, setSavedPostIds] = useState<Set<string>>(
+    () => initialCache?.savedPostIds ?? new Set()
+  );
+  const [followingCount, setFollowingCount] = useState<number>(
+    () => initialCache?.followingCount ?? 0
+  );
+  const [followedUids, setFollowedUids] = useState<string[]>(
+    () => initialCache?.followedUids ?? []
+  );
+  const [feedCursor, setFeedCursor] = useState<CommunityFeedCursor | null>(
+    () => initialCache?.feedCursor ?? null
+  );
+  const [hasMorePosts, setHasMorePosts] = useState(
+    () => initialCache?.hasMorePosts ?? false
+  );
+  const [rankingOptions, setRankingOptions] = useState<
+    Omit<ForYouRankingOptions, 'followedUids' | 'authorMap'> | undefined
+  >(() => initialCache?.rankingOptions);
+  const [discovery, setDiscovery] = useState<ForYouDiscoveryBundle | undefined>(
+    () => initialCache?.discovery
+  );
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() =>
+    loadDismissedRecommendationKeys(user?.uid ?? null)
+  );
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
-    'loading'
+    () => (initialCache ? 'ready' : 'loading')
   );
   const [retryToken, setRetryToken] = useState(0);
+  const [savingOppId, setSavingOppId] = useState<string | null>(null);
+  const [nowMs] = useState(() => Date.now());
   const [composerFeedback, setComposerFeedback] = useState<{
     kind:
       | 'guest'
@@ -111,7 +201,30 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     editPost?: CommunityPost;
   } | null>(null);
 
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const hydratedFromCacheRef = useRef(Boolean(initialCache));
+  const latestFollowingUsernamesRef = useRef(followingUsernames);
   useEffect(() => {
+    latestFollowingUsernamesRef.current = followingUsernames;
+  }, [followingUsernames]);
+
+  useEffect(() => {
+    if (activeFeedTab === 'following' && !user) {
+      return;
+    }
+
+    const cached = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
+    if (
+      cached &&
+      retryToken === 0 &&
+      hydratedFromCacheRef.current &&
+      (activeFeedTab !== 'for-you' ||
+        cached.interestSignature === interestSignature)
+    ) {
+      hydratedFromCacheRef.current = false;
+      return;
+    }
+
     let active = true;
 
     const likedPromise = user?.uid
@@ -122,41 +235,121 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       ? fetchViewerSavedPostIds('posts', user.uid).catch(() => new Set<string>())
       : Promise.resolve(new Set<string>());
 
-    if (activeFeedTab === 'following' && !user) {
-      return () => {
-        active = false;
-      };
-    }
+    const loadAll = async () => {
+      const [likedIds, savedIds] = await Promise.all([
+        likedPromise,
+        savedPromise,
+      ]);
 
-    Promise.all([
-      fetchCommunityFeedPage({
+      let nextRankingOptions:
+        | Omit<ForYouRankingOptions, 'followedUids' | 'authorMap'>
+        | undefined;
+      let nextDiscovery: ForYouDiscoveryBundle | undefined;
+
+      if (activeFeedTab === 'for-you') {
+        const personalisation = await loadPersonalisationContextAndDiscovery({
+          viewerUid: user?.uid ?? null,
+          viewerProfile: profile,
+          interestCategories,
+          followedUids: [],
+          followingUsernames: latestFollowingUsernamesRef.current,
+          likedPostIds: likedIds,
+          savedPostIds: savedIds,
+          dismissedKeys: loadDismissedRecommendationKeys(user?.uid ?? null),
+        }).catch(() => null);
+
+        if (personalisation) {
+          nextRankingOptions = personalisation.rankingOptions;
+          nextDiscovery = personalisation.discovery;
+        }
+      }
+
+      const page = await fetchCommunityFeedPage({
         tab: activeFeedTab,
         viewerUid: user?.uid ?? null,
         pageSize: FEED_PAGE_SIZE,
-      }),
-      likedPromise,
-      savedPromise,
-    ])
-      .then(([page, likedIds, savedIds]) => {
-        if (!active) return;
-        setFollowingCount(page.followingCount);
-        setFollowedUids(page.followedUids);
-        setPostItems(page.items);
-        setFeedCursor(page.nextCursor);
-        setHasMorePosts(page.hasMore);
-        setLikedPostIds(likedIds);
-        setSavedPostIds(savedIds);
-        setLoadState('ready');
-      })
-      .catch(() => {
-        if (!active) return;
-        setLoadState('error');
+        rankingOptions: nextRankingOptions,
       });
+
+      if (!active) return;
+
+      // Filter already-followed usernames out of person suggestions without touching postItems on live follows
+      if (nextDiscovery && latestFollowingUsernamesRef.current.size > 0) {
+        const currentFollowingSet = latestFollowingUsernamesRef.current;
+        nextDiscovery = {
+          ...nextDiscovery,
+          recommendedPeople: nextDiscovery.recommendedPeople.filter(
+            (item) =>
+              !currentFollowingSet.has(item.member.username.toLowerCase())
+          ),
+        };
+      }
+
+      setFollowingCount(page.followingCount);
+      setFollowedUids(page.followedUids);
+      setPostItems(page.items);
+      setFeedCursor(page.nextCursor);
+      setHasMorePosts(page.hasMore);
+      setLikedPostIds(likedIds);
+      setSavedPostIds(savedIds);
+      setRankingOptions(nextRankingOptions);
+      setDiscovery(nextDiscovery);
+      setDismissedKeys(loadDismissedRecommendationKeys(user?.uid ?? null));
+      setLoadState('ready');
+    };
+
+    void loadAll().catch(() => {
+      if (!active) return;
+      setLoadState('error');
+    });
 
     return () => {
       active = false;
     };
-  }, [activeFeedTab, user, retryToken]);
+  }, [
+    activeFeedTab,
+    user,
+    viewerKey,
+    retryToken,
+    interestSignature,
+    profile,
+    interestCategories,
+  ]);
+
+  useEffect(() => {
+    if (loadState !== 'ready') return;
+    if (activeFeedTab === 'following' && !user) return;
+    saveHomeFeedSessionSnapshot({
+      viewerKey,
+      tab: activeFeedTab,
+      postItems,
+      likedPostIds,
+      savedPostIds,
+      followingCount,
+      followedUids,
+      feedCursor,
+      hasMorePosts,
+      rankingOptions,
+      discovery,
+      interestSignature,
+      cachedAt: Date.now(),
+    });
+  }, [
+    loadState,
+    viewerKey,
+    activeFeedTab,
+    user,
+    postItems,
+    likedPostIds,
+    savedPostIds,
+    followingCount,
+    followedUids,
+    feedCursor,
+    hasMorePosts,
+    rankingOptions,
+    discovery,
+    interestSignature,
+  ]);
 
   useEffect(() => {
     if (
@@ -181,22 +374,39 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     };
   }, [selectedPostId, loadState, postItems]);
 
-  const displayedPostItems =
-    selectedPostId &&
-    deepLinkedPost?.targetId === selectedPostId &&
-    deepLinkedPost.item &&
-    !postItems.some((item) => item.post.id === selectedPostId)
-      ? [deepLinkedPost.item, ...postItems]
-      : postItems;
+  const displayedPostItems = useMemo(
+    () =>
+      selectedPostId &&
+      deepLinkedPost?.targetId === selectedPostId &&
+      deepLinkedPost.item &&
+      !postItems.some((item) => item.post.id === selectedPostId)
+        ? [deepLinkedPost.item, ...postItems]
+        : postItems,
+    [selectedPostId, deepLinkedPost, postItems]
+  );
+
+  const forYouStream = useMemo(() => {
+    if (activeFeedTab !== 'for-you') return [];
+    return buildForYouFeedStream({
+      posts: displayedPostItems,
+      recommendedPeople: discovery?.recommendedPeople,
+      recommendedEvents: discovery?.recommendedEvents,
+      recommendedOpportunities: discovery?.recommendedOpportunities,
+      recommendedAnonymous: discovery?.recommendedAnonymous,
+      dismissedKeys,
+    });
+  }, [activeFeedTab, displayedPostItems, discovery, dismissedKeys]);
 
   const loadFeed = () => {
+    clearHomeFeedSessionCache(activeFeedTab);
+    hydratedFromCacheRef.current = false;
     setLoadState('loading');
     setFeedCursor(null);
     setHasMorePosts(false);
     setRetryToken((prev) => prev + 1);
   };
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (!feedCursor || loadingMore) return;
     setLoadingMore(true);
     try {
@@ -206,6 +416,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         pageSize: FEED_PAGE_SIZE,
         cursor: feedCursor,
         followedUids,
+        rankingOptions,
       });
       setPostItems((prev) => {
         const seen = new Set(prev.map((item) => item.post.id));
@@ -221,6 +432,156 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       });
     } finally {
       setLoadingMore(false);
+    }
+  }, [feedCursor, loadingMore, activeFeedTab, user, followedUids, rankingOptions]);
+
+  useEffect(() => {
+    if (
+      loadState !== 'ready' ||
+      !hasMorePosts ||
+      !feedCursor ||
+      loadingMore ||
+      (activeFeedTab === 'following' && !user)
+    ) {
+      return;
+    }
+    const target = loadMoreSentinelRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void handleLoadMore();
+        }
+      },
+      { rootMargin: '320px 0px' }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [
+    loadState,
+    hasMorePosts,
+    feedCursor,
+    loadingMore,
+    activeFeedTab,
+    user,
+    handleLoadMore,
+  ]);
+
+  const handleDismissRecommendation = (recKey: string) => {
+    const next = saveDismissedRecommendationKey(user?.uid ?? null, recKey);
+    setDismissedKeys(next);
+  };
+
+  const handleToggleRecommendedEventLike = async (event: CampusEvent) => {
+    if (!user) {
+      onRequireAuth('login', 'for-you');
+      return;
+    }
+    if (isSuspended || !discovery) return;
+
+    const currentLiked = discovery.likedEventIds.has(event.id);
+    const optimistic = computeOptimisticReactionToggle({
+      currentlyLiked: currentLiked,
+      currentCount: event.likesCount ?? 0,
+    });
+
+    setDiscovery((prev) => {
+      if (!prev) return prev;
+      const nextLiked = new Set(prev.likedEventIds);
+      if (optimistic.nextLiked) nextLiked.add(event.id);
+      else nextLiked.delete(event.id);
+      return {
+        ...prev,
+        likedEventIds: nextLiked,
+        recommendedEvents: prev.recommendedEvents.map((rec) =>
+          rec.event.id === event.id
+            ? { ...rec, event: { ...rec.event, likesCount: optimistic.nextCount } }
+            : rec
+        ),
+      };
+    });
+
+    try {
+      await toggleEventReaction({ eventId: event.id, actorUid: user.uid });
+    } catch {
+      setDiscovery((prev) => {
+        if (!prev) return prev;
+        const nextLiked = new Set(prev.likedEventIds);
+        if (currentLiked) nextLiked.add(event.id);
+        else nextLiked.delete(event.id);
+        return {
+          ...prev,
+          likedEventIds: nextLiked,
+          recommendedEvents: prev.recommendedEvents.map((rec) =>
+            rec.event.id === event.id
+              ? { ...rec, event: { ...rec.event, likesCount: event.likesCount ?? 0 } }
+              : rec
+          ),
+        };
+      });
+    }
+  };
+
+  const handleToggleRecommendedEventSave = async (event: CampusEvent) => {
+    if (!user) {
+      onRequireAuth('login', 'for-you');
+      return;
+    }
+    if (isSuspended || !discovery) return;
+
+    const currentlySaved = discovery.savedEventIds.has(event.id);
+    setDiscovery((prev) => {
+      if (!prev) return prev;
+      const nextSaved = new Set(prev.savedEventIds);
+      if (currentlySaved) nextSaved.delete(event.id);
+      else nextSaved.add(event.id);
+      return { ...prev, savedEventIds: nextSaved };
+    });
+
+    try {
+      await toggleSavedPost({
+        actorUid: user.uid,
+        targetCollection: 'events',
+        targetId: event.id,
+        currentlySaved,
+      });
+    } catch {
+      setDiscovery((prev) => {
+        if (!prev) return prev;
+        const nextSaved = new Set(prev.savedEventIds);
+        if (currentlySaved) nextSaved.add(event.id);
+        else nextSaved.delete(event.id);
+        return { ...prev, savedEventIds: nextSaved };
+      });
+    }
+  };
+
+  const handleToggleRecommendedOpportunitySave = async (oppId: string) => {
+    if (!user) {
+      onRequireAuth('login', 'for-you');
+      return;
+    }
+    if (isSuspended || !discovery || savingOppId === oppId) return;
+
+    const currentlySaved = discovery.savedOpportunityIds.has(oppId);
+    setSavingOppId(oppId);
+    try {
+      const res = await toggleSavedPost({
+        actorUid: user.uid,
+        targetCollection: 'opportunities',
+        targetId: oppId,
+        currentlySaved,
+      });
+      setDiscovery((prev) => {
+        if (!prev) return prev;
+        const nextSaved = new Set(prev.savedOpportunityIds);
+        if (res.saved) nextSaved.add(oppId);
+        else nextSaved.delete(oppId);
+        return { ...prev, savedOpportunityIds: nextSaved };
+      });
+    } finally {
+      setSavingOppId(null);
     }
   };
 
@@ -276,6 +637,67 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     });
   };
 
+  const renderOrdinaryPostCard = ({ post, author }: CommunityPostWithAuthor) => {
+    const resolvedAuthor =
+      profile && post.ownerUID === profile.uid
+        ? toPublicProfileProjection(profile)
+        : author;
+
+    return (
+      <PostCard
+        key={post.id}
+        kind="ordinary"
+        post={post}
+        author={resolvedAuthor}
+        viewerUid={user?.uid ?? null}
+        viewerTier={effectiveTier}
+        viewerSuspended={isSuspended}
+        isLiked={likedPostIds.has(post.id)}
+        isSaved={savedPostIds.has(post.id)}
+        isHighlighted={post.id === selectedPostId}
+        highlightCommentId={
+          post.id === selectedPostId ? selectedCommentId : null
+        }
+        onSaveChanged={(postId, saved) =>
+          setSavedPostIds((prev) => {
+            const next = new Set(prev);
+            if (saved) next.add(postId);
+            else next.delete(postId);
+            return next;
+          })
+        }
+        onNavigateProfile={(uname) => onNavigate('profile', { username: uname })}
+        onRequireAuth={onRequireAuth}
+        returnRoute={activeFeedTab}
+        onEditPost={(targetPost) =>
+          setComposerModal({
+            mode: 'ordinary',
+            editPost: targetPost as CommunityPost,
+          })
+        }
+        onPostUpdated={(updated) =>
+          setPostItems((prev) =>
+            prev.map((item) =>
+              item.post.id === updated.id
+                ? { ...item, post: updated as CommunityPost }
+                : item
+            )
+          )
+        }
+        onPostDeleted={(deletedId) =>
+          setPostItems((prev) =>
+            prev.filter((item) => item.post.id !== deletedId)
+          )
+        }
+      />
+    );
+  };
+
+  const hasFeedContent =
+    activeFeedTab === 'for-you'
+      ? forYouStream.length > 0
+      : displayedPostItems.length > 0;
+
   return (
     <div className="min-w-0 flex-1 space-y-5">
       {/* Contextual Home Search (Members & Public Ordinary Posts) */}
@@ -329,11 +751,6 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 aria-selected={isSelected}
                 onClick={() => {
                   setComposerFeedback(null);
-                  if (tab.id !== activeFeedTab && !(tab.id === 'following' && !user)) {
-                    setLoadState('loading');
-                    setFeedCursor(null);
-                    setHasMorePosts(false);
-                  }
                   onSelectFeedTab(tab.id);
                 }}
                 className={`relative min-h-[48px] px-3 py-3 text-sm font-semibold whitespace-nowrap transition-colors ${
@@ -470,9 +887,26 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               {activeSection.summary}
             </p>
           </div>
-          {!authReady && (
-            <span className="text-xs text-slate-500">Checking account...</span>
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {activeFeedTab === 'for-you' && user && (
+              <button
+                type="button"
+                onClick={() =>
+                  onNavigate('account', { accountSection: 'privacy' })
+                }
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline"
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                Tailor topics
+                {interestCategories.length > 0
+                  ? ` (${interestCategories.length})`
+                  : ''}
+              </button>
+            )}
+            {!authReady && (
+              <span className="text-xs text-slate-500">Checking account...</span>
+            )}
+          </div>
         </div>
 
         <div className="mt-5">
@@ -507,77 +941,300 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               </p>
               <button
                 type="button"
-                onClick={() => onNavigate('search', { searchScope: 'home' })}
+                onClick={() => onNavigate('search', { searchScope: 'people' })}
                 className="mt-4 inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#1E88E5] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1565C0]"
               >
                 <Search className="h-3.5 w-3.5" aria-hidden="true" />
                 Find Members to Follow
               </button>
             </div>
-          ) : displayedPostItems.length === 0 ? (
+          ) : !hasFeedContent ? (
             <EmptyState section={activeSection} />
           ) : (
             <div className="space-y-4">
-              {displayedPostItems.length === 0 ? null : displayedPostItems.map(({ post, author }) => {
-                const resolvedAuthor =
-                  profile && post.ownerUID === profile.uid
-                    ? toPublicProfileProjection(profile)
-                    : author;
+              {activeFeedTab === 'for-you'
+                ? forYouStream.map((entry) => {
+                    if (entry.kind === 'post') {
+                      return renderOrdinaryPostCard(entry.item);
+                    }
 
-                return (
-                  <PostCard
-                    key={post.id}
-                    kind="ordinary"
-                    post={post}
-                    author={resolvedAuthor}
-                    viewerUid={user?.uid ?? null}
-                    viewerTier={effectiveTier}
-                    viewerSuspended={isSuspended}
-                    isLiked={likedPostIds.has(post.id)}
-                    isSaved={savedPostIds.has(post.id)}
-                    isHighlighted={post.id === selectedPostId}
-                    highlightCommentId={
-                      post.id === selectedPostId ? selectedCommentId : null
-                    }
-                    onSaveChanged={(postId, saved) =>
-                      setSavedPostIds((prev) => {
-                        const next = new Set(prev);
-                        if (saved) next.add(postId);
-                        else next.delete(postId);
-                        return next;
-                      })
-                    }
-                    onNavigateProfile={(uname) =>
-                      onNavigate('profile', { username: uname })
-                    }
-                    onRequireAuth={onRequireAuth}
-                    returnRoute={activeFeedTab}
-                    onEditPost={(targetPost) =>
-                      setComposerModal({
-                        mode: 'ordinary',
-                        editPost: targetPost as CommunityPost,
-                      })
-                    }
-                    onPostUpdated={(updated) =>
-                      setPostItems((prev) =>
-                        prev.map((item) =>
-                          item.post.id === updated.id
-                            ? { ...item, post: updated as CommunityPost }
-                            : item
-                        )
-                      )
-                    }
-                    onPostDeleted={(deletedId) =>
-                      setPostItems((prev) =>
-                        prev.filter((item) => item.post.id !== deletedId)
-                      )
-                    }
-                  />
-                );
-              })}
+                    if (entry.kind === 'people_discovery') {
+                      return (
+                        <section
+                          key={entry.id}
+                          aria-label="Recommended campus members"
+                          className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+                            <div className="flex items-center gap-2">
+                              <Sparkles
+                                className="h-4 w-4 text-[#1E88E5]"
+                                aria-hidden="true"
+                              />
+                              <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                                Discover Classmates &amp; Campus Voices
+                              </h2>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onNavigate('search', { searchScope: 'people' })
+                              }
+                              className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                            >
+                              Browse directory
+                            </button>
+                          </div>
 
-              {hasMorePosts && (
-                <div className="flex justify-center pt-2">
+                          <div className="space-y-2.5">
+                            {entry.people.map(({ member, reason }) => (
+                              <div key={member.username} className="space-y-1">
+                                <div className="flex items-center justify-between gap-2 px-1">
+                                  <span className="text-[11px] font-medium text-slate-500">
+                                    {reason}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDismissRecommendation(
+                                        `person:${member.username.toLowerCase()}`
+                                      )
+                                    }
+                                    aria-label={`Dismiss suggestion for ${member.fullName}`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700"
+                                  >
+                                    <X className="h-3 w-3" aria-hidden="true" />
+                                    Hide
+                                  </button>
+                                </div>
+                                <MemberDirectoryCard
+                                  member={member}
+                                  viewerUsername={profile?.username ?? null}
+                                  onOpenProfile={(uname) =>
+                                    onNavigate('profile', { username: uname })
+                                  }
+                                  onRequireAuth={() =>
+                                    onRequireAuth('login', 'for-you')
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      );
+                    }
+
+                    if (entry.kind === 'recommended_event') {
+                      const { event, reason } = entry.recommendation;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                        >
+                          <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                              <Sparkles
+                                className="h-3.5 w-3.5 text-[#1E88E5]"
+                                aria-hidden="true"
+                              />
+                              Relevant Event ·{' '}
+                              <span className="font-normal text-slate-600">
+                                {reason}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDismissRecommendation(
+                                  `event:${event.id}`
+                                )
+                              }
+                              aria-label={`Hide recommended event ${event.title}`}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                            >
+                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              Hide
+                            </button>
+                          </div>
+                          <EventCard
+                            event={event}
+                            nowMs={nowMs}
+                            isLiked={Boolean(discovery?.likedEventIds.has(event.id))}
+                            isSaved={Boolean(discovery?.savedEventIds.has(event.id))}
+                            onOpenDetails={(eventId) =>
+                              onNavigate('upcoming-events', { eventId })
+                            }
+                            onToggleLike={(evt) =>
+                              void handleToggleRecommendedEventLike(evt)
+                            }
+                            onToggleSave={(evt) =>
+                              void handleToggleRecommendedEventSave(evt)
+                            }
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (entry.kind === 'recommended_opportunity') {
+                      const { opportunity, reason } = entry.recommendation;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                        >
+                          <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                              <Sparkles
+                                className="h-3.5 w-3.5 text-[#1E88E5]"
+                                aria-hidden="true"
+                              />
+                              Recommended Opportunity ·{' '}
+                              <span className="font-normal text-slate-600">
+                                {reason}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDismissRecommendation(
+                                  `opportunity:${opportunity.id}`
+                                )
+                              }
+                              aria-label={`Hide recommended opportunity ${opportunity.title}`}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                            >
+                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              Hide
+                            </button>
+                          </div>
+                          <OpportunityCard
+                            opportunity={opportunity}
+                            nowMs={nowMs}
+                            isSaved={Boolean(
+                              discovery?.savedOpportunityIds.has(opportunity.id)
+                            )}
+                            saving={savingOppId === opportunity.id}
+                            onToggleSave={(id) =>
+                              void handleToggleRecommendedOpportunitySave(id)
+                            }
+                            onOpenDetails={(oppId) =>
+                              onNavigate('opportunities', { opportunityId: oppId })
+                            }
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (entry.kind === 'recommended_anonymous') {
+                      const { post, reason } = entry.recommendation;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                        >
+                          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                              <Sparkles
+                                className="h-3.5 w-3.5 text-[#1E88E5]"
+                                aria-hidden="true"
+                              />
+                              Recommended Anonymous Thread ·{' '}
+                              <span className="font-normal text-slate-600">
+                                {reason}
+                              </span>
+                            </span>
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onNavigate('anonymous', { postId: post.id })
+                                }
+                                className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                              >
+                                Open Anonymous
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDismissRecommendation(`anon:${post.id}`)
+                                }
+                                aria-label="Hide recommended anonymous thread"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                                Hide
+                              </button>
+                            </div>
+                          </div>
+                          <PostCard
+                            kind="anonymous"
+                            post={post}
+                            viewerUid={user?.uid ?? null}
+                            viewerTier={effectiveTier}
+                            viewerSuspended={isSuspended}
+                            isLiked={Boolean(discovery?.likedAnonIds.has(post.id))}
+                            isSaved={Boolean(discovery?.savedAnonIds.has(post.id))}
+                            isOwnedAnonymous={Boolean(
+                              discovery?.ownedAnonPostIds.has(post.id)
+                            )}
+                            ownedAnonymousCommentIds={
+                              discovery?.ownedAnonCommentIds
+                            }
+                            allowAnonymousReport={false}
+                            onSaveChanged={(postId, saved) =>
+                              setDiscovery((prev) => {
+                                if (!prev) return prev;
+                                const next = new Set(prev.savedAnonIds);
+                                if (saved) next.add(postId);
+                                else next.delete(postId);
+                                return { ...prev, savedAnonIds: next };
+                              })
+                            }
+                            onPostUpdated={(updated) =>
+                              setDiscovery((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  recommendedAnonymous:
+                                    prev.recommendedAnonymous.map((rec) =>
+                                      rec.post.id === updated.id
+                                        ? {
+                                            ...rec,
+                                            post: updated as typeof rec.post,
+                                          }
+                                        : rec
+                                    ),
+                                };
+                              })
+                            }
+                            onPostDeleted={(deletedId) =>
+                              setDiscovery((prev) => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  recommendedAnonymous:
+                                    prev.recommendedAnonymous.filter(
+                                      (rec) => rec.post.id !== deletedId
+                                    ),
+                                };
+                              })
+                            }
+                            onRequireAuth={onRequireAuth}
+                            returnRoute="for-you"
+                          />
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })
+                : displayedPostItems.map(renderOrdinaryPostCard)}
+
+              {hasMorePosts ? (
+                <div
+                  ref={loadMoreSentinelRef}
+                  className="flex justify-center pt-2"
+                >
                   <button
                     type="button"
                     disabled={loadingMore}
@@ -590,9 +1247,17 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                         aria-hidden="true"
                       />
                     )}
-                    {loadingMore ? 'Loading more...' : 'Load more updates'}
+                    {loadingMore
+                      ? 'Loading more updates...'
+                      : 'Load more updates'}
                   </button>
                 </div>
+              ) : (
+                <p className="pt-2 text-center text-xs text-slate-500">
+                  {activeFeedTab === 'latest'
+                    ? 'You have reached all published campus updates.'
+                    : "You've caught up on current campus updates."}
+                </p>
               )}
             </div>
           )}

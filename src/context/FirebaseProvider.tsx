@@ -9,6 +9,7 @@ import {
 import type { User } from 'firebase/auth';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { testConnection } from '../lib/firebase';
+import { clearViewerScopedMediaCache } from '../services/mediaStorage';
 import { subscribeToAuthChanges } from '../services/auth';
 import {
   deleteUserNotification,
@@ -27,6 +28,7 @@ import {
   syncOwnExpiredMarketplaceNotifications,
   unfollowMemberByUsername,
   updateNotificationPreferences,
+  updatePrivateUserInterests,
 } from '../services/firestoreFoundation';
 import type {
   NotificationItem,
@@ -56,6 +58,7 @@ import {
   rollbackOptimisticMarkReadIds,
   type NotificationPreferences,
 } from '../utils/notifications';
+import { normalizeInterestList } from '../utils/feedRanking';
 import { FirebaseContext } from './firebaseContext';
 
 interface FirebaseProviderProps {
@@ -84,6 +87,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   );
   const [notificationPrefs, setNotificationPrefs] =
     useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFS);
+  const [interestCategories, setInterestCategories] = useState<string[]>([]);
   const [firestoreConnected, setFirestoreConnected] = useState<boolean | null>(
     null
   );
@@ -120,11 +124,18 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       }
     });
 
+    const prevUidRef = { current: null as string | null };
     const unsubscribeAuth = subscribeToAuthChanges((nextUser) => {
       if (!active) return;
+      const previousUid = prevUidRef.current;
+      prevUidRef.current = nextUser?.uid ?? null;
+      if (previousUid && previousUid !== nextUser?.uid) {
+        clearViewerScopedMediaCache(previousUid);
+      }
       setUser(nextUser);
       setAuthReady(true);
       if (!nextUser) {
+        clearViewerScopedMediaCache(null);
         setProfile(null);
         setRoleRecord(null);
         setLiveNotifications([]);
@@ -134,6 +145,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         setLoadingOlderNotifications(false);
         setNotificationError(null);
         setNotificationPrefs(DEFAULT_NOTIFICATION_PREFS);
+        setInterestCategories([]);
         oldestNotificationCursorRef.current = null;
         syncedBackgroundUidRef.current = null;
         setFollowingUsernames(new Set());
@@ -162,10 +174,14 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     let cancelled = false;
     void fetchPrivateUserData(user.uid)
       .then((priv) => {
-        if (!cancelled && priv?.notificationPrefs) {
+        if (cancelled || !priv) return;
+        if (priv.notificationPrefs) {
           setNotificationPrefs(
             normalizeNotificationPrefs(priv.notificationPrefs)
           );
+        }
+        if (Array.isArray(priv.interestCategories)) {
+          setInterestCategories(normalizeInterestList(priv.interestCategories));
         }
       })
       .catch(() => undefined);
@@ -259,6 +275,11 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     if (nextPrivate?.notificationPrefs) {
       setNotificationPrefs(
         normalizeNotificationPrefs(nextPrivate.notificationPrefs)
+      );
+    }
+    if (Array.isArray(nextPrivate?.interestCategories)) {
+      setInterestCategories(
+        normalizeInterestList(nextPrivate.interestCategories)
       );
     }
   }, [user]);
@@ -451,6 +472,32 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     [user, profile, notificationPrefs]
   );
 
+  const updateInterestCategoriesOptimistic = useCallback(
+    async (nextInterests: readonly string[]) => {
+      if (!user || isAccountSuspended(profile)) return;
+      const previousInterests = interestCategories;
+      const normalized = normalizeInterestList(nextInterests);
+      setInterestCategories(normalized);
+
+      try {
+        const saved = await updatePrivateUserInterests(
+          user.uid,
+          normalized,
+          user.email
+        );
+        setInterestCategories(saved);
+      } catch (err) {
+        setInterestCategories(previousInterests);
+        const msg = formatFirestoreOrAppError(
+          err,
+          'Could not save feed topic interests right now.'
+        );
+        throw new Error(msg, { cause: err });
+      }
+    },
+    [user, profile, interestCategories]
+  );
+
   const clearNotificationError = useCallback(() => {
     setNotificationError(null);
   }, []);
@@ -572,6 +619,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         loadingOlderNotifications,
         notificationError,
         notificationPrefs,
+        interestCategories,
         firestoreConnected,
         followingUsernames,
         followerUsernames,
@@ -583,6 +631,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         deleteNotificationOptimistic,
         loadOlderNotifications,
         updateNotificationPrefsOptimistic,
+        updateInterestCategoriesOptimistic,
         clearNotificationError,
         refreshAccountState,
       }}

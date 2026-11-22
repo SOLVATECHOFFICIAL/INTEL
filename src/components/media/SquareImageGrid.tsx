@@ -57,6 +57,7 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
               <FirestoreImage
                 imageId={photo.directSrc ? null : photo.imageId}
                 directSrc={photo.directSrc}
+                fallbackUrl={photo.fallbackUrl}
                 alt={
                   visibleCaption
                     ? visibleCaption

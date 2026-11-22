@@ -19,6 +19,9 @@ const VALID_ROUTES: readonly ActiveRoute[] = [
 ];
 
 const VALID_SEARCH_SCOPES: readonly SearchScopeId[] = [
+  'all',
+  'posts',
+  'people',
   'home',
   'anonymous',
   'marketplace',
@@ -70,7 +73,7 @@ export function getSearchScopeFromRoute(route: ActiveRoute): SearchScopeId {
     case 'upcoming-events':
       return 'upcoming-events';
     default:
-      return 'home';
+      return 'all';
   }
 }
 
@@ -79,6 +82,7 @@ export interface ParsedRouteLocation {
   profileUsername: string | null;
   profileTab: ProfileTab | null;
   searchScope: SearchScopeId;
+  searchQuery: string | null;
   opportunityId: string | null;
   eventId: string | null;
   postId: string | null;
@@ -93,6 +97,20 @@ function parseSafeIdParam(params: URLSearchParams, key: string): string | null {
   return /^[a-zA-Z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
 }
 
+function parseSafeSearchQueryParam(params: URLSearchParams): string | null {
+  const raw = params.get('q');
+  if (!raw) return null;
+  const cleaned = Array.from(raw)
+    .filter((ch) => {
+      const code = ch.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    })
+    .join('')
+    .trim()
+    .slice(0, 100);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 export function parseLocationSearch(search: string): ParsedRouteLocation {
   const params = new URLSearchParams(search);
   const view = params.get('view');
@@ -104,7 +122,13 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
   const rawTab = params.get('tab');
   const profileTab = isValidProfileTab(rawTab) ? rawTab : null;
   const rawScope = params.get('scope');
-  const searchScope = isValidSearchScope(rawScope) ? rawScope : 'home';
+  const searchScope = isValidSearchScope(rawScope)
+    ? rawScope
+    : route === 'search'
+      ? 'all'
+      : 'home';
+  const searchQuery =
+    route === 'search' ? parseSafeSearchQueryParam(params) : null;
   const opportunityId = parseSafeIdParam(params, 'opportunityId');
   const eventId = parseSafeIdParam(params, 'eventId');
   const postId = parseSafeIdParam(params, 'postId');
@@ -116,6 +140,7 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
     profileUsername,
     profileTab,
     searchScope,
+    searchQuery,
     opportunityId,
     eventId,
     postId,
@@ -134,6 +159,7 @@ export function buildSearchForRoute(
     username?: string | null;
     profileTab?: ProfileTab | null;
     searchScope?: SearchScopeId | null;
+    searchQuery?: string | null;
     opportunityId?: string | null;
     eventId?: string | null;
     postId?: string | null;
@@ -157,8 +183,14 @@ export function buildSearchForRoute(
       params.set('tab', options.profileTab);
     }
   }
-  if (route === 'search' && options?.searchScope) {
-    params.set('scope', options.searchScope);
+  if (route === 'search') {
+    if (options?.searchScope) {
+      params.set('scope', options.searchScope);
+    }
+    const cleanQ = options?.searchQuery?.trim().slice(0, 100);
+    if (cleanQ) {
+      params.set('q', cleanQ);
+    }
   }
   if (route === 'opportunities' && options?.opportunityId) {
     params.set('opportunityId', options.opportunityId);

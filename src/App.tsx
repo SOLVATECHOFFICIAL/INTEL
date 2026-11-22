@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { HomeFeedWorkspace } from './components/HomeFeedWorkspace';
@@ -8,7 +9,10 @@ import { SectionSidebar } from './components/SectionSidebar';
 import { SectionWorkspace } from './components/SectionWorkspace';
 import { LoginPage } from './components/auth/LoginPage';
 import { RegisterPage } from './components/auth/RegisterPage';
-import { AccountPage } from './components/pages/AccountPage';
+import {
+  AccountPage,
+  type AccountSettingsSection,
+} from './components/pages/AccountPage';
 import { AdminGuardPage } from './components/pages/AdminGuardPage';
 import { MemberProfilePage } from './components/pages/MemberProfilePage';
 import { NotificationsPage } from './components/pages/NotificationsPage';
@@ -22,6 +26,10 @@ import {
   SectionId,
   ViewState,
 } from './types/platform';
+import {
+  DEFAULT_SEARCH_FILTERS,
+  type SearchFiltersState,
+} from './utils/contextualSearch';
 import {
   createInitialSectionStates,
   transitionViewState,
@@ -37,6 +45,8 @@ interface RouteHistoryEntry {
   username?: string | null;
   profileTab?: ProfileTab | null;
   searchScope?: SearchScopeId;
+  searchQuery?: string | null;
+  searchFilters?: SearchFiltersState;
   opportunityId?: string | null;
   eventId?: string | null;
   postId?: string | null;
@@ -61,6 +71,12 @@ export function App() {
   const [searchScope, setSearchScope] = useState<SearchScopeId>(
     initialParsed.searchScope
   );
+  const [searchQuery, setSearchQuery] = useState<string | null>(
+    initialParsed.searchQuery
+  );
+  const [searchFilters, setSearchFilters] = useState<SearchFiltersState>(
+    DEFAULT_SEARCH_FILTERS
+  );
   const [selectedOpportunityId, setSelectedOpportunityId] = useState<
     string | null
   >(initialParsed.opportunityId);
@@ -76,6 +92,8 @@ export function App() {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(
     initialParsed.listingId
   );
+  const [accountSection, setAccountSection] =
+    useState<AccountSettingsSection>('profile');
   const [previousEntry, setPreviousEntry] = useState<RouteHistoryEntry>({
     route: 'for-you',
   });
@@ -91,6 +109,8 @@ export function App() {
     username: initialParsed.profileUsername,
     profileTab: initialParsed.profileTab,
     searchScope: initialParsed.searchScope,
+    searchQuery: initialParsed.searchQuery,
+    searchFilters: DEFAULT_SEARCH_FILTERS,
     opportunityId: initialParsed.opportunityId,
     eventId: initialParsed.eventId,
     postId: initialParsed.postId,
@@ -101,26 +121,38 @@ export function App() {
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       const parsed = parseLocationSearch(window.location.search);
+      const historyObj =
+        event.state && typeof event.state === 'object'
+          ? (event.state as {
+              scrollY?: unknown;
+              searchFilters?: SearchFiltersState;
+            })
+          : null;
+      const restoredFilters =
+        historyObj?.searchFilters ?? DEFAULT_SEARCH_FILTERS;
+
       setActiveRoute(parsed.route);
       setProfileUsername(parsed.profileUsername);
       setProfileTab(parsed.profileTab);
       setSearchScope(parsed.searchScope);
+      setSearchQuery(parsed.searchQuery);
+      setSearchFilters(restoredFilters);
       setSelectedOpportunityId(parsed.opportunityId);
       setSelectedEventId(parsed.eventId);
       setSelectedPostId(parsed.postId);
       setSelectedCommentId(parsed.commentId);
       setSelectedListingId(parsed.listingId);
       const stateScrollY =
-        event.state &&
-        typeof event.state === 'object' &&
-        typeof (event.state as { scrollY?: unknown }).scrollY === 'number'
-          ? (event.state as { scrollY: number }).scrollY
+        typeof historyObj?.scrollY === 'number'
+          ? historyObj.scrollY
           : undefined;
       currentEntryRef.current = {
         route: parsed.route,
         username: parsed.profileUsername,
         profileTab: parsed.profileTab,
         searchScope: parsed.searchScope,
+        searchQuery: parsed.searchQuery,
+        searchFilters: restoredFilters,
         opportunityId: parsed.opportunityId,
         eventId: parsed.eventId,
         postId: parsed.postId,
@@ -150,11 +182,14 @@ export function App() {
         username?: string | null;
         profileTab?: ProfileTab | null;
         searchScope?: SearchScopeId;
+        searchQuery?: string | null;
+        searchFilters?: SearchFiltersState;
         opportunityId?: string | null;
         eventId?: string | null;
         postId?: string | null;
         commentId?: string | null;
         listingId?: string | null;
+        accountSection?: AccountSettingsSection;
         restoreScrollY?: number;
       }
     ) => {
@@ -168,7 +203,13 @@ export function App() {
       const nextProfileTab =
         route === 'profile' ? options?.profileTab ?? null : null;
       const nextSearchScope =
-        route === 'search' ? options?.searchScope ?? 'home' : 'home';
+        route === 'search' ? options?.searchScope ?? 'all' : 'home';
+      const nextSearchQuery =
+        route === 'search' ? options?.searchQuery ?? null : null;
+      const nextSearchFilters =
+        route === 'search'
+          ? options?.searchFilters ?? DEFAULT_SEARCH_FILTERS
+          : DEFAULT_SEARCH_FILTERS;
       const nextOpportunityId =
         route === 'opportunities' ? options?.opportunityId ?? null : null;
       const nextEventId =
@@ -220,7 +261,13 @@ export function App() {
             ? (window.history.state as Record<string, unknown>)
             : {};
         window.history.replaceState(
-          { ...currentHistoryState, scrollY: departingScrollY },
+          {
+            ...currentHistoryState,
+            scrollY: departingScrollY,
+            ...(current.route === 'search' && current.searchFilters
+              ? { searchFilters: current.searchFilters }
+              : {}),
+          },
           ''
         );
       }
@@ -229,11 +276,16 @@ export function App() {
       setProfileUsername(nextUsername);
       setProfileTab(nextProfileTab);
       setSearchScope(nextSearchScope);
+      setSearchQuery(nextSearchQuery);
+      setSearchFilters(nextSearchFilters);
       setSelectedOpportunityId(nextOpportunityId);
       setSelectedEventId(nextEventId);
       setSelectedPostId(nextPostId);
       setSelectedCommentId(nextCommentId);
       setSelectedListingId(nextListingId);
+      setAccountSection(
+        route === 'account' ? options?.accountSection ?? 'profile' : 'profile'
+      );
 
       const targetScrollY = options?.restoreScrollY ?? 0;
 
@@ -242,6 +294,8 @@ export function App() {
         username: nextUsername,
         profileTab: nextProfileTab,
         searchScope: nextSearchScope,
+        searchQuery: nextSearchQuery,
+        searchFilters: nextSearchFilters,
         opportunityId: nextOpportunityId,
         eventId: nextEventId,
         postId: nextPostId,
@@ -254,6 +308,7 @@ export function App() {
         username: nextUsername,
         profileTab: nextProfileTab,
         searchScope: route === 'search' ? nextSearchScope : undefined,
+        searchQuery: route === 'search' ? nextSearchQuery : undefined,
         opportunityId:
           route === 'opportunities' ? nextOpportunityId : undefined,
         eventId: route === 'upcoming-events' ? nextEventId : undefined,
@@ -261,7 +316,14 @@ export function App() {
         commentId: nextCommentId,
         listingId: route === 'marketplace' ? nextListingId : undefined,
       });
-      window.history.pushState({ scrollY: targetScrollY }, '', nextUrl);
+      window.history.pushState(
+        {
+          scrollY: targetScrollY,
+          ...(route === 'search' ? { searchFilters: nextSearchFilters } : {}),
+        },
+        '',
+        nextUrl
+      );
       if (options?.restoreScrollY !== undefined) {
         window.requestAnimationFrame(() => {
           window.scrollTo({ top: targetScrollY, behavior: 'auto' });
@@ -273,12 +335,60 @@ export function App() {
     []
   );
 
+  const handleSyncSearchState = useCallback(
+    (next: {
+      scope: SearchScopeId;
+      query: string;
+      filters: SearchFiltersState;
+    }) => {
+      if (currentEntryRef.current.route !== 'search') return;
+      const cleanQuery = next.query.trim() || null;
+      currentEntryRef.current = {
+        ...currentEntryRef.current,
+        searchScope: next.scope,
+        searchQuery: cleanQuery,
+        searchFilters: next.filters,
+      };
+      setSearchScope(next.scope);
+      setSearchQuery(cleanQuery);
+      setSearchFilters(next.filters);
+
+      if (typeof window !== 'undefined') {
+        const nextUrl = buildSearchForRoute('search', {
+          searchScope: next.scope,
+          searchQuery: cleanQuery,
+        });
+        const currentHistoryState =
+          window.history.state && typeof window.history.state === 'object'
+            ? (window.history.state as Record<string, unknown>)
+            : {};
+        window.history.replaceState(
+          { ...currentHistoryState, searchFilters: next.filters },
+          '',
+          nextUrl
+        );
+      }
+    },
+    []
+  );
+
+  const handleBackToSearch = useCallback(() => {
+    handleNavigate('search', {
+      searchScope: previousEntry.searchScope ?? 'all',
+      searchQuery: previousEntry.searchQuery ?? null,
+      searchFilters: previousEntry.searchFilters ?? DEFAULT_SEARCH_FILTERS,
+      restoreScrollY: previousEntry.scrollY ?? 0,
+    });
+  }, [handleNavigate, previousEntry]);
+
   const handleBackFromProfile = useCallback(() => {
     if (previousEntry.route && previousEntry.route !== 'profile') {
       handleNavigate(previousEntry.route, {
         username: previousEntry.username,
         profileTab: previousEntry.profileTab,
         searchScope: previousEntry.searchScope,
+        searchQuery: previousEntry.searchQuery,
+        searchFilters: previousEntry.searchFilters,
         opportunityId: previousEntry.opportunityId,
         eventId: previousEntry.eventId,
         postId: previousEntry.postId,
@@ -368,6 +478,8 @@ export function App() {
     if (activeRoute === 'account') {
       return (
         <AccountPage
+          key={accountSection}
+          initialSection={accountSection}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
         />
@@ -400,6 +512,9 @@ export function App() {
       return (
         <SearchPage
           initialScope={searchScope}
+          initialQuery={searchQuery}
+          initialFilters={searchFilters}
+          onSyncSearchState={handleSyncSearchState}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
         />
@@ -409,6 +524,7 @@ export function App() {
     if (isFeedRoute(activeRoute)) {
       return (
         <HomeFeedWorkspace
+          key={activeRoute}
           activeFeedTab={activeRoute as FeedTabId}
           selectedPostId={selectedPostId}
           selectedCommentId={selectedCommentId}
@@ -447,6 +563,13 @@ export function App() {
   const showSidebar =
     activeRoute !== 'login' && activeRoute !== 'register';
 
+  const showBackToSearchBanner =
+    previousEntry.route === 'search' &&
+    activeRoute !== 'search' &&
+    activeRoute !== 'profile' &&
+    activeRoute !== 'login' &&
+    activeRoute !== 'register';
+
   return (
     <div className="flex min-h-screen flex-col bg-slate-50/50 text-[#0B1A2E]">
       <Header
@@ -464,7 +587,34 @@ export function App() {
           />
         )}
 
-        {renderMainContent()}
+        <div className="min-w-0 flex-1 space-y-4">
+          {showBackToSearchBanner && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
+              <button
+                type="button"
+                onClick={handleBackToSearch}
+                className="inline-flex min-h-[36px] items-center gap-2 rounded-lg text-xs font-semibold text-[#1E88E5] hover:underline sm:text-sm"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                <span>
+                  Back to Search Results
+                  {previousEntry.searchQuery
+                    ? ` for “${previousEntry.searchQuery}”`
+                    : ''}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviousEntry({ route: 'for-you' })}
+                className="text-xs font-medium text-slate-500 hover:text-[#0B1A2E]"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {renderMainContent()}
+        </div>
       </main>
 
       <Footer onNavigate={handleNavigate} />

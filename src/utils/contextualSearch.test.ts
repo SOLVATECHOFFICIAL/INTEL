@@ -9,6 +9,12 @@ import type {
   TrustedContact,
 } from '../types/database';
 import {
+  applyEventSearchFilters,
+  applyMarketplaceSearchFilters,
+  applyOpportunitySearchFilters,
+  applyPostSearchFilters,
+  buildSearchSuggestions,
+  DEFAULT_SEARCH_FILTERS,
   filterAnonymousPosts,
   filterCampusEvents,
   filterCommunityPosts,
@@ -16,6 +22,11 @@ import {
   filterMemberMatches,
   filterOpportunities,
   filterTrustedContacts,
+  formatSearchUserError,
+  sanitizeAnonymousPostForSearch,
+  scoreSearchFields,
+  tokenizeSearchQuery,
+  validateSearchQuery,
 } from './contextualSearch';
 
 const sampleProfiles: PublicUserProfile[] = [
@@ -36,6 +47,24 @@ const sampleProfiles: PublicUserProfile[] = [
     followingCount: 8,
     createdAt: 1000,
     updatedAt: 2000,
+  },
+  {
+    uid: 'uid_chidinma',
+    memberId: 'LI-chidinma',
+    fullName: 'Chidinma Okafor',
+    username: 'chidinma_edu',
+    department: 'English Education',
+    faculty: 'Education',
+    level: '300 Level',
+    publicWhatsapp: '+2348044444444',
+    showWhatsappPublicly: true,
+    badge: 'moderator',
+    accountStatus: 'active',
+    isHiddenFromDirectory: false,
+    followersCount: 42,
+    followingCount: 12,
+    createdAt: 2500,
+    updatedAt: 2600,
   },
   {
     uid: 'uid_hidden_owner',
@@ -69,15 +98,57 @@ const sampleProfiles: PublicUserProfile[] = [
   },
 ];
 
+test('validateSearchQuery rejects empty and 1-char queries, normalizes whitespace, and tokenizes multi-word phrases', () => {
+  assert.equal(validateSearchQuery('   ').reason, 'empty');
+  assert.equal(validateSearchQuery('a').reason, 'too_short');
+  assert.equal(validateSearchQuery('@a').reason, 'too_short');
+
+  const ok = validateSearchQuery('  @solomon   computer   science  ');
+  assert.equal(ok.valid, true);
+  assert.deepEqual(ok.tokens, ['solomon', 'computer', 'science']);
+  assert.deepEqual(
+    tokenizeSearchQuery('CSC 401 CSC'),
+    ['csc', '401']
+  );
+});
+
+test('scoreSearchFields requires ALL query tokens to match and ranks title/exact hits above body matches', () => {
+  const exactTitleScore = scoreSearchFields(
+    [
+      { text: 'CSC 401 Seminar Schedule', weight: 3 },
+      { text: 'Main Auditorium', weight: 1 },
+    ],
+    'csc 401'
+  );
+  const bodyOnlyScore = scoreSearchFields(
+    [
+      { text: 'Weekly Faculty Update', weight: 3 },
+      { text: 'Includes notes on csc 401 timetable.', weight: 1 },
+    ],
+    'csc 401'
+  );
+  const partialMismatchScore = scoreSearchFields(
+    [{ text: 'CSC 201 Practical Notes', weight: 3 }],
+    'csc 401'
+  );
+
+  assert.ok(exactTitleScore > bodyOnlyScore);
+  assert.equal(partialMismatchScore, 0);
+});
+
 test('filterMemberMatches performs partial case-insensitive search, excludes hidden/suspended accounts, and omits UIDs', () => {
   const results = filterMemberMatches(sampleProfiles, '@Solo');
   assert.equal(results.length, 1);
   assert.equal(results[0].username, 'solomon');
   assert.equal('uid' in results[0], false);
   assert.equal('memberId' in results[0], false);
+
+  const multiToken = filterMemberMatches(sampleProfiles, 'computer science');
+  assert.equal(multiToken.length, 1);
+  assert.equal(multiToken[0].username, 'solomon');
 });
 
-test('filterCommunityPosts matches published public ordinary posts only', () => {
+test('filterCommunityPosts matches published public ordinary posts only and applies category/department/sort filters', () => {
   const posts: CommunityPost[] = [
     {
       id: 'p1',
@@ -96,6 +167,22 @@ test('filterCommunityPosts matches published public ordinary posts only', () => 
       updatedAt: 1000,
     },
     {
+      id: 'p3',
+      ownerUID: 'uid_chidinma',
+      authorRole: 'moderator',
+      category: 'Campus News',
+      title: 'Seminar on Academic Writing',
+      body: 'Education faculty hall tomorrow.',
+      isOfficial: false,
+      isPinned: false,
+      status: 'published',
+      visibility: 'public',
+      likesCount: 5,
+      commentsCount: 1,
+      createdAt: 3000,
+      updatedAt: 3000,
+    },
+    {
       id: 'p2',
       ownerUID: 'uid_solomon',
       authorRole: 'verified',
@@ -108,23 +195,67 @@ test('filterCommunityPosts matches published public ordinary posts only', () => 
       visibility: 'public',
       likesCount: 0,
       commentsCount: 0,
-      createdAt: 1000,
-      updatedAt: 1000,
+      createdAt: 2000,
+      updatedAt: 2000,
     },
   ];
 
-  const matched = filterCommunityPosts(
-    posts.map((post) => ({ post, author: null })),
-    'seminar'
-  );
-  assert.equal(matched.length, 1);
-  assert.equal(matched[0].post.id, 'p1');
+  const searchable = posts.map((post) => ({
+    post,
+    author:
+      post.ownerUID === 'uid_solomon'
+        ? {
+            fullName: 'Solomon Adeyemi',
+            username: 'solomon',
+            department: 'Computer Science',
+            faculty: 'Science',
+            badge: 'verified' as const,
+            accountStatus: 'active' as const,
+            followersCount: 15,
+            followingCount: 8,
+            createdAt: 1000,
+          }
+        : {
+            fullName: 'Chidinma Okafor',
+            username: 'chidinma_edu',
+            department: 'English Education',
+            faculty: 'Education',
+            badge: 'moderator' as const,
+            accountStatus: 'active' as const,
+            followersCount: 42,
+            followingCount: 12,
+            createdAt: 2500,
+          },
+  }));
+
+  const matched = filterCommunityPosts(searchable, 'seminar');
+  assert.equal(matched.length, 2);
+
+  const byCategory = applyPostSearchFilters(matched, {
+    ...DEFAULT_SEARCH_FILTERS,
+    category: 'Academic',
+  });
+  assert.equal(byCategory.length, 1);
+  assert.equal(byCategory[0].post.id, 'p1');
+
+  const newestFirst = applyPostSearchFilters(matched, {
+    ...DEFAULT_SEARCH_FILTERS,
+    sortBy: 'newest',
+  });
+  assert.equal(newestFirst[0].post.id, 'p3');
+
+  const oldestFirst = applyPostSearchFilters(matched, {
+    ...DEFAULT_SEARCH_FILTERS,
+    sortBy: 'oldest',
+  });
+  assert.equal(oldestFirst[0].post.id, 'p1');
 });
 
 test('filterAnonymousPosts strictly strips any rogue identity metadata and excludes deleted entries', () => {
   const rawDocs: Record<string, unknown>[] = [
     {
       id: 'anon_1',
+      postType: 'text',
       category: 'Campus Life',
       body: 'Hostel water pump needs urgent maintenance.',
       status: 'published',
@@ -133,8 +264,8 @@ test('filterAnonymousPosts strictly strips any rogue identity metadata and exclu
       commentsCount: 1,
       createdAt: 1000,
       updatedAt: 1000,
-      // Rogue field test to guarantee sanitization strips identity keys
       authorUid: 'leak_attempt',
+      ownerUID: 'leak_attempt_2',
       username: 'leak_username',
     },
     {
@@ -150,14 +281,19 @@ test('filterAnonymousPosts strictly strips any rogue identity metadata and exclu
     },
   ];
 
+  const sanitized = sanitizeAnonymousPostForSearch(rawDocs[0]);
+  assert.equal(sanitized.postType, 'text');
+  assert.equal('ownerUID' in sanitized, false);
+
   const matched = filterAnonymousPosts(rawDocs, 'hostel');
   assert.equal(matched.length, 1);
   assert.equal(matched[0].id, 'anon_1');
   assert.equal('authorUid' in matched[0], false);
+  assert.equal('ownerUID' in matched[0], false);
   assert.equal('username' in matched[0], false);
 });
 
-test('filterMarketplaceListings excludes pending, rejected, sold, and expired listings', () => {
+test('filterMarketplaceListings excludes pending, rejected, sold, and expired listings and supports filters', () => {
   const now = 1_700_000_000_000;
   const listings: MarketplaceListing[] = [
     {
@@ -166,7 +302,7 @@ test('filterMarketplaceListings excludes pending, rejected, sold, and expired li
       listingKind: 'product',
       title: 'Engineering Mathematics Textbook',
       description: 'Clean second-hand copy',
-      category: 'Textbooks',
+      category: 'Books and Educational Materials',
       price: 4500,
       quantity: 1,
       whatsappNumber: '+2348011111111',
@@ -178,12 +314,29 @@ test('filterMarketplaceListings excludes pending, rejected, sold, and expired li
       expiresAt: now + 86_400_000,
     },
     {
+      id: 'm3',
+      ownerUID: 'u1',
+      listingKind: 'service',
+      title: 'Textbook Binding Service',
+      description: 'Fast binding at Student Centre',
+      category: 'Services',
+      price: 1500,
+      quantity: 5,
+      whatsappNumber: '+2348011111111',
+      approvalStatus: 'approved',
+      status: 'active',
+      visibility: 'public',
+      createdAt: now - 500,
+      updatedAt: now - 500,
+      expiresAt: now + 86_400_000,
+    },
+    {
       id: 'm2',
       ownerUID: 'u1',
       listingKind: 'product',
       title: 'Expired Textbook',
       description: 'Old edition',
-      category: 'Textbooks',
+      category: 'Books and Educational Materials',
       price: 2500,
       quantity: 1,
       whatsappNumber: '+2348011111111',
@@ -197,11 +350,24 @@ test('filterMarketplaceListings excludes pending, rejected, sold, and expired li
   ];
 
   const matched = filterMarketplaceListings(listings, 'textbook', now);
-  assert.equal(matched.length, 1);
-  assert.equal(matched[0].id, 'm1');
+  assert.equal(matched.length, 2);
+
+  const lowStockOnly = applyMarketplaceSearchFilters(matched, {
+    ...DEFAULT_SEARCH_FILTERS,
+    availability: 'low_stock',
+  });
+  assert.equal(lowStockOnly.length, 1);
+  assert.equal(lowStockOnly[0].id, 'm1');
+
+  const servicesOnly = applyMarketplaceSearchFilters(matched, {
+    ...DEFAULT_SEARCH_FILTERS,
+    category: 'kind:service',
+  });
+  assert.equal(servicesOnly.length, 1);
+  assert.equal(servicesOnly[0].id, 'm3');
 });
 
-test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect visibility and expiry', () => {
+test('filterTrustedContacts, filterOpportunities, filterCampusEvents, and lifecycle filters work cleanly', () => {
   const now = 1_700_000_000_000;
   const contacts: TrustedContact[] = [
     {
@@ -210,7 +376,7 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
       isUserAccount: false,
       fullName: 'Dr. Amina Bello',
       category: 'lecturer',
-      roleTitle: 'Head of Department',
+      roleTitle: 'Departmental Adviser',
       department: 'Computer Science',
       faculty: 'Science',
       createdByUid: 'admin1',
@@ -230,7 +396,7 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
       description: 'Undergraduate tuition support',
       applicationUrl: 'https://example.com/apply',
       status: 'active',
-      expiresAt: now + 100_000,
+      expiresAt: now + 3 * 86_400_000,
       createdAt: now,
       updatedAt: now,
     },
@@ -248,7 +414,16 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
       updatedAt: now,
     },
   ];
-  assert.equal(filterOpportunities(opps, 'scholarship', now).length, 1);
+  const matchedOpps = filterOpportunities(opps, 'scholarship', now);
+  assert.equal(matchedOpps.length, 1);
+  assert.equal(
+    applyOpportunitySearchFilters(
+      matchedOpps,
+      { ...DEFAULT_SEARCH_FILTERS, availability: 'closing_soon' },
+      now
+    ).length,
+    1
+  );
 
   const events: CampusEvent[] = [
     {
@@ -257,7 +432,7 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
       category: 'orientation',
       title: 'Freshers Welcome Programme',
       description: 'Main auditorium welcome',
-      eventDate: now + 50_000,
+      eventDate: now + 500_000,
       venue: 'Main Auditorium',
       organiser: 'Student Affairs',
       status: 'upcoming',
@@ -270,7 +445,7 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
       category: 'orientation',
       title: 'Cancelled Orientation',
       description: 'Postponed',
-      eventDate: now + 50_000,
+      eventDate: now + 500_000,
       venue: 'Hall B',
       organiser: 'Student Affairs',
       status: 'cancelled',
@@ -281,4 +456,82 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
   const matchedEvents = filterCampusEvents(events, 'orientation');
   assert.equal(matchedEvents.length, 1);
   assert.equal(matchedEvents[0].id, 'e1');
+  assert.equal(
+    applyEventSearchFilters(
+      matchedEvents,
+      { ...DEFAULT_SEARCH_FILTERS, availability: 'upcoming' },
+      now
+    ).length,
+    1
+  );
+});
+
+test('buildSearchSuggestions excludes member profiles in anonymous scope and omits empty matches', () => {
+  const members = sampleProfiles
+    .filter((p) => !p.isHiddenFromDirectory && p.accountStatus === 'active')
+    .map((p) => ({
+      fullName: p.fullName,
+      username: p.username,
+      department: p.department,
+      faculty: p.faculty,
+      badge: p.badge,
+      accountStatus: p.accountStatus,
+      followersCount: p.followersCount,
+      followingCount: p.followingCount,
+      createdAt: p.createdAt,
+    }));
+
+  const suggestions = buildSearchSuggestions({
+    rawQuery: 'solo',
+    recentSearches: ['solomon notes'],
+    members,
+    scope: 'all',
+  });
+  assert.ok(suggestions.some((s) => s.kind === 'person' && s.username === 'solomon'));
+  assert.ok(suggestions.some((s) => s.kind === 'recent'));
+
+  const anonSuggestions = buildSearchSuggestions({
+    rawQuery: 'solo',
+    recentSearches: [],
+    members,
+    scope: 'anonymous',
+  });
+  assert.equal(
+    anonSuggestions.some((s) => s.kind === 'person'),
+    false
+  );
+
+  const noMatches = buildSearchSuggestions({
+    rawQuery: 'zzzzzzzzq',
+    recentSearches: ['scholarship'],
+    members,
+    scope: 'all',
+  });
+  assert.equal(noMatches.length, 0);
+
+  const homeOppSuggestions = buildSearchSuggestions({
+    rawQuery: 'scholarship',
+    recentSearches: [],
+    members,
+    scope: 'home',
+  });
+  assert.equal(homeOppSuggestions.length, 0);
+
+  const allOppSuggestions = buildSearchSuggestions({
+    rawQuery: 'scholarship',
+    recentSearches: [],
+    members,
+    scope: 'all',
+  });
+  assert.ok(allOppSuggestions.some((s) => s.targetScope === 'opportunities'));
+});
+
+test('formatSearchUserError never exposes Firebase, Firestore, index, or internal jargon', () => {
+  const firebaseErr = new Error(
+    'FirebaseError: The query requires an index on firestore collection posts'
+  );
+  const formatted = formatSearchUserError(firebaseErr);
+  assert.equal(formatted.toLowerCase().includes('firebase'), false);
+  assert.equal(formatted.toLowerCase().includes('firestore'), false);
+  assert.equal(formatted.toLowerCase().includes('index'), false);
 });

@@ -1,5 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  ArrowRight,
   Ban,
   Bell,
   Calendar,
@@ -12,6 +14,7 @@ import {
   Loader2,
   MapPin,
   Plus,
+  RefreshCw,
   Search,
   Send,
   Trash2,
@@ -49,7 +52,13 @@ import {
   formatByteSize,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
+import {
+  partitionDuplicateSelectedFiles,
+  reorderArrayItem,
+} from '../../utils/mediaCache';
+import type { GridPhotoItem } from '../../utils/mediaGrid';
 import { FirestoreImage } from '../media/FirestoreImage';
+import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
 interface AdminEventsTabProps {
@@ -116,11 +125,14 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
   const [published, setPublished] = useState(true);
 
   // Media uploads
+  const replaceInputRef = useRef<HTMLInputElement | null>(null);
+  const replacingNewIndexRef = useRef<number | null>(null);
   const [retainedMediaItems, setRetainedMediaItems] = useState<PostMediaMeta[]>(
     []
   );
   const [newImages, setNewImages] = useState<CompressedImageResult[]>([]);
   const [compressingImages, setCompressingImages] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Optional notification broadcast on save
   const [notifyNewOnSave, setNotifyNewOnSave] = useState(false);
@@ -202,6 +214,21 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
     event.target.value = '';
     if (files.length === 0) return;
 
+    const existingFingerprints = new Set<string>(
+      newImages
+        .map((img) => img.fingerprint)
+        .filter((fp): fp is string => Boolean(fp))
+    );
+    const { unique: uniqueFiles, duplicateCount } =
+      partitionDuplicateSelectedFiles(files, existingFingerprints);
+
+    if (uniqueFiles.length === 0) {
+      if (duplicateCount > 0) {
+        onError('Those images are already selected for this event.');
+      }
+      return;
+    }
+
     const remainingSlots =
       BLUEPRINT_LIMITS.mediaPostMaxCount - totalImagesCount;
     if (remainingSlots <= 0) {
@@ -211,7 +238,7 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
       return;
     }
 
-    const toProcess = files.slice(0, remainingSlots);
+    const toProcess = uniqueFiles.slice(0, remainingSlots);
     setCompressingImages(true);
     try {
       const compressed: CompressedImageResult[] = [];
@@ -220,11 +247,58 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
         compressed.push(res);
       }
       setNewImages((prev) => [...prev, ...compressed]);
+      if (duplicateCount > 0) {
+        onError(
+          `Skipped ${duplicateCount} duplicate image${duplicateCount === 1 ? '' : 's'}.`
+        );
+      }
     } catch (error) {
       onError(
         formatFirestoreOrAppError(
           error,
           'Could not process one or more selected images.'
+        )
+      );
+    } finally {
+      setCompressingImages(false);
+    }
+  };
+
+  const handleReplaceNewImage = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const targetIndex = replacingNewIndexRef.current;
+    replacingNewIndexRef.current = null;
+    if (!file || targetIndex === null) return;
+
+    const otherFingerprints = new Set<string>(
+      newImages
+        .filter((_, idx) => idx !== targetIndex)
+        .map((img) => img.fingerprint)
+        .filter((fp): fp is string => Boolean(fp))
+    );
+    const { duplicateCount } = partitionDuplicateSelectedFiles(
+      [file],
+      otherFingerprints
+    );
+    if (duplicateCount > 0) {
+      onError('That image is already selected in another slot.');
+      return;
+    }
+
+    setCompressingImages(true);
+    try {
+      const compressed = await compressImageFile(file, 'post');
+      setNewImages((prev) =>
+        prev.map((img, idx) => (idx === targetIndex ? compressed : img))
+      );
+    } catch (error) {
+      onError(
+        formatFirestoreOrAppError(
+          error,
+          'Could not process replacement image.'
         )
       );
     } finally {
@@ -716,9 +790,16 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/*"
                 multiple
                 onChange={(e) => void handleSelectImages(e)}
+                className="hidden"
+              />
+              <input
+                ref={replaceInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => void handleReplaceNewImage(e)}
                 className="hidden"
               />
               <button
@@ -747,55 +828,156 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
                 {retainedMediaItems.map((item, idx) => (
                   <div
                     key={item.imageId}
-                    className="relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-[#0B1A2E]"
+                    className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-slate-50 p-1.5"
                   >
-                    <FirestoreImage
-                      imageId={item.imageId}
-                      alt={`Existing event image ${idx + 1}`}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRetainedMediaItems((prev) =>
-                          prev.filter((m) => m.imageId !== item.imageId)
-                        )
-                      }
-                      aria-label={`Remove existing image ${idx + 1}`}
-                      className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white hover:bg-red-700"
-                    >
-                      <X className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
+                    <div className="relative aspect-square overflow-hidden rounded-md bg-[#0B1A2E]">
+                      <button
+                        type="button"
+                        onClick={() => setLightboxIndex(idx)}
+                        aria-label={`Preview existing event image ${idx + 1}`}
+                        className="block h-full w-full cursor-zoom-in"
+                      >
+                        <FirestoreImage
+                          imageId={item.imageId}
+                          alt={`Existing event image ${idx + 1}`}
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
+                      <span className="pointer-events-none absolute top-1 left-1 rounded bg-[#0B1A2E]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {idx === 0 ? '#1 Cover' : `#${idx + 1}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRetainedMediaItems((prev) =>
+                            prev.filter((m) => m.imageId !== item.imageId)
+                          )
+                        }
+                        aria-label={`Remove existing image ${idx + 1}`}
+                        className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white hover:bg-red-700"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                    {retainedMediaItems.length > 1 && (
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() =>
+                            setRetainedMediaItems((prev) =>
+                              reorderArrayItem(prev, idx, idx - 1)
+                            )
+                          }
+                          aria-label={`Move existing image ${idx + 1} left`}
+                          className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                        >
+                          <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === retainedMediaItems.length - 1}
+                          onClick={() =>
+                            setRetainedMediaItems((prev) =>
+                              reorderArrayItem(prev, idx, idx + 1)
+                            )
+                          }
+                          aria-label={`Move existing image ${idx + 1} right`}
+                          className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                        >
+                          <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
 
-                {newImages.map((img, idx) => (
-                  <div
-                    key={`${img.width}-${img.byteSize}-${idx}`}
-                    className="relative aspect-square overflow-hidden rounded-lg border border-slate-200 bg-[#0B1A2E]"
-                  >
-                    <img
-                      src={img.dataUrl}
-                      alt={`New event upload ${idx + 1}`}
-                      className="h-full w-full object-cover"
-                    />
-                    <span className="absolute bottom-1.5 left-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      {formatByteSize(img.byteSize)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setNewImages((prev) =>
-                          prev.filter((_, i) => i !== idx)
-                        )
-                      }
-                      aria-label={`Remove new upload ${idx + 1}`}
-                      className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white hover:bg-red-700"
+                {newImages.map((img, idx) => {
+                  const overallIdx = retainedMediaItems.length + idx;
+                  return (
+                    <div
+                      key={`${img.width}-${img.byteSize}-${idx}`}
+                      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-slate-50 p-1.5"
                     >
-                      <X className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="relative aspect-square overflow-hidden rounded-md bg-[#0B1A2E]">
+                        <button
+                          type="button"
+                          onClick={() => setLightboxIndex(overallIdx)}
+                          aria-label={`Preview new event upload ${idx + 1}`}
+                          className="block h-full w-full cursor-zoom-in"
+                        >
+                          <img
+                            src={img.dataUrl}
+                            alt={`New event upload ${idx + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                        <span className="pointer-events-none absolute top-1 left-1 rounded bg-[#0B1A2E]/85 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {overallIdx === 0 ? '#1 Cover' : `#${overallIdx + 1}`}
+                        </span>
+                        <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {formatByteSize(img.byteSize)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNewImages((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            )
+                          }
+                          aria-label={`Remove new upload ${idx + 1}`}
+                          className="absolute top-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white hover:bg-red-700"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          disabled={compressingImages || submitting}
+                          onClick={() => {
+                            replacingNewIndexRef.current = idx;
+                            replaceInputRef.current?.click();
+                          }}
+                          className="inline-flex h-6 items-center gap-1 rounded border border-slate-200 bg-white px-1.5 text-[10px] font-semibold text-[#0B1A2E] hover:bg-slate-100"
+                        >
+                          <RefreshCw className="h-2.5 w-2.5 text-[#1E88E5]" aria-hidden="true" />
+                          Replace
+                        </button>
+                        {newImages.length > 1 && (
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() =>
+                                setNewImages((prev) =>
+                                  reorderArrayItem(prev, idx, idx - 1)
+                                )
+                              }
+                              aria-label={`Move new upload ${idx + 1} left`}
+                              className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                            >
+                              <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === newImages.length - 1}
+                              onClick={() =>
+                                setNewImages((prev) =>
+                                  reorderArrayItem(prev, idx, idx + 1)
+                                )
+                              }
+                              aria-label={`Move new upload ${idx + 1} right`}
+                              className="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                            >
+                              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -1258,6 +1440,28 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
         onCancel={() => setDeleteTarget(null)}
         onConfirm={() => void handleConfirmDelete()}
       />
+
+      {lightboxIndex !== null && (retainedMediaItems.length > 0 || newImages.length > 0) && (
+        <FullScreenImageLightbox
+          items={[
+            ...retainedMediaItems.map(
+              (m): GridPhotoItem => ({
+                imageId: m.imageId,
+              })
+            ),
+            ...newImages.map(
+              (img, idx): GridPhotoItem => ({
+                imageId: `new-event-photo-${idx}`,
+                directSrc: img.dataUrl,
+              })
+            ),
+          ]}
+          initialIndex={lightboxIndex}
+          postTitle={title.trim() || 'Campus Event Preview'}
+          postCaption={venue.trim() || undefined}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </div>
   );
 };

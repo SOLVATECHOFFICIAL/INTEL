@@ -1,6 +1,5 @@
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -52,11 +51,14 @@ import {
   createSafeMemberNotification,
   fetchPublicProfileProjectionsByUids,
 } from './firestoreFoundation';
+import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
   buildMediaImageFirestoreRecord,
   evictMediaImageCache,
+  evictMediaImageCacheBatch,
   generateFirestoreDocId,
   primeMediaImageCache,
+  type UploadProgressState,
 } from './mediaStorage';
 
 export interface AdminManagedMember {
@@ -77,6 +79,7 @@ export interface CreateMarketplaceListingInput {
   quantity: number;
   whatsappNumber: string;
   attachments?: Array<{ compressed: CompressedImageResult }>;
+  onProgress?: (progress: UploadProgressState) => void;
 }
 
 export interface CreateTrustedContactInput {
@@ -878,6 +881,14 @@ export async function createMarketplaceListingItem(
     BLUEPRINT_LIMITS.mediaPostMaxCount
   );
 
+  input.onProgress?.({
+    percent: attachments.length > 0 ? 25 : 40,
+    label:
+      attachments.length > 0
+        ? `Preparing ${attachments.length} product photo${attachments.length === 1 ? '' : 's'}...`
+        : 'Preparing listing details...',
+  });
+
   const autoApprove = canRolePublishCommunityFeed(input.actorRole);
   const listingId = generateFirestoreDocId(COLLECTION_NAMES.marketplaceListings);
   const expiryDate = computeMarketplaceExpiryDate();
@@ -932,14 +943,23 @@ export async function createMarketplaceListingItem(
 
   batch.set(doc(db, COLLECTION_NAMES.marketplaceListings, listingId), payload);
 
+  input.onProgress?.({
+    percent: 65,
+    label:
+      attachments.length > 0
+        ? 'Uploading product photos & saving listing...'
+        : 'Saving marketplace listing...',
+  });
+
   try {
-    await batch.commit();
+    await runWithFirestoreConnectionRetry(() => batch.commit());
     attachments.forEach((attachment, index) => {
       const meta = mediaItems[index];
       if (meta) {
         primeMediaImageCache(meta.imageId, attachment.compressed.dataUrl);
       }
     });
+    input.onProgress?.({ percent: 100, label: 'Listing saved!' });
 
     return {
       id: listingId,
@@ -1116,10 +1136,34 @@ export async function renewMarketplaceListing(
   }
 }
 
-export async function deleteMarketplaceListing(listingId: string): Promise<void> {
+export async function deleteMarketplaceListing(
+  listingId: string,
+  knownMediaIds?: readonly string[]
+): Promise<void> {
   if (!isValidFirestoreId(listingId)) return;
+  const listingRef = doc(db, COLLECTION_NAMES.marketplaceListings, listingId);
   try {
-    await deleteDoc(doc(db, COLLECTION_NAMES.marketplaceListings, listingId));
+    let mediaIds = (knownMediaIds ?? []).filter(isValidFirestoreId);
+    if (mediaIds.length === 0) {
+      const snap = await getDoc(listingRef).catch(() => null);
+      if (snap?.exists()) {
+        const existing = snap.data() as MarketplaceListing;
+        mediaIds = (existing.mediaItems ?? [])
+          .map((item) => item.imageId)
+          .filter(isValidFirestoreId);
+      }
+    }
+
+    const batch = writeBatch(db);
+    batch.delete(listingRef);
+    for (const imgId of mediaIds) {
+      batch.delete(doc(db, COLLECTION_NAMES.mediaImages, imgId));
+    }
+    await batch.commit();
+
+    if (mediaIds.length > 0) {
+      evictMediaImageCacheBatch(mediaIds);
+    }
   } catch (error) {
     handleFirestoreError(
       error,

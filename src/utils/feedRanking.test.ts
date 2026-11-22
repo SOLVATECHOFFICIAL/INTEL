@@ -1,9 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { CommunityPost } from '../types/database';
+import type {
+  AnonymousPost,
+  CampusEvent,
+  CommunityPost,
+  Opportunity,
+  PublicProfileProjection,
+} from '../types/database';
 import {
+  buildForYouFeedStream,
+  buildInteractionAffinities,
   computeForYouPostScore,
+  normalizeInterestList,
   rankForYouCommunityPosts,
+  rankRecommendedAnonymousPosts,
+  rankRecommendedEvents,
+  rankRecommendedOpportunities,
+  rankRecommendedPeople,
+  sortChronologicalAnonymousPosts,
   sortLatestCommunityPosts,
 } from './feedRanking';
 
@@ -23,6 +37,26 @@ function makePost(overrides: Partial<CommunityPost> & { id: string }): Community
     commentsCount: 0,
     createdAt: 1_000_000,
     updatedAt: 1_000_000,
+    ...overrides,
+  };
+}
+
+function makeMember(
+  overrides: Partial<PublicProfileProjection> & { username: string }
+): PublicProfileProjection {
+  return {
+    fullName: 'Campus Member',
+    bio: '',
+    department: 'Computer Science',
+    faculty: 'Science',
+    level: '200 Level',
+    accountCategory: 'Student',
+    badge: 'verified',
+    accountStatus: 'active',
+    showWhatsappPublicly: false,
+    followersCount: 10,
+    followingCount: 5,
+    createdAt: 1_000_000,
     ...overrides,
   };
 }
@@ -54,12 +88,43 @@ test('sortLatestCommunityPosts orders strictly newest-first without pinned prior
   );
 });
 
+test('sortChronologicalAnonymousPosts keeps anonymous posts strictly newest-first', () => {
+  const oldAnon: AnonymousPost = {
+    id: 'a_old',
+    category: 'Campus Life',
+    body: 'Earlier thought',
+    status: 'published',
+    visibility: 'public',
+    likesCount: 40,
+    commentsCount: 15,
+    createdAt: 1_000,
+    updatedAt: 1_000,
+  };
+  const freshAnon: AnonymousPost = {
+    id: 'a_fresh',
+    category: 'Academics',
+    body: 'Latest exam timetable inquiry',
+    status: 'published',
+    visibility: 'public',
+    likesCount: 0,
+    commentsCount: 0,
+    createdAt: 8_000,
+    updatedAt: 8_000,
+  };
+
+  const sorted = sortChronologicalAnonymousPosts([oldAnon, freshAnon]);
+  assert.deepEqual(
+    sorted.map((item) => item.id),
+    ['a_fresh', 'a_old']
+  );
+});
+
 test('rankForYouCommunityPosts prioritizes pinned, official, followed, and engaged recent posts using only real fields', () => {
   const nowMs = 100_000_000;
   const freshFollowed = makePost({
     id: 'p_followed',
     ownerUID: 'author_followed',
-    createdAt: nowMs - 1_800_000, // 30 mins ago
+    createdAt: nowMs - 1_800_000,
     likesCount: 5,
     commentsCount: 2,
   });
@@ -74,13 +139,13 @@ test('rankForYouCommunityPosts prioritizes pinned, official, followed, and engag
     id: 'p_official',
     ownerUID: 'author_admin',
     isOfficial: true,
-    createdAt: nowMs - 3_600_000, // 1 hr ago
+    createdAt: nowMs - 3_600_000,
   });
   const pinnedPost = makePost({
     id: 'p_pinned',
     ownerUID: 'author_admin',
     isPinned: true,
-    createdAt: nowMs - 86_400_000, // 1 day ago
+    createdAt: nowMs - 86_400_000,
   });
 
   const ranked = rankForYouCommunityPosts(
@@ -102,4 +167,273 @@ test('rankForYouCommunityPosts prioritizes pinned, official, followed, and engag
       nowMs,
     }) > computeForYouPostScore(freshUnfollowed, { nowMs })
   );
+});
+
+test('computeForYouPostScore boosts matching department, faculty, selected interests, and interaction history', () => {
+  const nowMs = 200_000_000;
+  const csAuthor = makeMember({
+    username: 'ada_cs',
+    department: 'Computer Science',
+    faculty: 'Science and Technology Education',
+  });
+  const histAuthor = makeMember({
+    username: 'bode_hist',
+    department: 'History',
+    faculty: 'Arts',
+  });
+  const authorMap = new Map<string, PublicProfileProjection>([
+    ['u_cs', csAuthor],
+    ['u_hist', histAuthor],
+  ]);
+
+  const deptPost = makePost({
+    id: 'p_cs',
+    ownerUID: 'u_cs',
+    category: 'Academic Notice',
+    title: 'CSC 204 lab schedule update',
+    body: 'Computer Science programming practicals begin tomorrow.',
+    createdAt: nowMs - 3_600_000,
+  });
+  const unrelatedPost = makePost({
+    id: 'p_hist',
+    ownerUID: 'u_hist',
+    category: 'General',
+    title: 'History debate notice',
+    body: 'Department seminar on Thursday.',
+    createdAt: nowMs - 3_600_000,
+  });
+
+  const affinities = buildInteractionAffinities({
+    likedOrSavedPosts: [
+      makePost({
+        id: 'liked_1',
+        ownerUID: 'u_cs',
+        category: 'Academic Notice',
+        body: 'Algorithm study guide',
+      }),
+    ],
+  });
+
+  const options = {
+    nowMs,
+    viewerDepartment: 'Computer Science',
+    viewerFaculty: 'Science and Technology Education',
+    interestCategories: ['Academic Notices', 'Tech & Digital Skills'],
+    authorMap,
+    ...affinities,
+  };
+
+  assert.ok(
+    computeForYouPostScore(deptPost, options) >
+      computeForYouPostScore(unrelatedPost, options)
+  );
+});
+
+test('rankRecommendedPeople prioritizes shared academic focus over raw high follower count and excludes followed/dismissed accounts', () => {
+  const highFollowersUnrelated = makeMember({
+    username: 'campus_celeb',
+    department: 'Music',
+    faculty: 'Arts',
+    level: '400 Level',
+    followersCount: 5000,
+  });
+  const classmateMatch = makeMember({
+    username: 'tunde_csc',
+    department: 'Computer Science',
+    faculty: 'Science',
+    level: '200 Level',
+    bio: 'Web development and campus tech events',
+    followersCount: 12,
+  });
+  const alreadyFollowed = makeMember({
+    username: 'friend_csc',
+    department: 'Computer Science',
+    faculty: 'Science',
+    followersCount: 90,
+  });
+  const dismissedMatch = makeMember({
+    username: 'dismissed_csc',
+    department: 'Computer Science',
+    faculty: 'Science',
+  });
+
+  const recs = rankRecommendedPeople(
+    [highFollowersUnrelated, classmateMatch, alreadyFollowed, dismissedMatch],
+    {
+      viewerUsername: 'viewer_csc',
+      followingUsernames: new Set(['friend_csc']),
+      viewerDepartment: 'Computer Science',
+      viewerFaculty: 'Science',
+      viewerLevel: '200 Level',
+      interestCategories: ['Tech & Digital Skills'],
+      dismissedKeys: new Set(['person:dismissed_csc']),
+    }
+  );
+
+  assert.equal(recs[0]?.member.username, 'tunde_csc');
+  assert.ok(!recs.some((item) => item.member.username === 'friend_csc'));
+  assert.ok(!recs.some((item) => item.member.username === 'dismissed_csc'));
+  assert.ok(!recs.some((item) => item.member.username === 'campus_celeb'));
+});
+
+test('rankRecommendedEvents and rankRecommendedOpportunities filter expired/saved/dismissed items and score relevance', () => {
+  const nowMs = Date.UTC(2026, 5, 10, 12, 0, 0);
+  const events: CampusEvent[] = [
+    {
+      id: 'evt_match',
+      ownerUID: 'u1',
+      title: 'Computer Science Hackathon & Workshop',
+      organiser: 'NACOSS LASUED',
+      category: 'seminar_workshop',
+      venue: 'Science Hall',
+      description: 'Coding competition for science and technology students.',
+      eventDate: nowMs + 86_400_000,
+      published: true,
+      status: 'upcoming',
+      likesCount: 14,
+      commentsCount: 3,
+      createdAt: nowMs - 86_400_000,
+      updatedAt: nowMs - 86_400_000,
+    },
+    {
+      id: 'evt_past',
+      ownerUID: 'u1',
+      title: 'Old Semester Orientation',
+      organiser: 'DSA',
+      category: 'orientation',
+      venue: 'Main Hall',
+      description: 'Finished event',
+      eventDate: nowMs - 172_800_000,
+      published: true,
+      status: 'completed',
+      likesCount: 100,
+      commentsCount: 40,
+      createdAt: nowMs - 500_000_000,
+      updatedAt: nowMs - 500_000_000,
+    },
+  ];
+
+  const rankedEvents = rankRecommendedEvents(events, {
+    viewerDepartment: 'Computer Science',
+    interestCategories: ['Tech & Digital Skills', 'Campus Events'],
+    nowMs,
+  });
+  assert.deepEqual(
+    rankedEvents.map((e) => e.event.id),
+    ['evt_match']
+  );
+
+  const opps: Opportunity[] = [
+    {
+      id: 'opp_sch',
+      ownerUID: 'admin',
+      title: 'LASUED STEM Undergraduate Scholarship',
+      organisation: 'Tech Foundation',
+      category: 'scholarship',
+      description: 'Funding for Computer Science students.',
+      expiresAt: nowMs + 5 * 86_400_000,
+      status: 'active',
+      isVerified: true,
+      createdAt: nowMs - 86_400_000,
+      updatedAt: nowMs - 86_400_000,
+    },
+    {
+      id: 'opp_closed',
+      ownerUID: 'admin',
+      title: 'Closed Grant',
+      organisation: 'Org',
+      category: 'grant',
+      description: 'Expired opportunity',
+      expiresAt: nowMs - 86_400_000,
+      status: 'active',
+      createdAt: nowMs - 500_000_000,
+      updatedAt: nowMs - 500_000_000,
+    },
+  ];
+
+  const rankedOpps = rankRecommendedOpportunities(opps, {
+    viewerDepartment: 'Computer Science',
+    interestCategories: ['Scholarships & Grants'],
+    nowMs,
+  });
+  assert.deepEqual(
+    rankedOpps.map((o) => o.opportunity.id),
+    ['opp_sch']
+  );
+});
+
+test('rankRecommendedAnonymousPosts uses only public fields and excludes dismissed threads', () => {
+  const nowMs = 500_000_000;
+  const anonA: AnonymousPost = {
+    id: 'anon_topic',
+    category: 'Academics & Exams',
+    body: 'Any tips for CSC 204 past questions and study groups?',
+    status: 'published',
+    visibility: 'public',
+    likesCount: 6,
+    commentsCount: 4,
+    createdAt: nowMs - 3_600_000,
+    updatedAt: nowMs - 3_600_000,
+  };
+  const anonDismissed: AnonymousPost = {
+    id: 'anon_dismissed',
+    category: 'Campus Life',
+    body: 'Random hostel gist.',
+    status: 'published',
+    visibility: 'public',
+    likesCount: 50,
+    commentsCount: 20,
+    createdAt: nowMs - 3_600_000,
+    updatedAt: nowMs - 3_600_000,
+  };
+
+  const recs = rankRecommendedAnonymousPosts([anonA, anonDismissed], {
+    viewerDepartment: 'Computer Science',
+    interestCategories: ['Books & Study Materials'],
+    dismissedKeys: new Set(['anon:anon_dismissed']),
+    nowMs,
+  });
+
+  assert.deepEqual(
+    recs.map((item) => item.post.id),
+    ['anon_topic']
+  );
+});
+
+test('buildForYouFeedStream deduplicates posts and interleaves discovery blocks cleanly', () => {
+  const posts = [1, 2, 3, 4, 5].map((idx) => ({
+    post: makePost({ id: `p_${idx}`, createdAt: idx * 1_000 }),
+    author: null,
+  }));
+  // Include a duplicate post ID to verify strict deduplication
+  const duplicatedInput = [...posts, posts[0]];
+
+  const stream = buildForYouFeedStream({
+    posts: duplicatedInput,
+    recommendedPeople: [
+      {
+        member: makeMember({ username: 'rec_member' }),
+        score: 80,
+        reason: 'Same department',
+      },
+    ],
+    recommendedEvents: [],
+    recommendedOpportunities: [],
+    recommendedAnonymous: [],
+    dismissedKeys: new Set(),
+  });
+
+  const postEntries = stream.filter((entry) => entry.kind === 'post');
+  assert.equal(postEntries.length, 5);
+  assert.ok(stream.some((entry) => entry.kind === 'people_discovery'));
+});
+
+test('normalizeInterestList trims, deduplicates, caps length at 20, and removes empty entries', () => {
+  const normalized = normalizeInterestList([
+    '  Campus News ',
+    'campus news',
+    '',
+    'Academic Notices',
+  ]);
+  assert.deepEqual(normalized, ['Campus News', 'Academic Notices']);
 });

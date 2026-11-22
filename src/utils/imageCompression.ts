@@ -2,8 +2,9 @@ import {
   BLUEPRINT_LIMITS,
   type SupportedImageMimeType,
 } from '../types/database';
+import { computeFileSelectionFingerprint } from './mediaCache';
 
-export type ImageCompressionPreset = 'avatar' | 'cover' | 'post';
+export type ImageCompressionPreset = 'avatar' | 'cover' | 'post' | 'marketplace';
 
 export interface CompressedImageResult {
   base64Data: string;
@@ -13,12 +14,22 @@ export interface CompressedImageResult {
   height: number;
   byteSize: number;
   originalBytes: number;
+  fingerprint?: string;
 }
 
 const PRESET_MAX_DIMENSION: Record<ImageCompressionPreset, number> = {
   avatar: 640,
-  cover: 1280,
-  post: 1200,
+  cover: 1440,
+  post: 1280,
+  marketplace: 1280,
+};
+
+// Target high crispness without exceeding Firestore per-document ceilings
+const PRESET_TARGET_BYTES: Record<ImageCompressionPreset, number> = {
+  avatar: 120 * 1024,
+  cover: 155 * 1024,
+  post: 145 * 1024,
+  marketplace: 155 * 1024,
 };
 
 const MAX_RAW_INPUT_BYTES = 25 * 1024 * 1024; // 25 MB safety guard before decoding
@@ -130,7 +141,9 @@ async function decodeImageSource(
 }> {
   if (typeof createImageBitmap === 'function') {
     try {
-      const bitmap = await createImageBitmap(file);
+      const bitmap = await createImageBitmap(file, {
+        imageOrientation: 'from-image',
+      });
       return {
         width: bitmap.width,
         height: bitmap.height,
@@ -138,7 +151,7 @@ async function decodeImageSource(
         cleanup: () => bitmap.close(),
       };
     } catch {
-      // Fall back to HTMLImageElement below
+      // Fall back to standard HTMLImageElement below
     }
   }
 
@@ -184,11 +197,11 @@ function encodeCanvasSync(
 }
 
 /**
- * Compresses any gallery/camera photograph on the client:
- * - Resizes oversized dimensions proportionally
- * - Draws onto canvas (automatically stripping EXIF/GPS/filename metadata)
- * - Encodes as WebP (JPEG fallback)
- * - Targets ~100 KB per image with a strict Firestore safety ceiling (<250 KB raw / <280k Base64 chars)
+ * Compresses any gallery/camera photograph on the client while preserving clarity:
+ * - Preserves aspect ratio & camera EXIF orientation cleanly
+ * - Draws onto a fresh canvas (stripping all EXIF/GPS/filename metadata)
+ * - Encodes as WebP (JPEG fallback) starting at high visual quality (0.86)
+ * - Balances clarity, data efficiency, and Firestore safety ceilings (<250 KB / <280k Base64 chars)
  */
 export async function compressImageFile(
   file: File,
@@ -199,6 +212,7 @@ export async function compressImageFile(
     throw new Error(candidateError);
   }
 
+  const fingerprint = computeFileSelectionFingerprint(file);
   const decoded = await decodeImageSource(file);
   try {
     const mimeType: SupportedImageMimeType = detectWebpEncodingSupport()
@@ -206,6 +220,7 @@ export async function compressImageFile(
       : 'image/jpeg';
 
     const maxInitialDim = PRESET_MAX_DIMENSION[preset];
+    const targetByteCeiling = PRESET_TARGET_BYTES[preset];
     const currentDims = computeTargetDimensions(
       decoded.width,
       decoded.height,
@@ -218,8 +233,8 @@ export async function compressImageFile(
       throw new Error('Canvas 2D graphics context is unavailable on this device.');
     }
 
-    const scaleSteps = [1, 0.8, 0.64, 0.5];
-    const qualitySteps = [0.82, 0.72, 0.6, 0.48, 0.36];
+    const scaleSteps = [1, 0.85, 0.7, 0.56];
+    const qualitySteps = [0.86, 0.8, 0.74, 0.66, 0.56, 0.45];
 
     let bestAttempt: {
       base64Data: string;
@@ -235,17 +250,16 @@ export async function compressImageFile(
       canvas.width = targetW;
       canvas.height = targetH;
 
-      // Fill opaque background first so transparent PNGs convert cleanly to JPEG/WebP
+      // High-quality resampling + opaque backdrop for transparent PNGs
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetW, targetH);
       decoded.drawToCanvas(ctx, targetW, targetH);
 
       for (const quality of qualitySteps) {
         const encoded = encodeCanvasSync(canvas, mimeType, quality);
-        if (
-          !bestAttempt ||
-          encoded.byteSize < bestAttempt.byteSize
-        ) {
+        if (!bestAttempt || encoded.byteSize < bestAttempt.byteSize) {
           bestAttempt = {
             ...encoded,
             width: targetW,
@@ -254,7 +268,8 @@ export async function compressImageFile(
         }
 
         if (
-          encoded.byteSize <= BLUEPRINT_LIMITS.mediaTargetBytes &&
+          encoded.byteSize <= targetByteCeiling &&
+          encoded.byteSize <= BLUEPRINT_LIMITS.mediaMaxBytes &&
           encoded.base64Data.length <= BLUEPRINT_LIMITS.mediaBase64MaxChars
         ) {
           return {
@@ -265,6 +280,7 @@ export async function compressImageFile(
             height: targetH,
             byteSize: encoded.byteSize,
             originalBytes: file.size,
+            fingerprint,
           };
         }
       }
@@ -283,11 +299,12 @@ export async function compressImageFile(
         height: bestAttempt.height,
         byteSize: bestAttempt.byteSize,
         originalBytes: file.size,
+        fingerprint,
       };
     }
 
     throw new Error(
-      'Unable to compress this photograph below Firestore safety size limits. Please choose a smaller image.'
+      'Unable to optimise this photograph below safe upload limits. Please select a clearer or smaller image.'
     );
   } finally {
     decoded.cleanup();

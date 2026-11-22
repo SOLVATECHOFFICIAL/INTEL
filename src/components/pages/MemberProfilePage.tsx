@@ -35,6 +35,7 @@ import {
   type MemberProfileBundle,
 } from '../../services/firestoreFoundation';
 import {
+  prefetchMediaImages,
   removeProfileMediaImage,
   saveProfileMediaImage,
   type UploadProgressState,
@@ -84,6 +85,7 @@ import { RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
 import { PostCard } from '../posts/PostCard';
 import { PostComposer } from '../posts/PostComposer';
@@ -208,6 +210,14 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   const [pendingAvatar, setPendingAvatar] =
     useState<CompressedImageResult | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarProgress, setAvatarProgress] =
+    useState<UploadProgressState | null>(null);
+  const [profileMediaLightbox, setProfileMediaLightbox] = useState<{
+    imageId?: string | null;
+    directSrc?: string | null;
+    fallbackUrl?: string | null;
+    title: string;
+  } | null>(null);
 
   // Feedback & actions
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
@@ -274,6 +284,15 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           setActiveTab('posts');
         }
         setLoadState('ready');
+
+        const leadIds = [
+          result.profile.coverImageId,
+          result.profile.photoImageId,
+          ...result.posts.slice(0, 6).map((p) => p.mediaItems?.[0]?.imageId),
+        ].filter((id): id is string => Boolean(id));
+        if (leadIds.length > 0) {
+          prefetchMediaImages(leadIds);
+        }
       })
       .catch(() => {
         if (!active) return;
@@ -596,10 +615,13 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     if (!file || avatarBusy || isSuspended || !user) return;
     setAvatarBusy(true);
     setActionError(null);
+    setAvatarProgress({ percent: 20, label: 'Compressing profile photo...' });
     try {
       const compressed = await compressImageFile(file, 'avatar');
       setPendingAvatar(compressed);
+      setAvatarProgress(null);
     } catch (error) {
+      setAvatarProgress(null);
       setActionError(
         formatFirestoreOrAppError(error, 'Could not process profile picture.')
       );
@@ -618,12 +640,15 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         slot: 'avatar',
         compressed: pendingAvatar,
         previousImageId: viewerProfile?.photoImageId,
+        onProgress: setAvatarProgress,
       });
       await refreshAccountState();
       setPendingAvatar(null);
+      setAvatarProgress(null);
       setActionMessage('Profile picture updated.');
       window.setTimeout(() => setActionMessage(null), 3000);
     } catch (error) {
+      setAvatarProgress(null);
       setActionError(
         formatFirestoreOrAppError(error, 'Could not save profile picture.')
       );
@@ -1031,15 +1056,29 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           data-testid="profile-cover-area"
         >
           {hasCover ? (
-            <FirestoreImage
-              directSrc={pendingCover?.dataUrl}
-              imageId={pendingCover ? null : profile.coverImageId}
-              fallbackUrl={pendingCover ? null : profile.coverUrl}
-              alt={`${profile.fullName}'s cover banner`}
-              eager
-              className="h-full w-full object-cover object-center"
-              placeholderClassName="bg-[#0B1A2E]"
-            />
+            <button
+              type="button"
+              onClick={() =>
+                setProfileMediaLightbox({
+                  imageId: pendingCover ? null : profile.coverImageId,
+                  directSrc: pendingCover?.dataUrl ?? null,
+                  fallbackUrl: pendingCover ? null : profile.coverUrl,
+                  title: `${profile.fullName}'s cover banner`,
+                })
+              }
+              aria-label={`View ${profile.fullName}'s cover banner full screen`}
+              className="block h-full w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-[#1E88E5]"
+            >
+              <FirestoreImage
+                directSrc={pendingCover?.dataUrl}
+                imageId={pendingCover ? null : profile.coverImageId}
+                fallbackUrl={pendingCover ? null : profile.coverUrl}
+                alt={`${profile.fullName}'s cover banner`}
+                eager
+                className="h-full w-full object-cover object-center"
+                placeholderClassName="bg-[#0B1A2E]"
+              />
+            </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#0B1A2E] via-[#132944] to-[#1E88E5]/60">
               <div className="text-center opacity-70">
@@ -1149,12 +1188,37 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 className="relative h-24 w-24 overflow-hidden rounded-full bg-[#0B1A2E] ring-4 ring-white shadow-md sm:h-32 sm:w-32"
                 data-testid="profile-avatar-circle"
               >
-                {pendingAvatar ? (
-                  <img
-                    src={pendingAvatar.dataUrl}
-                    alt={`${profile.fullName} preview`}
-                    className="h-full w-full object-cover"
-                  />
+                {hasAvatar ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setProfileMediaLightbox({
+                        imageId: pendingAvatar ? null : profile.photoImageId,
+                        directSrc: pendingAvatar?.dataUrl ?? null,
+                        fallbackUrl: pendingAvatar ? null : profile.photoUrl,
+                        title: `${profile.fullName}'s profile picture`,
+                      })
+                    }
+                    aria-label={`View ${profile.fullName}'s profile picture full screen`}
+                    className="block h-full w-full cursor-zoom-in rounded-full"
+                  >
+                    {pendingAvatar ? (
+                      <img
+                        src={pendingAvatar.dataUrl}
+                        alt={`${profile.fullName} preview`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <AvatarMedia
+                        fullName={profile.fullName}
+                        photoImageId={profile.photoImageId}
+                        photoUrl={profile.photoUrl}
+                        sizeClass="h-full w-full"
+                        roundedClass="rounded-full"
+                        textClass="text-2xl sm:text-3xl"
+                      />
+                    )}
+                  </button>
                 ) : (
                   <AvatarMedia
                     fullName={profile.fullName}
@@ -1312,7 +1376,21 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               >
                 Discard
               </button>
-              {hasAvatar && !pendingAvatar && null}
+            </div>
+          )}
+
+          {avatarProgress && (
+            <div className="mt-3 max-w-sm space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+              <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+                <span>{avatarProgress.label}</span>
+                <span className="tabular-nums">{avatarProgress.percent}%</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full bg-[#1E88E5] transition-all duration-200"
+                  style={{ width: `${avatarProgress.percent}%` }}
+                />
+              </div>
             </div>
           )}
 
@@ -2447,6 +2525,21 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             setEditingAnonPost(null);
           }}
           onClose={() => setEditingAnonPost(null)}
+        />
+      )}
+
+      {profileMediaLightbox && (
+        <FullScreenImageLightbox
+          items={[
+            {
+              imageId: profileMediaLightbox.imageId || 'profile-media-view',
+              directSrc: profileMediaLightbox.directSrc || undefined,
+              fallbackUrl: profileMediaLightbox.fallbackUrl || undefined,
+            },
+          ]}
+          initialIndex={0}
+          postTitle={profileMediaLightbox.title}
+          onClose={() => setProfileMediaLightbox(null)}
         />
       )}
     </section>

@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   CheckCircle2,
   Clock,
@@ -19,6 +21,7 @@ import {
   Trash2,
   X,
   XCircle,
+  ZoomIn,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
 import {
@@ -33,6 +36,7 @@ import {
   reviewPendingMarketplaceListing,
   updateOwnMarketplaceListingQuantity,
 } from '../../services/governance';
+import type { UploadProgressState } from '../../services/mediaStorage';
 import {
   BLUEPRINT_LIMITS,
   canRolePublishCommunityFeed,
@@ -48,14 +52,23 @@ import {
 } from '../../utils/authValidation';
 import {
   compressImageFile,
+  formatByteSize,
   validatePostImageCountAfterAdd,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
+import {
+  partitionDuplicateSelectedFiles,
+  reorderArrayItem,
+} from '../../utils/mediaCache';
+import type { GridPhotoItem } from '../../utils/mediaGrid';
 import { RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
+import { SquareImageGrid } from '../media/SquareImageGrid';
 import { MarketplaceListingComments } from './MarketplaceListingComments';
+import { MarketplaceListingCard } from './marketplace/MarketplaceListingCard';
 
 interface MarketplaceSectionProps {
   selectedListingId?: string | null;
@@ -180,6 +193,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     profile?.publicWhatsapp || ''
   );
   const [description, setDescription] = useState('');
+  const replacePhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const replacingClientIdRef = useRef<string | null>(null);
+  const submitLockRef = useRef(false);
+
   const [formAttachments, setFormAttachments] = useState<
     Array<{
       clientId: string;
@@ -188,9 +205,17 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     }>
   >([]);
   const [compressingPhotos, setCompressingPhotos] = useState(false);
+  const [uploadProgress, setUploadProgress] =
+    useState<UploadProgressState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [busyListingId, setBusyListingId] = useState<string | null>(null);
+  const [formLightboxIndex, setFormLightboxIndex] = useState<number | null>(
+    null
+  );
+  const [detailLightboxIndex, setDetailLightboxIndex] = useState<number | null>(
+    null
+  );
 
   const [updatesList] = useState<
     Array<{
@@ -412,13 +437,29 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   };
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+    const fileList = e.target.files;
     e.target.value = '';
-    if (!files || files.length === 0) return;
+    if (!fileList || fileList.length === 0 || submitting) return;
+
+    const files = Array.from(fileList);
+    const existingFingerprints = new Set<string>(
+      formAttachments
+        .map((att) => att.compressed.fingerprint)
+        .filter((fp): fp is string => Boolean(fp))
+    );
+    const { unique: uniqueFiles, duplicateCount } =
+      partitionDuplicateSelectedFiles(files, existingFingerprints);
+
+    if (uniqueFiles.length === 0) {
+      if (duplicateCount > 0) {
+        setErrorMessage('Those photographs are already added to this listing.');
+      }
+      return;
+    }
 
     const countError = validatePostImageCountAfterAdd(
       formAttachments.length,
-      files.length
+      uniqueFiles.length
     );
     if (countError) {
       setErrorMessage(countError);
@@ -433,9 +474,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         previewUrl: string;
         compressed: CompressedImageResult;
       }> = [];
-      for (const file of Array.from(files)) {
+      for (const file of uniqueFiles) {
         if (formAttachments.length + newItems.length >= 4) break;
-        const compressed = await compressImageFile(file, 'post');
+        const compressed = await compressImageFile(file, 'marketplace');
         newItems.push({
           clientId: `photo-${Date.now()}-${Math.random()}`,
           previewUrl: compressed.dataUrl,
@@ -443,6 +484,11 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         });
       }
       setFormAttachments((prev) => [...prev, ...newItems]);
+      if (duplicateCount > 0) {
+        setErrorMessage(
+          `Skipped ${duplicateCount} duplicate photo${duplicateCount === 1 ? '' : 's'} already attached.`
+        );
+      }
     } catch (err) {
       setErrorMessage(
         formatFirestoreOrAppError(err, 'Could not compress photograph.')
@@ -453,15 +499,82 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   };
 
   const handleRemovePhoto = (clientId: string) => {
+    if (submitting) return;
     setFormAttachments((prev) => prev.filter((i) => i.clientId !== clientId));
+  };
+
+  const handleMovePhoto = (fromIndex: number, toIndex: number) => {
+    if (submitting) return;
+    setFormAttachments((prev) => reorderArrayItem(prev, fromIndex, toIndex));
+  };
+
+  const handleTriggerReplacePhoto = (clientId: string) => {
+    if (submitting || compressingPhotos) return;
+    replacingClientIdRef.current = clientId;
+    replacePhotoInputRef.current?.click();
+  };
+
+  const handleReplacePhoto = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const targetId = replacingClientIdRef.current;
+    replacingClientIdRef.current = null;
+    if (!file || !targetId || submitting) return;
+
+    const otherFingerprints = new Set<string>(
+      formAttachments
+        .filter((att) => att.clientId !== targetId)
+        .map((att) => att.compressed.fingerprint)
+        .filter((fp): fp is string => Boolean(fp))
+    );
+    const { duplicateCount } = partitionDuplicateSelectedFiles(
+      [file],
+      otherFingerprints
+    );
+    if (duplicateCount > 0) {
+      setErrorMessage('That photograph is already added in another slot.');
+      return;
+    }
+
+    setCompressingPhotos(true);
+    setErrorMessage(null);
+    try {
+      const compressed = await compressImageFile(file, 'marketplace');
+      setFormAttachments((prev) =>
+        prev.map((att) =>
+          att.clientId === targetId
+            ? {
+                clientId: `photo-${Date.now()}-${Math.random()}`,
+                previewUrl: compressed.dataUrl,
+                compressed,
+              }
+            : att
+        )
+      );
+    } catch (err) {
+      setErrorMessage(
+        formatFirestoreOrAppError(
+          err,
+          'Could not process replacement photograph.'
+        )
+      );
+    } finally {
+      setCompressingPhotos(false);
+    }
   };
 
   const handleCreateListing = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
-    if (!user || isSuspended || submitting) return;
+    if (!user || isSuspended || submitting || compressingPhotos || submitLockRef.current) {
+      return;
+    }
+    submitLockRef.current = true;
     setSubmitting(true);
+    setUploadProgress(null);
     setErrorMessage(null);
     setStatusMessage(null);
 
@@ -479,6 +592,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         attachments: formAttachments.map((att) => ({
           compressed: att.compressed,
         })),
+        onProgress: setUploadProgress,
       });
 
       setMyListings((prev) => [created, ...prev]);
@@ -509,6 +623,8 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         )
       );
     } finally {
+      submitLockRef.current = false;
+      setUploadProgress(null);
       setSubmitting(false);
     }
   };
@@ -617,9 +733,17 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     setBusyListingId(listingId);
     setErrorMessage(null);
     try {
-      await deleteMarketplaceListing(listingId);
+      const targetListing =
+        myListings.find((i) => i.id === listingId) ??
+        publicListings.find((i) => i.id === listingId) ??
+        pendingListings.find((i) => i.id === listingId);
+      const knownMediaIds = (targetListing?.mediaItems ?? []).map(
+        (m) => m.imageId
+      );
+      await deleteMarketplaceListing(listingId, knownMediaIds);
       setMyListings((prev) => prev.filter((i) => i.id !== listingId));
       setPublicListings((prev) => prev.filter((i) => i.id !== listingId));
+      setPendingListings((prev) => prev.filter((i) => i.id !== listingId));
       setConfirmDeleteListingId(null);
       setStatusMessage('Listing deleted successfully.');
     } catch (error) {
@@ -895,11 +1019,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 />
               </div>
 
-              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#0B1A2E]">
-                    Product Photographs (Up to 4 Max)
-                  </span>
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-bold text-[#0B1A2E]">
+                      Product Photographs ({formAttachments.length}/4 max)
+                    </span>
+                    <p className="text-[11px] text-slate-500">
+                      Photo #1 is shown as the main cover. Dragless arrows let you reorder, replace, or remove photos.
+                    </p>
+                  </div>
                   <label className="inline-flex min-h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#1E88E5] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0]">
                     <ImagePlus className="h-4 w-4" aria-hidden="true" />
                     <span>
@@ -910,33 +1039,101 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                       accept="image/*"
                       multiple
                       disabled={
-                        compressingPhotos || formAttachments.length >= 4
+                        compressingPhotos ||
+                        submitting ||
+                        formAttachments.length >= 4
                       }
                       onChange={handlePhotoSelect}
                       className="sr-only"
                     />
                   </label>
+                  <input
+                    ref={replacePhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    disabled={compressingPhotos || submitting}
+                    onChange={handleReplacePhoto}
+                    className="sr-only"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {formAttachments.map((att, idx) => (
                     <div
                       key={att.clientId}
-                      className="relative aspect-square overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs"
+                      className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2 shadow-xs"
                     >
-                      <img
-                        src={att.previewUrl}
-                        alt={`Preview ${idx + 1}`}
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePhoto(att.clientId)}
-                        className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white hover:bg-red-600"
-                        aria-label="Remove photo"
-                      >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                      <div className="relative aspect-square overflow-hidden rounded-lg bg-[#0B1A2E]">
+                        <button
+                          type="button"
+                          onClick={() => setFormLightboxIndex(idx)}
+                          aria-label={`Inspect listing photo ${idx + 1} full screen`}
+                          className="block h-full w-full cursor-zoom-in"
+                        >
+                          <img
+                            src={att.previewUrl}
+                            alt={`Listing photograph preview ${idx + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                        <span className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-[#0B1A2E]/85 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                          {idx === 0 ? '#1 Cover' : `#${idx + 1}`}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={submitting}
+                          onClick={() => handleRemovePhoto(att.clientId)}
+                          className="absolute top-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/75 text-white hover:bg-red-600"
+                          aria-label={`Remove photo ${idx + 1}`}
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          disabled={compressingPhotos || submitting}
+                          onClick={() => handleTriggerReplacePhoto(att.clientId)}
+                          aria-label={`Replace listing photo ${idx + 1}`}
+                          className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          <RefreshCw
+                            className="h-3 w-3 text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                          Replace
+                        </button>
+
+                        {formAttachments.length > 1 ? (
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              disabled={submitting || idx === 0}
+                              onClick={() => handleMovePhoto(idx, idx - 1)}
+                              aria-label={`Move photo ${idx + 1} left`}
+                              className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                            >
+                              <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                submitting || idx === formAttachments.length - 1
+                              }
+                              onClick={() => handleMovePhoto(idx, idx + 1)}
+                              aria-label={`Move photo ${idx + 1} right`}
+                              className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                            >
+                              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="truncate text-[11px] font-semibold text-slate-500 tabular-nums">
+                            {formatByteSize(att.compressed.byteSize)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                   {formAttachments.length === 0 && (
@@ -946,13 +1143,29 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     </div>
                   )}
                 </div>
+
+                {uploadProgress && (
+                  <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+                      <span>{uploadProgress.label}</span>
+                      <span className="tabular-nums">{uploadProgress.percent}%</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full bg-[#1E88E5] transition-all duration-200"
+                        style={{ width: `${uploadProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap justify-end gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={submitting || compressingPhotos}
                   onClick={() => setIsPreviewMode(true)}
-                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
                 >
                   Preview Listing
                 </button>
@@ -986,23 +1199,42 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
                   {description || 'No description provided.'}
                 </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {formAttachments.map((att, i) => (
-                    <img
-                      key={i}
-                      src={att.previewUrl}
-                      alt="Preview"
-                      className="h-20 w-20 rounded-lg border border-slate-200 object-cover"
+                {formAttachments.length > 0 && (
+                  <div className="mt-4 max-w-md">
+                    <SquareImageGrid
+                      items={formAttachments.map((att) => ({
+                        imageId: att.clientId,
+                        directSrc: att.previewUrl,
+                      }))}
+                      postLabel={title || 'Marketplace listing preview'}
+                      showPerPhotoCaptions={false}
+                      onImageClick={(idx) => setFormLightboxIndex(idx)}
                     />
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
+
+              {uploadProgress && (
+                <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+                    <span>{uploadProgress.label}</span>
+                    <span className="tabular-nums">{uploadProgress.percent}%</span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full bg-[#1E88E5] transition-all duration-200"
+                      style={{ width: `${uploadProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() => setIsPreviewMode(false)}
-                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E]"
+                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] disabled:opacity-50"
                 >
                   Edit Details
                 </button>
@@ -1013,9 +1245,15 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                       e as unknown as React.FormEvent<HTMLFormElement>
                     )
                   }
-                  disabled={submitting}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844]"
+                  disabled={submitting || compressingPhotos}
+                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
                 >
+                  {submitting && (
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
                   Confirm &amp; Publish
                 </button>
               </div>
@@ -1141,127 +1379,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         ) : (
           /* THREE-COLUMN GRID on suitable widths, graceful reflow on narrow mobile */
           <div className="grid grid-cols-1 gap-4 min-[460px]:grid-cols-2 md:grid-cols-3">
-            {filteredPublic.map((item) => {
-              const waUrl = buildWhatsAppChatUrl(item.whatsappNumber);
-              const seller = sellerMap.get(item.ownerUID) ?? null;
-              const gallery = getListingGallerySources(item);
-              const leadPhoto = gallery[0] ?? null;
-
-              return (
-                <article
-                  key={item.id}
-                  className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-[#1E88E5]/50 hover:shadow-md"
-                >
-                  <button
-                    type="button"
-                    onClick={() => openListingModal(item.id)}
-                    className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100 text-left"
-                  >
-                    {leadPhoto ? (
-                      <FirestoreImage
-                        imageId={leadPhoto.imageId}
-                        fallbackUrl={leadPhoto.fallbackUrl}
-                        alt={item.title}
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        placeholderClassName="bg-[#0B1A2E]"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center bg-[#0B1A2E] text-slate-300">
-                        <ShoppingBag
-                          className="h-8 w-8 text-[#1E88E5]"
-                          aria-hidden="true"
-                        />
-                        <span className="mt-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-                          {item.listingKind}
-                        </span>
-                      </div>
-                    )}
-                    <span className="absolute top-2.5 left-2.5 rounded-lg bg-[#0B1A2E]/80 px-2.5 py-1 text-[10px] font-bold text-white uppercase backdrop-blur-xs">
-                      {item.listingKind}
-                    </span>
-                  </button>
-
-                  <div className="flex flex-1 flex-col justify-between p-4">
-                    <div>
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                        <span className="truncate font-semibold text-[#1E88E5]">
-                          {item.category}
-                        </span>
-                        <span className="shrink-0">
-                          {item.status === 'sold'
-                            ? 'Sold'
-                            : `Qty: ${item.quantity}`}
-                        </span>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => openListingModal(item.id)}
-                        className="mt-1.5 text-left"
-                      >
-                        <h3 className="line-clamp-2 font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]">
-                          {item.title}
-                        </h3>
-                      </button>
-                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">
-                        {item.description}
-                      </p>
-
-                      {seller && (
-                        <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/80 px-2.5 py-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onNavigateProfile?.(seller.username)
-                            }
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          >
-                            <AvatarMedia
-                              fullName={seller.fullName}
-                              photoImageId={seller.photoImageId}
-                              photoUrl={seller.photoUrl}
-                              sizeClass="h-6 w-6"
-                              roundedClass="rounded-full"
-                              textClass="text-[10px]"
-                            />
-                            <span className="truncate text-[11px] font-semibold text-[#0B1A2E] hover:text-[#1E88E5]">
-                              {seller.fullName}
-                            </span>
-                            <RoleBadge badge={seller.badge} size="xs" />
-                          </button>
-
-                          <TikTokFollowButton
-                            targetUsername={seller.username}
-                            compact
-                            onRequireAuth={() => setShowGuestPrompt(true)}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                      <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
-                        ₦{item.price.toLocaleString()}
-                      </span>
-                      {waUrl && (
-                        <a
-                          href={waUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#132844]"
-                        >
-                          <MessageCircle
-                            className="h-3.5 w-3.5 text-[#1E88E5]"
-                            aria-hidden="true"
-                          />
-                          WhatsApp
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+            {filteredPublic.map((item) => (
+              <MarketplaceListingCard
+                key={item.id}
+                listing={item}
+                seller={sellerMap.get(item.ownerUID) ?? null}
+                onOpenListing={openListingModal}
+                onNavigateProfile={onNavigateProfile}
+                onRequireAuth={() => setShowGuestPrompt(true)}
+              />
+            ))}
           </div>
         )
       ) : activeTab === 'my_listings' ? (
@@ -1531,13 +1658,25 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               {/* Image Gallery */}
               <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl bg-slate-900">
                 {activeGalleryMedia ? (
-                  <FirestoreImage
-                    imageId={activeGalleryMedia.imageId}
-                    fallbackUrl={activeGalleryMedia.fallbackUrl}
-                    alt={selectedProduct.title}
-                    className="h-full w-full object-contain"
-                    placeholderClassName="bg-slate-900"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setDetailLightboxIndex(activeGalleryIndex)}
+                    aria-label={`View ${selectedProduct.title} image full screen`}
+                    className="group relative block h-full w-full cursor-zoom-in"
+                  >
+                    <FirestoreImage
+                      imageId={activeGalleryMedia.imageId}
+                      fallbackUrl={activeGalleryMedia.fallbackUrl}
+                      alt={selectedProduct.title}
+                      eager
+                      className="h-full w-full object-contain"
+                      placeholderClassName="bg-slate-900"
+                    />
+                    <span className="pointer-events-none absolute right-2.5 bottom-2.5 inline-flex items-center gap-1 rounded-lg bg-[#0B1A2E]/80 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-xs">
+                      <ZoomIn className="h-3.5 w-3.5" aria-hidden="true" />
+                      Full screen
+                    </span>
+                  </button>
                 ) : (
                   <div className="flex h-full w-full flex-col items-center justify-center text-slate-400">
                     <ShoppingBag
@@ -1734,6 +1873,34 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {formLightboxIndex !== null && formAttachments.length > 0 && (
+        <FullScreenImageLightbox
+          items={formAttachments.map((att) => ({
+            imageId: att.clientId,
+            directSrc: att.previewUrl,
+          }))}
+          initialIndex={formLightboxIndex}
+          postTitle={title.trim() || 'Marketplace Listing Preview'}
+          postCaption={description.trim() || undefined}
+          onClose={() => setFormLightboxIndex(null)}
+        />
+      )}
+
+      {detailLightboxIndex !== null && selectedProduct && selectedGallery.length > 0 && (
+        <FullScreenImageLightbox
+          items={selectedGallery.map(
+            (media): GridPhotoItem => ({
+              imageId: media.imageId || media.key,
+              fallbackUrl: media.fallbackUrl,
+            })
+          )}
+          initialIndex={detailLightboxIndex}
+          postTitle={selectedProduct.title}
+          postCaption={`₦${selectedProduct.price.toLocaleString()} · ${selectedProduct.category}`}
+          onClose={() => setDetailLightboxIndex(null)}
+        />
       )}
     </div>
   );

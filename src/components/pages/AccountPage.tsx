@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Shield,
   ShieldCheck,
+  Sparkles,
   Trash2,
   User as UserIcon,
 } from 'lucide-react';
@@ -52,6 +53,9 @@ import {
   type ProfileSettingsValidationErrors,
 } from '../../utils/authValidation';
 import {
+  FEED_INTEREST_OPTIONS,
+} from '../../utils/feedRanking';
+import {
   NOTIFICATION_PREFERENCE_OPTIONS,
   type NotificationPrefKey,
 } from '../../utils/notifications';
@@ -60,7 +64,14 @@ import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
 
+export type AccountSettingsSection =
+  | 'profile'
+  | 'security'
+  | 'privacy'
+  | 'management';
+
 interface AccountPageProps {
+  initialSection?: AccountSettingsSection;
   onNavigate: (
     route: ActiveRoute,
     options?: {
@@ -72,9 +83,8 @@ interface AccountPageProps {
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
 }
 
-type AccountSettingsSection = 'profile' | 'security' | 'privacy' | 'management';
-
 export const AccountPage: React.FC<AccountPageProps> = ({
+  initialSection = 'profile',
   onNavigate,
   onRequireAuth,
 }) => {
@@ -85,11 +95,14 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     effectiveTier,
     isSuspended,
     notificationPrefs,
+    interestCategories,
     updateNotificationPrefsOptimistic,
+    updateInterestCategoriesOptimistic,
     refreshAccountState,
   } = useFirebase();
 
-  const [activeTab, setActiveTab] = useState<AccountSettingsSection>('profile');
+  const [activeTab, setActiveTab] =
+    useState<AccountSettingsSection>(initialSection);
 
   // Shared status feedback
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -974,6 +987,72 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                             {enabled ? 'On' : 'Off'}
                           </button>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-start gap-2.5">
+                    <Sparkles
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[#1E88E5]"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        For You Feed Interests
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Select the campus topics you care about most. Used alongside
+                        your department, followed accounts, and reactions to tailor
+                        your For You discovery stream.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3.5 flex flex-wrap gap-2">
+                    {FEED_INTEREST_OPTIONS.map((topic) => {
+                      const selected = interestCategories.some(
+                        (item) => item.toLowerCase() === topic.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={topic}
+                          type="button"
+                          aria-pressed={selected}
+                          disabled={isSuspended}
+                          onClick={() => {
+                            setErrorMessage(null);
+                            setStatusMessage(null);
+                            const nextTopics = selected
+                              ? interestCategories.filter(
+                                  (item) =>
+                                    item.toLowerCase() !== topic.toLowerCase()
+                                )
+                              : [...interestCategories, topic];
+                            void updateInterestCategoriesOptimistic(nextTopics)
+                              .then(() => {
+                                setStatusMessage(
+                                  'Feed interests updated for future For You recommendations.'
+                                );
+                              })
+                              .catch((err) => {
+                                setErrorMessage(
+                                  formatFirestoreOrAppError(
+                                    err,
+                                    'Could not save feed topic preferences right now.'
+                                  )
+                                );
+                              });
+                          }}
+                          className={`inline-flex min-h-[36px] items-center rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
+                            selected
+                              ? 'border-[#1E88E5] bg-[#1E88E5] text-white'
+                              : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
+                          }`}
+                        >
+                          {topic}
+                        </button>
                       );
                     })}
                   </div>

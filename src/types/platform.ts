@@ -11,6 +11,9 @@ export type SectionId =
 export type FeedTabId = 'for-you' | 'following' | 'latest';
 
 export type SearchScopeId =
+  | 'all'
+  | 'posts'
+  | 'people'
   | 'home'
   | 'anonymous'
   | 'marketplace'

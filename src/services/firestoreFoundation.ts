@@ -77,8 +77,10 @@ import {
   type SearchableCommunityPostItem,
 } from '../utils/contextualSearch';
 import {
+  normalizeInterestList,
   rankForYouCommunityPosts,
   sortLatestCommunityPosts,
+  type ForYouRankingOptions,
 } from '../utils/feedRanking';
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -1279,6 +1281,7 @@ export async function fetchCommunityFeedPage(input: {
   pageSize?: number;
   cursor?: CommunityFeedCursor | null;
   followedUids?: string[];
+  rankingOptions?: Omit<ForYouRankingOptions, 'followedUids' | 'authorMap'>;
 }): Promise<CommunityFeedPageResult> {
   const pageSize = Math.max(1, Math.min(30, input.pageSize ?? 12));
 
@@ -1423,20 +1426,30 @@ export async function fetchCommunityFeedPage(input: {
     if (input.cursor?.mode === 'offset') {
       const res = await queryPublishedPostsOrderedPage(150);
       const allPosts = res.docs.map((item) => item.data() as CommunityPost);
+      const allAuthorMap =
+        input.tab === 'for-you'
+          ? await fetchPublicProfileProjectionsByUids(
+              allPosts.map((p) => p.ownerUID)
+            )
+          : null;
       const ordered =
         input.tab === 'latest'
           ? sortLatestCommunityPosts(allPosts)
           : rankForYouCommunityPosts(allPosts, {
+              ...input.rankingOptions,
               followedUids: new Set(resolvedFollowedUids),
+              authorMap: allAuthorMap ?? undefined,
             });
       const slice = ordered.slice(
         input.cursor.offset,
         input.cursor.offset + pageSize
       );
       const hasMore = input.cursor.offset + slice.length < ordered.length;
-      const authorMap = await fetchPublicProfileProjectionsByUids(
-        slice.map((p) => p.ownerUID)
-      );
+      const authorMap =
+        allAuthorMap ??
+        (await fetchPublicProfileProjectionsByUids(
+          slice.map((p) => p.ownerUID)
+        ));
       return {
         items: slice.map((post) => ({
           post,
@@ -1457,17 +1470,27 @@ export async function fetchCommunityFeedPage(input: {
 
     if (!res.indexed) {
       const allPosts = res.docs.map((item) => item.data() as CommunityPost);
+      const allAuthorMap =
+        input.tab === 'for-you'
+          ? await fetchPublicProfileProjectionsByUids(
+              allPosts.map((p) => p.ownerUID)
+            )
+          : null;
       const ordered =
         input.tab === 'latest'
           ? sortLatestCommunityPosts(allPosts)
           : rankForYouCommunityPosts(allPosts, {
+              ...input.rankingOptions,
               followedUids: new Set(resolvedFollowedUids),
+              authorMap: allAuthorMap ?? undefined,
             });
       const slice = ordered.slice(0, pageSize);
       const hasMore = slice.length < ordered.length;
-      const authorMap = await fetchPublicProfileProjectionsByUids(
-        slice.map((p) => p.ownerUID)
-      );
+      const authorMap =
+        allAuthorMap ??
+        (await fetchPublicProfileProjectionsByUids(
+          slice.map((p) => p.ownerUID)
+        ));
       return {
         items: slice.map((post) => ({
           post,
@@ -1483,16 +1506,18 @@ export async function fetchCommunityFeedPage(input: {
     const hasMore = res.docs.length > pageSize;
     const pageDocs = res.docs.slice(0, pageSize);
     const rawPosts = pageDocs.map((item) => item.data() as CommunityPost);
+    const authorMap = await fetchPublicProfileProjectionsByUids(
+      rawPosts.map((post) => post.ownerUID)
+    );
     const orderedPosts =
       input.tab === 'latest'
         ? sortLatestCommunityPosts(rawPosts)
         : rankForYouCommunityPosts(rawPosts, {
+            ...input.rankingOptions,
             followedUids: new Set(resolvedFollowedUids),
+            authorMap,
           });
     const lastDocSnap = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
-    const authorMap = await fetchPublicProfileProjectionsByUids(
-      orderedPosts.map((post) => post.ownerUID)
-    );
 
     return {
       items: orderedPosts.map((post) => ({
@@ -1854,6 +1879,44 @@ export async function updateNotificationPreferences(
         updatedAt: serverTimestamp(),
       })
     );
+    return normalized;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updatePrivateUserInterests(
+  uid: string,
+  interests: readonly string[],
+  fallbackEmail?: string | null
+): Promise<string[]> {
+  if (!isValidFirestoreId(uid)) {
+    throw new Error('Sign in to customise your feed topics.');
+  }
+  const normalized = normalizeInterestList(interests);
+  const ref = doc(db, COLLECTION_NAMES.privateUserData, uid);
+  const path = `${COLLECTION_NAMES.privateUserData}/${uid}`;
+  try {
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      await runWithFirestoreConnectionRetry(() =>
+        updateDoc(ref, {
+          interestCategories: normalized,
+          updatedAt: serverTimestamp(),
+        })
+      );
+    } else if (fallbackEmail && fallbackEmail.trim().length >= 3) {
+      await runWithFirestoreConnectionRetry(() =>
+        setDoc(ref, {
+          uid,
+          authEmail: fallbackEmail.trim().slice(0, 160),
+          interestCategories: normalized,
+          updatedAt: serverTimestamp(),
+        })
+      );
+    } else {
+      throw new Error('Initialize your member profile before saving feed topics.');
+    }
     return normalized;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);

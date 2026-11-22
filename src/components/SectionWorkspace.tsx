@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   EyeOff,
   Image as ImageIcon,
@@ -13,6 +13,11 @@ import {
   fetchPublicAnonymousFeedPage,
   type AnonymousFeedPageCursor,
 } from '../services/firestoreFoundation';
+import {
+  clearAnonymousFeedSessionCache,
+  getAnonymousFeedSessionSnapshot,
+  saveAnonymousFeedSessionSnapshot,
+} from '../services/personalisedFeed';
 import {
   fetchMyAnonymousHistory,
   fetchOwnedAnonymousEntries,
@@ -54,6 +59,7 @@ interface SectionWorkspaceProps {
       username?: string;
       profileTab?: ProfileTab;
       searchScope?: SearchScopeId;
+      searchQuery?: string | null;
       opportunityId?: string | null;
       eventId?: string | null;
       postId?: string | null;
@@ -81,15 +87,25 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   const activeSection = getSectionById(sectionId);
   const fallbackState = sectionStates[activeSection.id];
 
-  const [anonymousPosts, setAnonymousPosts] = useState<AnonymousPost[]>([]);
+  const viewerKey = user?.uid ?? 'guest';
+  const initialAnonCache =
+    sectionId === 'anonymous'
+      ? getAnonymousFeedSessionSnapshot(viewerKey)
+      : null;
+
+  const [anonymousPosts, setAnonymousPosts] = useState<AnonymousPost[]>(
+    () => initialAnonCache?.anonymousPosts ?? []
+  );
   const [deepLinkedAnonPost, setDeepLinkedAnonPost] = useState<{
     targetId: string;
     post: AnonymousPost | null;
   } | null>(null);
   const [anonCursor, setAnonCursor] = useState<AnonymousFeedPageCursor | null>(
-    null
+    () => initialAnonCache?.anonCursor ?? null
   );
-  const [hasMoreAnon, setHasMoreAnon] = useState(false);
+  const [hasMoreAnon, setHasMoreAnon] = useState(
+    () => initialAnonCache?.hasMoreAnon ?? false
+  );
   const [loadingMoreAnon, setLoadingMoreAnon] = useState(false);
 
   const [anonViewTab, setAnonViewTab] = useState<'feed' | 'mine'>('feed');
@@ -99,17 +115,21 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     error: string | null;
   }>({ loadedKey: null, items: [], error: null });
 
-  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(new Set());
-  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(new Set());
+  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(
+    () => initialAnonCache?.likedAnonIds ?? new Set()
+  );
+  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(
+    () => initialAnonCache?.savedAnonIds ?? new Set()
+  );
   const [ownedAnonPostIds, setOwnedAnonPostIds] = useState<Set<string>>(
-    new Set()
+    () => initialAnonCache?.ownedAnonPostIds ?? new Set()
   );
   const [ownedAnonCommentIds, setOwnedAnonCommentIds] = useState<Set<string>>(
-    new Set()
+    () => initialAnonCache?.ownedAnonCommentIds ?? new Set()
   );
   const [anonLoadState, setAnonLoadState] = useState<
     'loading' | 'ready' | 'error'
-  >('loading');
+  >(() => (initialAnonCache ? 'ready' : 'loading'));
   const [retryToken, setRetryToken] = useState(0);
   const [actionPrompt, setActionPrompt] = useState<
     'none' | 'guest' | 'suspended'
@@ -118,6 +138,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     open: boolean;
     editPost?: AnonymousPost;
   }>({ open: false });
+
+  const anonLoadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadedFromCacheRef = useRef(Boolean(initialAnonCache));
 
   const activeAnonTab = user ? anonViewTab : 'feed';
   const myAnonTargetKey = user?.uid ? `${user.uid}:${retryToken}` : null;
@@ -137,6 +160,12 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
   useEffect(() => {
     if (sectionId !== 'anonymous') {
+      return;
+    }
+
+    const cached = getAnonymousFeedSessionSnapshot(viewerKey);
+    if (cached && retryToken === 0 && loadedFromCacheRef.current) {
+      loadedFromCacheRef.current = false;
       return;
     }
 
@@ -189,7 +218,35 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     return () => {
       active = false;
     };
-  }, [sectionId, user?.uid, retryToken]);
+  }, [sectionId, user?.uid, viewerKey, retryToken]);
+
+  useEffect(() => {
+    if (sectionId !== 'anonymous' || anonLoadState !== 'ready') {
+      return;
+    }
+    saveAnonymousFeedSessionSnapshot({
+      viewerKey,
+      anonymousPosts,
+      anonCursor,
+      hasMoreAnon,
+      likedAnonIds,
+      savedAnonIds,
+      ownedAnonPostIds,
+      ownedAnonCommentIds,
+      cachedAt: Date.now(),
+    });
+  }, [
+    sectionId,
+    anonLoadState,
+    viewerKey,
+    anonymousPosts,
+    anonCursor,
+    hasMoreAnon,
+    likedAnonIds,
+    savedAnonIds,
+    ownedAnonPostIds,
+    ownedAnonCommentIds,
+  ]);
 
   useEffect(() => {
     if (
@@ -260,11 +317,13 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
       : anonymousPosts;
 
   const loadAnonymous = () => {
+    clearAnonymousFeedSessionCache();
+    loadedFromCacheRef.current = false;
     setAnonLoadState('loading');
     setRetryToken((prev) => prev + 1);
   };
 
-  const handleLoadMoreAnonymous = async () => {
+  const handleLoadMoreAnonymous = useCallback(async () => {
     if (!anonCursor || loadingMoreAnon) return;
     setLoadingMoreAnon(true);
     try {
@@ -282,7 +341,41 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     } finally {
       setLoadingMoreAnon(false);
     }
-  };
+  }, [anonCursor, loadingMoreAnon]);
+
+  useEffect(() => {
+    if (
+      sectionId !== 'anonymous' ||
+      activeAnonTab !== 'feed' ||
+      anonLoadState !== 'ready' ||
+      !hasMoreAnon ||
+      !anonCursor ||
+      loadingMoreAnon
+    ) {
+      return;
+    }
+    const target = anonLoadMoreSentinelRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void handleLoadMoreAnonymous();
+        }
+      },
+      { rootMargin: '320px 0px' }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [
+    sectionId,
+    activeAnonTab,
+    anonLoadState,
+    hasMoreAnon,
+    anonCursor,
+    loadingMoreAnon,
+    handleLoadMoreAnonymous,
+  ]);
 
   const handleAnonymousPostClick = () => {
     if (!user) {
@@ -513,6 +606,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                         ownedAnonPostIds.has(item.id) || activeAnonTab === 'mine'
                       }
                       ownedAnonymousCommentIds={ownedAnonCommentIds}
+                      allowAnonymousReport={false}
                       onRequireAuth={onRequireAuth}
                       returnRoute="anonymous"
                       onEditPost={(targetPost) =>
@@ -598,6 +692,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                     }
                     isOwnedAnonymous={ownedAnonPostIds.has(item.id)}
                     ownedAnonymousCommentIds={ownedAnonCommentIds}
+                    allowAnonymousReport={false}
                     onRequireAuth={onRequireAuth}
                     returnRoute="anonymous"
                     onEditPost={(targetPost) =>
@@ -650,8 +745,11 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                   />
                 ))}
 
-                {hasMoreAnon && (
-                  <div className="flex justify-center pt-2">
+                {hasMoreAnon ? (
+                  <div
+                    ref={anonLoadMoreSentinelRef}
+                    className="flex justify-center pt-2"
+                  >
                     <button
                       type="button"
                       disabled={loadingMoreAnon}
@@ -665,10 +763,14 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                         />
                       )}
                       {loadingMoreAnon
-                        ? 'Loading more...'
+                        ? 'Loading older anonymous posts...'
                         : 'Load more anonymous posts'}
                     </button>
                   </div>
+                ) : (
+                  <p className="pt-2 text-center text-xs text-slate-500">
+                    You have reached all published anonymous posts.
+                  </p>
                 )}
               </div>
             )

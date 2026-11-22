@@ -4,6 +4,7 @@ export interface GridPhotoItem {
   imageId: string;
   caption?: string;
   directSrc?: string;
+  fallbackUrl?: string;
 }
 
 export function mediaMetaToGridItems(

@@ -7,6 +7,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
+import { prefetchMediaImages } from '../../services/mediaStorage';
 import type { GridPhotoItem } from '../../utils/mediaGrid';
 import { FirestoreImage } from './FirestoreImage';
 
@@ -48,6 +49,29 @@ export const FullScreenImageLightbox: React.FC<
     setZoomScale((prev) => Math.max(1, Number((prev - 0.5).toFixed(2))));
   };
 
+  // Preserve exact underlying scroll position cleanly on mobile & desktop
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
+
+  // Prewarm adjacent gallery images cleanly when switching slides
+  useEffect(() => {
+    if (count <= 1) return;
+    const prevIdx = (currentIndex - 1 + count) % count;
+    const nextIdx = (currentIndex + 1) % count;
+    const candidateIds = [items[prevIdx], items[nextIdx]]
+      .filter((item) => item && !item.directSrc && item.imageId)
+      .map((item) => item.imageId);
+    if (candidateIds.length > 0) {
+      void prefetchMediaImages(candidateIds);
+    }
+  }, [currentIndex, count, items]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -80,34 +104,32 @@ export const FullScreenImageLightbox: React.FC<
       data-testid="fullscreen-lightbox"
     >
       {/* Top Controls Bar */}
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3 text-xs font-semibold text-slate-200 sm:text-sm">
-          <span className="tabular-nums">
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-xs font-semibold text-slate-200 sm:gap-3 sm:text-sm">
+          <span className="shrink-0 whitespace-nowrap tabular-nums">
             {currentIndex + 1} / {count}
           </span>
           {postTitle && (
             <>
-              <span aria-hidden="true" className="text-slate-500">
+              <span aria-hidden="true" className="shrink-0 text-slate-500">
                 ·
               </span>
-              <span className="max-w-[200px] truncate sm:max-w-md">
-                {postTitle}
-              </span>
+              <span className="min-w-0 truncate">{postTitle}</span>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-0.5 sm:gap-1.5">
           <button
             type="button"
             onClick={handleZoomOut}
             disabled={zoomScale <= 1}
             aria-label="Zoom out"
-            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg text-slate-200 hover:bg-white/10 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-200 hover:bg-white/10 disabled:opacity-40 sm:h-[42px] sm:w-[42px]"
           >
             <ZoomOut className="h-4 w-4" aria-hidden="true" />
           </button>
-          <span className="min-w-[48px] text-center text-xs font-semibold text-slate-200 tabular-nums">
+          <span className="min-w-[38px] text-center text-xs font-semibold text-slate-200 tabular-nums sm:min-w-[48px]">
             {Math.round(zoomScale * 100)}%
           </span>
           <button
@@ -115,7 +137,7 @@ export const FullScreenImageLightbox: React.FC<
             onClick={handleZoomIn}
             disabled={zoomScale >= 3}
             aria-label="Zoom in"
-            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg text-slate-200 hover:bg-white/10 disabled:opacity-40"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-200 hover:bg-white/10 disabled:opacity-40 sm:h-[42px] sm:w-[42px]"
           >
             <ZoomIn className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -124,7 +146,7 @@ export const FullScreenImageLightbox: React.FC<
               type="button"
               onClick={() => setZoomScale(1)}
               aria-label="Reset zoom"
-              className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg text-slate-200 hover:bg-white/10"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-200 hover:bg-white/10 sm:h-[42px] sm:w-[42px]"
             >
               <RotateCcw className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -133,7 +155,7 @@ export const FullScreenImageLightbox: React.FC<
             type="button"
             onClick={onClose}
             aria-label="Close image viewer"
-            className="ml-1 flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20"
+            className="ml-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20 sm:ml-1 sm:h-[42px] sm:w-[42px]"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -157,6 +179,11 @@ export const FullScreenImageLightbox: React.FC<
       {/* Main Viewport */}
       <div
         className="relative flex flex-1 items-center justify-center overflow-auto p-4 sm:p-8"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
         onTouchStart={(e) => {
           touchStartX.current = e.touches[0]?.clientX ?? null;
         }}
@@ -199,6 +226,7 @@ export const FullScreenImageLightbox: React.FC<
           <div className="max-h-[68vh] max-w-full overflow-hidden rounded-xl bg-[#0B1A2E]">
             <FirestoreImage
               imageId={activeItem.directSrc ? null : activeItem.imageId}
+              fallbackUrl={activeItem.fallbackUrl}
               directSrc={activeItem.directSrc}
               alt={
                 activeItem.caption ||
@@ -224,7 +252,42 @@ export const FullScreenImageLightbox: React.FC<
         )}
       </div>
 
-      {/* Optional Per-Photo Caption (Anonymous Posts Only) */}
+      {/* Multi-Image Thumbnail Strip for Quick Touch & Desktop Navigation */}
+      {count > 1 && (
+        <div className="border-t border-white/10 bg-[#0B1A2E]/90 px-4 py-2.5">
+          <div className="mx-auto flex max-w-2xl items-center justify-center gap-2 overflow-x-auto">
+            {items.map((thumb, idx) => (
+              <button
+                key={`${thumb.imageId}-${idx}`}
+                type="button"
+                onClick={() => {
+                  setZoomScale(1);
+                  setCurrentIndex(idx);
+                }}
+                aria-label={`View photograph ${idx + 1} of ${count}`}
+                aria-current={idx === currentIndex ? 'true' : undefined}
+                className={`h-12 w-12 shrink-0 overflow-hidden rounded-lg border-2 transition-all ${
+                  idx === currentIndex
+                    ? 'scale-105 border-[#1E88E5] ring-2 ring-[#1E88E5]/40'
+                    : 'border-white/20 opacity-65 hover:opacity-100'
+                }`}
+              >
+                <FirestoreImage
+                  imageId={thumb.directSrc ? null : thumb.imageId}
+                  fallbackUrl={thumb.fallbackUrl}
+                  directSrc={thumb.directSrc}
+                  alt={`Thumbnail ${idx + 1}`}
+                  eager
+                  className="h-full w-full object-cover"
+                  placeholderClassName="bg-[#0B1A2E]"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Optional Per-Photo Caption (when present) */}
       {activeItem.caption && (
         <div className="border-t border-white/10 bg-[#0B1A2E]/90 px-4 py-3 sm:px-6">
           <div className="mx-auto max-w-3xl">

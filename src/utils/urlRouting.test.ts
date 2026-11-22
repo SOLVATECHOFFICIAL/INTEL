@@ -50,4 +50,25 @@ test('buildSearchForRoute preserves root path for plain home and serializes deep
     buildSearchForRoute('marketplace', { listingId: 'list_5', commentId: 'cmt_8' }),
     '/?view=marketplace&listingId=list_5&commentId=cmt_8'
   );
+
+  assert.equal(
+    buildSearchForRoute('search', {
+      searchScope: 'marketplace',
+      searchQuery: 'calculator',
+    }),
+    '/?view=search&scope=marketplace&q=calculator'
+  );
+});
+
+test('parseLocationSearch extracts search scope and q query safely', () => {
+  const searchParsed = parseLocationSearch(
+    '?view=search&scope=opportunities&q=stem+scholarship'
+  );
+  assert.equal(searchParsed.route, 'search');
+  assert.equal(searchParsed.searchScope, 'opportunities');
+  assert.equal(searchParsed.searchQuery, 'stem scholarship');
+
+  const defaultScopeParsed = parseLocationSearch('?view=search');
+  assert.equal(defaultScopeParsed.searchScope, 'all');
+  assert.equal(defaultScopeParsed.searchQuery, null);
 });
