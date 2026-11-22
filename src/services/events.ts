@@ -21,20 +21,33 @@ import {
   type PublicUserProfile,
   type ReactionType,
 } from '../types/database';
-import { toPublicProfileProjection } from '../utils/authValidation';
+import { toPublicProfileProjection, isFirebaseErrorCode } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import { isCampusEventPublished } from '../utils/events';
 import {
   computeNextReactionTransactionState,
+  isFirestoreSdkError,
   runWithFirestoreConnectionRetry,
 } from '../utils/firestoreRetry';
 import { generateFirestoreDocId } from './mediaStorage';
+import { createSafeMemberNotification } from './firestoreFoundation';
+import {
+  buildCommentNotificationId,
+  buildReactionNotificationId,
+  buildReplyNotificationId,
+  shouldEmitActivityNotification,
+  summarizeNotificationExcerpt,
+} from '../utils/notifications';
 import type { CommentWithAuthor } from './socialPosts';
 
 export async function fetchPublishedCampusEvents(): Promise<CampusEvent[]> {
   try {
     const snap = await getDocs(
-      query(collection(db, COLLECTION_NAMES.events), limit(150))
+      query(
+        collection(db, COLLECTION_NAMES.events),
+        where('published', '==', true),
+        limit(150)
+      )
     );
     return snap.docs
       .map((item) => item.data() as CampusEvent)
@@ -55,6 +68,9 @@ export async function fetchCampusEventById(
     const data = snap.data() as CampusEvent;
     return isCampusEventPublished(data) ? data : null;
   } catch (error) {
+    if (isFirebaseErrorCode(error, 'permission-denied')) {
+      return null;
+    }
     handleFirestoreError(error, OperationType.GET, path);
   }
 }
@@ -77,7 +93,7 @@ export async function toggleEventReaction(input: {
   const path = `${COLLECTION_NAMES.postReactions}/${reactionId}`;
 
   try {
-    return await runWithFirestoreConnectionRetry(() =>
+    const result = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         const [eventSnap, reactionSnap] = await Promise.all([
           tx.get(eventRef),
@@ -92,6 +108,11 @@ export async function toggleEventReaction(input: {
           throw new Error('This event is no longer available.');
         }
 
+        const eventOwnerUid = evtData.ownerUID ?? null;
+        const eventTitle = evtData.title;
+        const eventImageId = evtData.mediaItems?.[0]?.imageId;
+        const eventBannerUrl = evtData.bannerUrl;
+
         const currentCount = Number(evtData.likesCount ?? 0);
         const nextState = computeNextReactionTransactionState({
           alreadyLiked: reactionSnap.exists(),
@@ -103,7 +124,14 @@ export async function toggleEventReaction(input: {
           if (nextState.shouldUpdatePostLikesCount) {
             tx.update(eventRef, { likesCount: nextState.likesCount });
           }
-          return { liked: false, likesCount: nextState.likesCount };
+          return {
+            liked: false,
+            likesCount: nextState.likesCount,
+            eventOwnerUid,
+            eventTitle,
+            eventImageId,
+            eventBannerUrl,
+          };
         }
 
         tx.set(reactionRef, {
@@ -114,10 +142,42 @@ export async function toggleEventReaction(input: {
           createdAt: serverTimestamp(),
         });
         tx.update(eventRef, { likesCount: nextState.likesCount });
-        return { liked: true, likesCount: nextState.likesCount };
+        return {
+          liked: true,
+          likesCount: nextState.likesCount,
+          eventOwnerUid,
+          eventTitle,
+          eventImageId,
+          eventBannerUrl,
+        };
       })
     );
+
+    if (
+      result.liked &&
+      result.eventOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: result.eventOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: buildReactionNotificationId('events', input.eventId, input.actorUid),
+        recipientUid: result.eventOwnerUid,
+        eventType: 'reaction',
+        title: `Someone liked event "${summarizeNotificationExcerpt(result.eventTitle, 80)}"`,
+        targetPath: `/?view=upcoming-events&eventId=${input.eventId}`,
+        actorUid: input.actorUid,
+        targetImageId: result.eventImageId,
+        targetImageUrl: result.eventImageId ? undefined : result.eventBannerUrl,
+      });
+    }
+
+    return { liked: result.liked, likesCount: result.likesCount };
   } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
@@ -224,6 +284,11 @@ export async function addEventComment(input: {
     payload.parentCommentId = input.parentCommentId;
   }
 
+  let eventOwnerUid: string | null = null;
+  let eventTitle = '';
+  let eventImageId: string | undefined;
+  let eventBannerUrl: string | undefined;
+
   try {
     const nextCount = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
@@ -235,6 +300,11 @@ export async function addEventComment(input: {
         if (!isCampusEventPublished(evtData)) {
           throw new Error('This event is no longer available.');
         }
+        eventOwnerUid = evtData.ownerUID;
+        eventTitle = evtData.title;
+        eventImageId = evtData.mediaItems?.[0]?.imageId;
+        eventBannerUrl = evtData.bannerUrl;
+
         const currentCount = Number(evtData.commentsCount ?? 0);
         const updatedCount = Math.max(0, currentCount) + 1;
 
@@ -243,6 +313,64 @@ export async function addEventComment(input: {
         return updatedCount;
       })
     );
+
+    const targetPath = `/?view=upcoming-events&eventId=${input.eventId}&commentId=${commentId}`;
+    const excerpt = summarizeNotificationExcerpt(trimmed, 140);
+    let parentOwnerUid: string | null = null;
+
+    if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
+      try {
+        const parentSnap = await getDoc(
+          doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
+        );
+        if (parentSnap.exists()) {
+          parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
+        }
+      } catch {
+        parentOwnerUid = null;
+      }
+    }
+
+    if (
+      parentOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: parentOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: buildReplyNotificationId(commentId),
+        recipientUid: parentOwnerUid,
+        eventType: 'reply',
+        title: `Reply on "${summarizeNotificationExcerpt(eventTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: eventImageId,
+        targetImageUrl: eventImageId ? undefined : eventBannerUrl,
+      });
+    }
+
+    if (
+      eventOwnerUid &&
+      eventOwnerUid !== parentOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: eventOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: buildCommentNotificationId(commentId),
+        recipientUid: eventOwnerUid,
+        eventType: 'comment',
+        title: `New comment on "${summarizeNotificationExcerpt(eventTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: eventImageId,
+        targetImageUrl: eventImageId ? undefined : eventBannerUrl,
+      });
+    }
 
     const nowMs = Date.now();
     return {
@@ -261,6 +389,9 @@ export async function addEventComment(input: {
       commentsCount: nextCount,
     };
   } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
@@ -287,6 +418,9 @@ export async function editEventComment(input: {
       })
     );
   } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
@@ -329,6 +463,9 @@ export async function deleteEventComment(input: {
       })
     );
   } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
@@ -350,7 +487,7 @@ export async function togglePostCommentReaction(input: {
   const path = `${COLLECTION_NAMES.postReactions}/${reactionId}`;
 
   try {
-    return await runWithFirestoreConnectionRetry(() =>
+    const result = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         const [commentSnap, reactionSnap] = await Promise.all([
           tx.get(commentRef),
@@ -360,9 +497,13 @@ export async function togglePostCommentReaction(input: {
           throw new Error('This comment is no longer available.');
         }
 
-        const currentCount = Number(
-          (commentSnap.data() as PostComment).likesCount ?? 0
-        );
+        const commentData = commentSnap.data() as PostComment;
+        const commentOwnerUid = commentData.ownerUID ?? null;
+        const commentBody = commentData.body;
+        const targetCollection = commentData.targetCollection ?? 'posts';
+        const parentPostId = commentData.postId;
+
+        const currentCount = Number(commentData.likesCount ?? 0);
         const nextState = computeNextReactionTransactionState({
           alreadyLiked: reactionSnap.exists(),
           currentLikesCount: currentCount,
@@ -373,7 +514,14 @@ export async function togglePostCommentReaction(input: {
           if (nextState.shouldUpdatePostLikesCount) {
             tx.update(commentRef, { likesCount: nextState.likesCount });
           }
-          return { liked: false, likesCount: nextState.likesCount };
+          return {
+            liked: false,
+            likesCount: nextState.likesCount,
+            commentOwnerUid,
+            commentBody,
+            targetCollection,
+            parentPostId,
+          };
         }
 
         tx.set(reactionRef, {
@@ -384,10 +532,52 @@ export async function togglePostCommentReaction(input: {
           createdAt: serverTimestamp(),
         });
         tx.update(commentRef, { likesCount: nextState.likesCount });
-        return { liked: true, likesCount: nextState.likesCount };
+        return {
+          liked: true,
+          likesCount: nextState.likesCount,
+          commentOwnerUid,
+          commentBody,
+          targetCollection,
+          parentPostId,
+        };
       })
     );
+
+    if (
+      result.liked &&
+      result.commentOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: result.commentOwnerUid,
+      })
+    ) {
+      const targetPath =
+        result.targetCollection === 'events'
+          ? `/?view=upcoming-events&eventId=${result.parentPostId}&commentId=${input.commentId}`
+          : result.targetCollection === 'marketplaceListings'
+            ? `/?view=marketplace&listingId=${result.parentPostId}&commentId=${input.commentId}`
+            : `/?view=for-you&postId=${result.parentPostId}&commentId=${input.commentId}`;
+
+      void createSafeMemberNotification({
+        id: buildReactionNotificationId(
+          'postComments',
+          input.commentId,
+          input.actorUid
+        ),
+        recipientUid: result.commentOwnerUid,
+        eventType: 'reaction',
+        title: 'Someone liked your comment',
+        body: summarizeNotificationExcerpt(result.commentBody, 120) || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+      });
+    }
+
+    return { liked: result.liked, likesCount: result.likesCount };
   } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }

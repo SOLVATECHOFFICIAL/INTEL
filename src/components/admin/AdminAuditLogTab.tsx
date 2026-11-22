@@ -68,7 +68,11 @@ function matchesAuditFilter(
     return action.startsWith('opportunity_') || action.startsWith('event_');
   }
   if (filter === 'trusted_settings') {
-    return action.startsWith('trusted_contact_') || action === 'settings_updated';
+    return (
+      action.startsWith('trusted_contact_') ||
+      action === 'settings_updated' ||
+      action === 'announcement_broadcast'
+    );
   }
   return true;
 }

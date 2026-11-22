@@ -71,6 +71,10 @@ import {
   canSendNewOpportunityNotice,
   getOpportunityCategoryLabel,
 } from '../utils/opportunities';
+import {
+  buildAnnouncementNotificationId,
+  buildMarketplaceReviewNotificationId,
+} from '../utils/notifications';
 import type { CompressedImageResult } from '../utils/imageCompression';
 import {
   fetchAnonymousAuditLogs,
@@ -447,6 +451,7 @@ export async function reviewMarketplaceListingWithAudit(input: {
     actorUid: input.actorUid,
     actorRole: input.actorRole,
     decision: input.decision,
+    emitNotification: false,
   });
 
   const batch = writeBatch(db);
@@ -467,8 +472,11 @@ export async function reviewMarketplaceListingWithAudit(input: {
         : 'Rejected during marketplace moderation review.'),
   });
 
-  const notifId = generateFirestoreDocId(COLLECTION_NAMES.notifications);
-  batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
+  const notifId = buildMarketplaceReviewNotificationId(
+    input.listing.id,
+    input.decision
+  );
+  const notifPayload: Record<string, unknown> = {
     id: notifId,
     recipientUid: input.listing.ownerUID,
     eventType:
@@ -477,17 +485,24 @@ export async function reviewMarketplaceListingWithAudit(input: {
         : 'marketplace_rejected',
     title:
       input.decision === 'approved'
-        ? `Marketplace listing approved: ${input.listing.title}`
-        : `Marketplace listing declined: ${input.listing.title}`,
+        ? `Marketplace listing approved: ${input.listing.title}`.slice(0, 160)
+        : `Marketplace listing declined: ${input.listing.title}`.slice(0, 160),
     body:
       input.note?.trim() ||
       (input.decision === 'approved'
         ? 'Your listing is now visible in Campus Marketplace for 7 days.'
         : 'Your submission did not pass marketplace moderation guidelines.'),
-    targetPath: '/?view=marketplace',
+    targetPath: `/?view=marketplace&listingId=${input.listing.id}`,
+    actorUid: input.actorUid,
     isRead: false,
     createdAt: serverTimestamp(),
-  });
+  };
+  const firstImageId = input.listing.mediaItems?.[0]?.imageId;
+  if (firstImageId && isValidFirestoreId(firstImageId)) {
+    notifPayload.targetImageId = firstImageId;
+  }
+
+  batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), notifPayload);
 
   try {
     await batch.commit();
@@ -2047,6 +2062,18 @@ export async function broadcastCampusEventNotification(input: {
       const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
 
+      const firstEventImageId = input.event.mediaItems?.[0]?.imageId;
+      const validEventImageId =
+        firstEventImageId && isValidFirestoreId(firstEventImageId)
+          ? firstEventImageId
+          : undefined;
+      const validEventBannerUrl =
+        !validEventImageId &&
+        input.event.bannerUrl &&
+        isSafeMediaUrl(input.event.bannerUrl)
+          ? input.event.bannerUrl.slice(0, 512)
+          : undefined;
+
       for (const uid of chunk) {
         const notifId = buildEventNotificationDocId(
           input.kind,
@@ -2054,7 +2081,7 @@ export async function broadcastCampusEventNotification(input: {
           uid,
           versionBucket
         );
-        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
+        const payload: Record<string, unknown> = {
           id: notifId,
           recipientUid: uid,
           eventType: 'new_event',
@@ -2063,7 +2090,13 @@ export async function broadcastCampusEventNotification(input: {
           targetPath,
           isRead: false,
           createdAt: serverTimestamp(),
-        });
+        };
+        if (validEventImageId) {
+          payload.targetImageId = validEventImageId;
+        } else if (validEventBannerUrl) {
+          payload.targetImageUrl = validEventBannerUrl;
+        }
+        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), payload);
         sentCount += 1;
       }
 
@@ -2619,4 +2652,128 @@ export async function saveGlobalPlatformSettings(input: {
       `${COLLECTION_NAMES.platformSettings}/global`
     );
   }
+}
+
+export type AnnouncementDestinationRoute =
+  | 'for-you'
+  | 'anonymous'
+  | 'marketplace'
+  | 'trusted-circle'
+  | 'opportunities'
+  | 'upcoming-events'
+  | 'account';
+
+function resolveAnnouncementTargetPath(
+  route: AnnouncementDestinationRoute
+): string {
+  switch (route) {
+    case 'anonymous':
+      return '/?view=anonymous';
+    case 'marketplace':
+      return '/?view=marketplace';
+    case 'trusted-circle':
+      return '/?view=trusted-circle';
+    case 'opportunities':
+      return '/?view=opportunities';
+    case 'upcoming-events':
+      return '/?view=upcoming-events';
+    case 'account':
+      return '/?view=account';
+    case 'for-you':
+    default:
+      return '/?view=for-you';
+  }
+}
+
+export async function broadcastOfficialAnnouncementNotification(input: {
+  title: string;
+  body: string;
+  targetRoute: AnnouncementDestinationRoute;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<{ announcementId: string; sentCount: number }> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error(
+      'Only Supreme Admin or Permanent Owner accounts can publish official announcements.'
+    );
+  }
+  if (!isValidFirestoreId(input.actorUid)) {
+    throw new Error('Invalid administrator session.');
+  }
+
+  const cleanTitle = input.title.trim().slice(0, 160);
+  const cleanBody = input.body.trim().slice(0, 500);
+  if (cleanTitle.length < 3) {
+    throw new Error('Announcement headline must be at least 3 characters.');
+  }
+  if (cleanBody.length < 5) {
+    throw new Error('Announcement message must be at least 5 characters.');
+  }
+
+  const usersSnap = await getDocs(
+    query(
+      collection(db, COLLECTION_NAMES.users),
+      where('accountStatus', '==', 'active'),
+      limit(400)
+    )
+  );
+
+  const recipientUids = usersSnap.docs
+    .map((item) => item.data() as PublicUserProfile)
+    .filter((p) => !p.isHiddenFromDirectory && isValidFirestoreId(p.uid))
+    .map((p) => p.uid);
+
+  const announcementId = generateFirestoreDocId(COLLECTION_NAMES.notifications);
+  const targetPath = resolveAnnouncementTargetPath(input.targetRoute);
+  const CHUNK_SIZE = 380;
+  let sentCount = 0;
+
+  if (recipientUids.length === 0) {
+    await recordAdminAuditLog({
+      action: 'announcement_broadcast',
+      targetCollection: COLLECTION_NAMES.notifications,
+      targetId: announcementId,
+      targetLabel: cleanTitle,
+      performedByUid: input.actorUid,
+      performedByRole: input.actorRole,
+      details: 'Official announcement queued (0 active directory members).',
+    });
+    return { announcementId, sentCount: 0 };
+  }
+
+  for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
+    const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+
+    for (const uid of chunk) {
+      const notifId = buildAnnouncementNotificationId(announcementId, uid);
+      batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
+        id: notifId,
+        recipientUid: uid,
+        eventType: 'announcement',
+        title: cleanTitle,
+        body: cleanBody,
+        targetPath,
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+      sentCount += 1;
+    }
+
+    if (i === 0) {
+      attachAdminAuditLogToBatch(batch, {
+        action: 'announcement_broadcast',
+        targetCollection: COLLECTION_NAMES.notifications,
+        targetId: announcementId,
+        targetLabel: cleanTitle,
+        performedByUid: input.actorUid,
+        performedByRole: input.actorRole,
+        details: `Broadcast official announcement to ${recipientUids.length} active members (target ${targetPath}).`,
+      });
+    }
+
+    await batch.commit();
+  }
+
+  return { announcementId, sentCount };
 }

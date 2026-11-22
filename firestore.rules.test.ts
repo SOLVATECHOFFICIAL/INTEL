@@ -393,3 +393,34 @@ test('Task 12 events rules enforce 10 categories, draft isolation, mediaImages, 
     /incoming\(\)\.targetCollection in \['events', 'postComments'\]/
   );
 });
+
+test('Task 13 notification rules enforce actor isolation, zero-actor anonymous reply protection, and marketplace comments', () => {
+  const notifFn = rulesText.slice(
+    rulesText.indexOf('function isValidNotification'),
+    rulesText.indexOf('function isValidCampusPoll')
+  );
+  assert.match(notifFn, /'targetImageId'/);
+  assert.match(notifFn, /'targetImageUrl'/);
+
+  const notifBlock = rulesText.slice(
+    rulesText.indexOf('match /notifications/{notificationId}'),
+    rulesText.indexOf('match /polls/{pollId}')
+  );
+  assert.match(
+    notifBlock,
+    /incoming\(\)\.eventType in \['reaction', 'comment', 'reply'\]/
+  );
+  assert.match(notifBlock, /incoming\(\)\.actorUid == request\.auth\.uid/);
+  assert.match(notifBlock, /incoming\(\)\.recipientUid != request\.auth\.uid/);
+  assert.match(notifBlock, /incoming\(\)\.eventType == 'anonymous_reply'/);
+  assert.match(notifBlock, /!\('actorUid' in incoming\(\)\)/);
+  assert.match(notifBlock, /!\('actorUsername' in incoming\(\)\)/);
+  assert.match(notifBlock, /!\('actorName' in incoming\(\)\)/);
+  assert.match(notifBlock, /incoming\(\)\.eventType == 'marketplace_expired'/);
+  assert.match(
+    rulesText,
+    /incoming\(\)\.targetCollection == 'marketplaceListings'/
+  );
+  assert.match(rulesText, /'announcement_broadcast'/);
+});
+

@@ -18,6 +18,7 @@ import {
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
 import {
+  fetchSinglePublishedPostWithAuthor,
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
 } from '../services/socialPosts';
@@ -47,6 +48,8 @@ import { PostComposer } from './posts/PostComposer';
 
 interface HomeFeedWorkspaceProps {
   activeFeedTab: FeedTabId;
+  selectedPostId?: string | null;
+  selectedCommentId?: string | null;
   onSelectFeedTab: (tab: FeedTabId) => void;
   onNavigate: (
     route: ActiveRoute,
@@ -69,6 +72,8 @@ const FEED_PAGE_SIZE = 10;
 
 export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   activeFeedTab,
+  selectedPostId = null,
+  selectedCommentId = null,
   onSelectFeedTab,
   onNavigate,
   onRequireAuth,
@@ -76,6 +81,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   const { user, profile, roleRecord, effectiveTier, isSuspended, authReady } =
     useFirebase();
   const [postItems, setPostItems] = useState<CommunityPostWithAuthor[]>([]);
+  const [deepLinkedPost, setDeepLinkedPost] = useState<{
+    targetId: string;
+    item: CommunityPostWithAuthor | null;
+  } | null>(null);
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
   const [followingCount, setFollowingCount] = useState<number>(0);
@@ -148,6 +157,37 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       active = false;
     };
   }, [activeFeedTab, user, retryToken]);
+
+  useEffect(() => {
+    if (
+      !selectedPostId ||
+      loadState !== 'ready' ||
+      postItems.some((item) => item.post.id === selectedPostId)
+    ) {
+      return;
+    }
+    let active = true;
+    fetchSinglePublishedPostWithAuthor(selectedPostId)
+      .then((found) => {
+        if (!active) return;
+        setDeepLinkedPost({ targetId: selectedPostId, item: found });
+      })
+      .catch(() => {
+        if (!active) return;
+        setDeepLinkedPost({ targetId: selectedPostId, item: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPostId, loadState, postItems]);
+
+  const displayedPostItems =
+    selectedPostId &&
+    deepLinkedPost?.targetId === selectedPostId &&
+    deepLinkedPost.item &&
+    !postItems.some((item) => item.post.id === selectedPostId)
+      ? [deepLinkedPost.item, ...postItems]
+      : postItems;
 
   const loadFeed = () => {
     setLoadState('loading');
@@ -474,11 +514,11 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 Find Members to Follow
               </button>
             </div>
-          ) : postItems.length === 0 ? (
+          ) : displayedPostItems.length === 0 ? (
             <EmptyState section={activeSection} />
           ) : (
             <div className="space-y-4">
-              {postItems.map(({ post, author }) => {
+              {displayedPostItems.length === 0 ? null : displayedPostItems.map(({ post, author }) => {
                 const resolvedAuthor =
                   profile && post.ownerUID === profile.uid
                     ? toPublicProfileProjection(profile)
@@ -495,6 +535,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     viewerSuspended={isSuspended}
                     isLiked={likedPostIds.has(post.id)}
                     isSaved={savedPostIds.has(post.id)}
+                    isHighlighted={post.id === selectedPostId}
+                    highlightCommentId={
+                      post.id === selectedPostId ? selectedCommentId : null
+                    }
                     onSaveChanged={(postId, saved) =>
                       setSavedPostIds((prev) => {
                         const next = new Set(prev);

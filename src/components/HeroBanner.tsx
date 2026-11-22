@@ -75,7 +75,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
                 Campus Hub
               </p>
               <p className="mt-1 text-sm leading-relaxed text-slate-200">
-                Marketplace · Trusted Circle · Opportunities · Upcoming Events
+                Marketplace · Trusted Circle · Opportunities · Events
               </p>
             </div>
           </div>

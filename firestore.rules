@@ -353,7 +353,7 @@ service cloud.firestore {
           'opportunity_deleted', 'event_created', 'event_updated',
           'event_cancelled', 'event_deleted', 'trusted_contact_created',
           'trusted_contact_updated', 'trusted_contact_deleted',
-          'settings_updated'
+          'settings_updated', 'announcement_broadcast'
         ] &&
         data.targetCollection is string && data.targetCollection.size() >= 2 && data.targetCollection.size() <= 64 &&
         isValidId(data.targetId) &&
@@ -436,7 +436,7 @@ service cloud.firestore {
         data.id == commentId &&
         isValidId(data.id) &&
         isValidId(data.postId) &&
-        (!('targetCollection' in data) || data.targetCollection in ['posts', 'events']) &&
+        (!('targetCollection' in data) || data.targetCollection in ['posts', 'events', 'marketplaceListings']) &&
         isOptionalShortString(data, 'parentCommentId', 128) &&
         isValidId(data.ownerUID) &&
         data.body is string && data.body.size() >= 1 && data.body.size() <= 1500 &&
@@ -586,7 +586,7 @@ service cloud.firestore {
           'id', 'ownerUID', 'listingKind', 'title', 'description',
           'category', 'price', 'quantity', 'mediaUrls', 'mediaItems', 'whatsappNumber',
           'approvalStatus', 'status', 'approvedByUid', 'approvedAt',
-          'visibility', 'createdAt', 'updatedAt', 'expiresAt'
+          'visibility', 'commentsCount', 'createdAt', 'updatedAt', 'expiresAt'
         ]) &&
         data.id == listingId &&
         isValidId(data.id) &&
@@ -605,6 +605,7 @@ service cloud.firestore {
         isOptionalShortString(data, 'approvedByUid', 128) &&
         (!('approvedAt' in data) || data.approvedAt is timestamp) &&
         data.visibility in ['public', 'owner_and_admins'] &&
+        (!('commentsCount' in data) || (data.commentsCount is int && data.commentsCount >= 0)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp &&
         data.expiresAt is timestamp;
@@ -735,7 +736,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'recipientUid', 'eventType', 'title', 'body', 'targetPath',
           'actorUid', 'actorUsername', 'actorName', 'actorPhotoUrl', 'actorPhotoImageId',
-          'isRead', 'createdAt'
+          'targetImageId', 'targetImageUrl', 'isRead', 'createdAt'
         ]) &&
         data.id == notificationId &&
         isValidId(data.id) &&
@@ -753,6 +754,8 @@ service cloud.firestore {
         isOptionalShortString(data, 'actorName', 100) &&
         isOptionalShortString(data, 'actorPhotoUrl', 512) &&
         isOptionalValidImageId(data, 'actorPhotoImageId') &&
+        isOptionalValidImageId(data, 'targetImageId') &&
+        isOptionalShortString(data, 'targetImageUrl', 512) &&
         data.isRead is bool &&
         data.createdAt is timestamp;
     }
@@ -1081,7 +1084,10 @@ service cloud.firestore {
             get(/databases/$(database)/documents/posts/$(incoming().postId)).data.status == 'published') ||
           ('targetCollection' in incoming() && incoming().targetCollection == 'events' &&
             exists(/databases/$(database)/documents/events/$(incoming().postId)) &&
-            isEventPublished(get(/databases/$(database)/documents/events/$(incoming().postId)).data))
+            isEventPublished(get(/databases/$(database)/documents/events/$(incoming().postId)).data)) ||
+          ('targetCollection' in incoming() && incoming().targetCollection == 'marketplaceListings' &&
+            exists(/databases/$(database)/documents/marketplaceListings/$(incoming().postId)) &&
+            get(/databases/$(database)/documents/marketplaceListings/$(incoming().postId)).data.status == 'active')
         ) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
@@ -1120,7 +1126,9 @@ service cloud.firestore {
         (exists(/databases/$(database)/documents/posts/$(existing().postId)) &&
           !existsAfter(/databases/$(database)/documents/posts/$(existing().postId))) ||
         (exists(/databases/$(database)/documents/events/$(existing().postId)) &&
-          !existsAfter(/databases/$(database)/documents/events/$(existing().postId)))
+          !existsAfter(/databases/$(database)/documents/events/$(existing().postId))) ||
+        (exists(/databases/$(database)/documents/marketplaceListings/$(existing().postId)) &&
+          !existsAfter(/databases/$(database)/documents/marketplaceListings/$(existing().postId)))
       );
     }
 
@@ -1542,18 +1550,28 @@ service cloud.firestore {
         isValidMarketplaceListing(incoming(), listingId) &&
         incoming().id == existing().id &&
         incoming().ownerUID == existing().ownerUID &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time && (
+        incoming().createdAt == existing().createdAt && (
           // Seller updates quantity, marks sold, or resets 7-day availability (terminal sold/expired/rejected locked)
           (existing().ownerUID == request.auth.uid &&
+            incoming().updatedAt == request.time &&
             existing().status in ['pending_approval', 'active'] &&
             incoming().approvalStatus == existing().approvalStatus &&
             (incoming().quantity > 0 || incoming().status == 'sold') &&
             incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'price', 'quantity', 'mediaItems', 'status', 'expiresAt', 'updatedAt'])
           ) ||
+          // Comment count sync for marketplace listing Q&A comments/replies on active listings
+          (existing().status == 'active' &&
+            incoming().updatedAt == existing().updatedAt &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
+              (!('commentsCount' in existing()) && incoming().commentsCount == 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount == existing().commentsCount + 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
+            )
+          ) ||
           // Moderator (ordinary members only) or Supreme Admin approves or rejects pending listing (blocks double approval!)
           ((isSupremeAdminOrOwner() ||
             (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))) &&
+            incoming().updatedAt == request.time &&
             existing().approvalStatus == 'pending_approval' &&
             incoming().approvalStatus in ['approved', 'rejected'] &&
             incoming().approvedByUid == request.auth.uid &&
@@ -1561,7 +1579,9 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['approvalStatus', 'status', 'visibility', 'approvedByUid', 'approvedAt', 'expiresAt', 'updatedAt'])
           ) ||
           // Supreme Admin state override
-          (isSupremeAdminOrOwner() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'visibility', 'updatedAt']))
+          (isSupremeAdminOrOwner() &&
+            incoming().updatedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'visibility', 'updatedAt']))
         );
       allow delete: if isValidId(listingId) && isActiveSignedInUser() && (
         existing().ownerUID == request.auth.uid ||
@@ -1681,7 +1701,24 @@ service cloud.firestore {
             incoming().recipientUid != request.auth.uid &&
             (!('actorUid' in incoming()) || incoming().actorUid == request.auth.uid) &&
             !exists(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + incoming().recipientUid)) &&
-            existsAfter(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + incoming().recipientUid)))
+            existsAfter(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + incoming().recipientUid))) ||
+          (isActiveSignedInUser() &&
+            incoming().eventType in ['reaction', 'comment', 'reply'] &&
+            incoming().recipientUid != request.auth.uid &&
+            incoming().actorUid == request.auth.uid &&
+            exists(/databases/$(database)/documents/users/$(incoming().recipientUid))) ||
+          (isActiveSignedInUser() &&
+            incoming().eventType == 'anonymous_reply' &&
+            incoming().recipientUid == request.auth.uid &&
+            !('actorUid' in incoming()) &&
+            !('actorUsername' in incoming()) &&
+            !('actorName' in incoming()) &&
+            !('actorPhotoUrl' in incoming()) &&
+            !('actorPhotoImageId' in incoming())) ||
+          (isActiveSignedInUser() &&
+            incoming().eventType == 'marketplace_expired' &&
+            incoming().recipientUid == request.auth.uid &&
+            !('actorUid' in incoming()))
         );
       allow update: if isValidId(notificationId) &&
         isActiveSignedInUser() &&

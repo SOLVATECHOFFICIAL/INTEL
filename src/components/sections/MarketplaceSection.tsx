@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Check,
   CheckCircle2,
   Clock,
   Flame,
@@ -10,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Share2,
   ShieldAlert,
   ShieldCheck,
   ShoppingBag,
@@ -22,6 +24,7 @@ import { useFirebase } from '../../context/firebaseContext';
 import {
   createMarketplaceListingItem,
   deleteMarketplaceListing,
+  fetchMarketplaceListingById,
   fetchMarketplaceSellersMap,
   fetchMyMarketplaceListings,
   fetchPendingMarketplaceApprovals,
@@ -52,8 +55,12 @@ import { RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { MarketplaceListingComments } from './MarketplaceListingComments';
 
 interface MarketplaceSectionProps {
+  selectedListingId?: string | null;
+  selectedCommentId?: string | null;
+  onSelectListing?: (listingId: string | null) => void;
   onRequireAuth: (
     authRoute: 'login' | 'register',
     returnTo: ActiveRoute
@@ -106,6 +113,9 @@ function getListingGallerySources(
 }
 
 export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
+  selectedListingId = null,
+  selectedCommentId = null,
+  onSelectListing,
   onRequireAuth,
   onNavigateProfile,
 }) => {
@@ -143,9 +153,15 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
-  const [selectedProduct, setSelectedProduct] =
-    useState<MarketplaceListing | null>(null);
+  const [localSelectedListingId, setLocalSelectedListingId] = useState<
+    string | null
+  >(selectedListingId);
+  const [directLookupListing, setDirectLookupListing] = useState<{
+    targetId: string;
+    listing: MarketplaceListing | null;
+  } | null>(null);
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
+  const [listingLinkCopied, setListingLinkCopied] = useState(false);
   const [confirmDeleteListingId, setConfirmDeleteListingId] = useState<
     string | null
   >(null);
@@ -244,6 +260,137 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
       active = false;
     };
   }, [user, canModerateApprovals]);
+
+  const effectiveSelectedListingId = onSelectListing
+    ? selectedListingId
+    : localSelectedListingId;
+
+  const selectedProductFromLists = effectiveSelectedListingId
+    ? [...publicListings, ...myListings, ...pendingListings].find(
+        (item) => item.id === effectiveSelectedListingId
+      ) ?? null
+    : null;
+
+  const selectedProduct: MarketplaceListing | null =
+    selectedProductFromLists ??
+    (effectiveSelectedListingId &&
+    directLookupListing?.targetId === effectiveSelectedListingId
+      ? directLookupListing.listing
+      : null);
+
+  useEffect(() => {
+    if (
+      !effectiveSelectedListingId ||
+      loading ||
+      selectedProductFromLists ||
+      directLookupListing?.targetId === effectiveSelectedListingId
+    ) {
+      return;
+    }
+    let active = true;
+    fetchMarketplaceListingById(effectiveSelectedListingId)
+      .then(async (found) => {
+        if (!active) return;
+        setDirectLookupListing({
+          targetId: effectiveSelectedListingId,
+          listing: found,
+        });
+        if (found) {
+          const extraSellers = await fetchMarketplaceSellersMap([found]).catch(
+            () => new Map<string, PublicProfileProjection>()
+          );
+          if (active && extraSellers.size > 0) {
+            setSellerMap((prev) => {
+              const next = new Map(prev);
+              extraSellers.forEach((v, k) => next.set(k, v));
+              return next;
+            });
+          }
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDirectLookupListing({
+            targetId: effectiveSelectedListingId,
+            listing: null,
+          });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    effectiveSelectedListingId,
+    loading,
+    selectedProductFromLists,
+    directLookupListing?.targetId,
+  ]);
+
+  const openListingModal = (listingId: string | null) => {
+    setActiveGalleryIndex(0);
+    setListingLinkCopied(false);
+    if (onSelectListing) {
+      onSelectListing(listingId);
+    } else {
+      setLocalSelectedListingId(listingId);
+    }
+  };
+
+  const handleShareListing = async (listing: MarketplaceListing) => {
+    const url =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}/?view=marketplace&listingId=${listing.id}`
+        : `/?view=marketplace&listingId=${listing.id}`;
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: listing.title,
+          text: `${listing.title} — ₦${listing.price.toLocaleString()} on LASUED Intel Marketplace`,
+          url,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard copy below
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        setListingLinkCopied(true);
+        window.setTimeout(() => setListingLinkCopied(false), 2500);
+      } catch {
+        // Ignore clipboard denial
+      }
+    }
+  };
+
+  const handleListingCommentsCountChange = (
+    listingId: string,
+    nextCount: number
+  ) => {
+    setPublicListings((prev) =>
+      prev.map((item) =>
+        item.id === listingId ? { ...item, commentsCount: nextCount } : item
+      )
+    );
+    setMyListings((prev) =>
+      prev.map((item) =>
+        item.id === listingId ? { ...item, commentsCount: nextCount } : item
+      )
+    );
+    setPendingListings((prev) =>
+      prev.map((item) =>
+        item.id === listingId ? { ...item, commentsCount: nextCount } : item
+      )
+    );
+    setDirectLookupListing((prev) =>
+      prev && prev.listing && prev.listing.id === listingId
+        ? { ...prev, listing: { ...prev.listing, commentsCount: nextCount } }
+        : prev
+    );
+  };
 
   const handleOpenComposer = () => {
     setErrorMessage(null);
@@ -1007,10 +1154,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 >
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedProduct(item);
-                      setActiveGalleryIndex(0);
-                    }}
+                    onClick={() => openListingModal(item.id)}
                     className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100 text-left"
                   >
                     {leadPhoto ? (
@@ -1052,10 +1196,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedProduct(item);
-                          setActiveGalleryIndex(0);
-                        }}
+                        onClick={() => openListingModal(item.id)}
                         className="mt-1.5 text-left"
                       >
                         <h3 className="line-clamp-2 font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]">
@@ -1346,23 +1487,44 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1A2E]/70 p-4 backdrop-blur-xs"
         >
           <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <div>
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-6 py-4">
+              <div className="min-w-0">
                 <span className="text-xs font-bold text-[#1E88E5] uppercase">
                   {selectedProduct.listingKind} · {selectedProduct.category}
                 </span>
-                <h3 className="font-display text-lg font-bold text-[#0B1A2E]">
+                <h3 className="truncate font-display text-lg font-bold text-[#0B1A2E]">
                   {selectedProduct.title}
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedProduct(null)}
-                aria-label="Close product details"
-                className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
-              >
-                <X className="h-5 w-5" aria-hidden="true" />
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void handleShareListing(selectedProduct)}
+                  aria-label="Share listing link"
+                  title="Share or copy link"
+                  className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                >
+                  {listingLinkCopied ? (
+                    <>
+                      <Check
+                        className="h-3.5 w-3.5 text-emerald-600"
+                        aria-hidden="true"
+                      />
+                      <span className="text-emerald-700">Copied</span>
+                    </>
+                  ) : (
+                    <Share2 className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openListingModal(null)}
+                  aria-label="Close product details"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
+                >
+                  <X className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 space-y-5 overflow-y-auto p-6">
@@ -1419,7 +1581,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setSelectedProduct(null);
+                      openListingModal(null);
                       onNavigateProfile?.(selectedSeller.username);
                     }}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -1452,7 +1614,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     targetUsername={selectedSeller.username}
                     compact
                     onRequireAuth={() => {
-                      setSelectedProduct(null);
+                      openListingModal(null);
                       setShowGuestPrompt(true);
                     }}
                   />
@@ -1508,6 +1670,28 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   </span>
                 </div>
               )}
+
+              <MarketplaceListingComments
+                key={selectedProduct.id}
+                listingId={selectedProduct.id}
+                listingStatus={selectedProduct.status}
+                commentsCount={Number(selectedProduct.commentsCount ?? 0)}
+                highlightCommentId={selectedCommentId}
+                onCommentsCountChange={(nextCount) =>
+                  handleListingCommentsCountChange(
+                    selectedProduct.id,
+                    nextCount
+                  )
+                }
+                onNavigateProfile={(uname) => {
+                  openListingModal(null);
+                  onNavigateProfile?.(uname);
+                }}
+                onRequireGuestAuth={() => {
+                  openListingModal(null);
+                  setShowGuestPrompt(true);
+                }}
+              />
             </div>
 
             <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">

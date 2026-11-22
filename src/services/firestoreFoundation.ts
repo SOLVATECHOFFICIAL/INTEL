@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -9,6 +10,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   startAfter,
   updateDoc,
   where,
@@ -28,16 +30,19 @@ import {
   COLLECTION_NAMES,
   SUBCOLLECTION_NAMES,
   computeTotalOrdinaryPostLikes,
+  isMarketplaceListingExpired,
   isSafeMediaUrl,
   isValidFirestoreId,
   isValidUsername,
   validateAnonymousPostPayload,
+  type AnonymousComment,
   type AnonymousPost,
   type BadgeType,
   type CampusEvent,
   type CommunityPost,
   type FollowEdge,
   type MarketplaceListing,
+  type NotificationEventType,
   type NotificationItem,
   type Opportunity,
   type PostReaction,
@@ -75,6 +80,15 @@ import {
   rankForYouCommunityPosts,
   sortLatestCommunityPosts,
 } from '../utils/feedRanking';
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  buildAnonymousReplyNotificationId,
+  buildMarketplaceExpiredNotificationId,
+  normalizeNotificationPrefs,
+  shouldEmitActivityNotification,
+  summarizeNotificationExcerpt,
+  type NotificationPreferences,
+} from '../utils/notifications';
 import type { FeedTabId } from '../types/platform';
 
 export interface InitializeMemberProfileInput {
@@ -336,13 +350,7 @@ export async function createInitialMemberAccountDocs(
     authEmail: input.authEmail.trim().slice(0, BLUEPRINT_LIMITS.emailMax),
     whatsappNumber: cleanWhatsapp,
     ownedUsernames: [normalizedUsername],
-    notificationPrefs: {
-      comments: true,
-      replies: true,
-      anonymousReplies: true,
-      opportunities: true,
-      events: true,
-    },
+    notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
     updatedAt: serverTimestamp(),
   };
 
@@ -542,13 +550,7 @@ export async function updateMemberAccountProfileAndUsername(
           authEmail: cleanAuthEmail,
           whatsappNumber: cleanWhatsapp,
           ownedUsernames: Array.from(ownedSet).slice(0, 20),
-          notificationPrefs: {
-            comments: true,
-            replies: true,
-            anonymousReplies: true,
-            opportunities: true,
-            events: true,
-          },
+          notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
           updatedAt: serverTimestamp(),
         });
       }
@@ -1795,7 +1797,11 @@ export async function searchEventsScope(
 ): Promise<CampusEvent[]> {
   try {
     const snap = await getDocs(
-      query(collection(db, COLLECTION_NAMES.events), limit(80))
+      query(
+        collection(db, COLLECTION_NAMES.events),
+        where('published', '==', true),
+        limit(80)
+      )
     );
     const events = snap.docs.map((item) => item.data() as CampusEvent);
     return filterCampusEvents(events, rawQuery).slice(0, 25);
@@ -1804,29 +1810,173 @@ export async function searchEventsScope(
   }
 }
 
+const INITIAL_NOTIFICATION_PAGE_SIZE = 40;
+
+export interface NotificationSubscriptionSnapshot {
+  items: NotificationItem[];
+  oldestDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+export async function fetchPrivateUserData(
+  uid: string
+): Promise<PrivateUserData | null> {
+  if (!isValidFirestoreId(uid)) return null;
+  try {
+    const snap = await getDoc(doc(db, COLLECTION_NAMES.privateUserData, uid));
+    return snap.exists() ? (snap.data() as PrivateUserData) : null;
+  } catch (error) {
+    if (isFirebaseErrorCode(error, 'permission-denied')) {
+      return null;
+    }
+    handleFirestoreError(
+      error,
+      OperationType.GET,
+      `${COLLECTION_NAMES.privateUserData}/${uid}`
+    );
+  }
+}
+
+export async function updateNotificationPreferences(
+  uid: string,
+  prefs: NotificationPreferences
+): Promise<NotificationPreferences> {
+  if (!isValidFirestoreId(uid)) {
+    throw new Error('Sign in to update notification preferences.');
+  }
+  const normalized = normalizeNotificationPrefs(prefs);
+  const ref = doc(db, COLLECTION_NAMES.privateUserData, uid);
+  const path = `${COLLECTION_NAMES.privateUserData}/${uid}`;
+  try {
+    await runWithFirestoreConnectionRetry(() =>
+      updateDoc(ref, {
+        notificationPrefs: normalized,
+        updatedAt: serverTimestamp(),
+      })
+    );
+    return normalized;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
 export function subscribeUserNotifications(
   uid: string,
-  onItems: (items: NotificationItem[]) => void
+  onUpdate: (snapshot: NotificationSubscriptionSnapshot) => void,
+  onError?: (error: Error) => void
 ): Unsubscribe {
   const path = COLLECTION_NAMES.notifications;
-  const q = query(
+  let activeUnsubscribe: Unsubscribe = () => {};
+  let disposed = false;
+
+  const subscribeFallback = () => {
+    if (disposed) return;
+    const fallbackQuery = query(
+      collection(db, COLLECTION_NAMES.notifications),
+      where('recipientUid', '==', uid),
+      limit(60)
+    );
+    activeUnsubscribe = onSnapshot(
+      fallbackQuery,
+      (snapshot) => {
+        const sorted = sortByCreatedAtDesc(
+          snapshot.docs.map((item) => item.data() as NotificationItem)
+        ).slice(0, INITIAL_NOTIFICATION_PAGE_SIZE);
+        onUpdate({
+          items: sorted,
+          oldestDoc: null,
+          hasMore: false,
+        });
+      },
+      (error) => {
+        onError?.(
+          error instanceof Error
+            ? error
+            : new Error('Unable to listen for live notifications.')
+        );
+      }
+    );
+  };
+
+  const orderedQuery = query(
     collection(db, COLLECTION_NAMES.notifications),
     where('recipientUid', '==', uid),
-    limit(50)
+    orderBy('createdAt', 'desc'),
+    limit(INITIAL_NOTIFICATION_PAGE_SIZE + 1)
   );
-  return onSnapshot(
-    q,
+
+  activeUnsubscribe = onSnapshot(
+    orderedQuery,
     (snapshot) => {
-      onItems(
-        sortByCreatedAtDesc(
-          snapshot.docs.map((item) => item.data() as NotificationItem)
-        ).slice(0, 40)
-      );
+      const hasMore = snapshot.docs.length > INITIAL_NOTIFICATION_PAGE_SIZE;
+      const pageDocs = snapshot.docs.slice(0, INITIAL_NOTIFICATION_PAGE_SIZE);
+      onUpdate({
+        items: pageDocs.map((item) => item.data() as NotificationItem),
+        oldestDoc: pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
+        hasMore,
+      });
     },
     (error) => {
-      handleFirestoreError(error, OperationType.LIST, path);
+      if (isFirebaseErrorCode(error, 'failed-precondition')) {
+        subscribeFallback();
+        return;
+      }
+      onError?.(
+        error instanceof Error
+          ? error
+          : new Error('Unable to sync notifications.')
+      );
+      if (!isFirebaseErrorCode(error, 'permission-denied')) {
+        console.warn('Notification subscription warning:', path, error);
+      }
     }
   );
+
+  return () => {
+    disposed = true;
+    activeUnsubscribe();
+  };
+}
+
+export async function fetchOlderUserNotificationsPage(
+  uid: string,
+  cursorDoc: QueryDocumentSnapshot<DocumentData> | null,
+  pageSize = 30
+): Promise<{
+  items: NotificationItem[];
+  oldestDoc: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}> {
+  if (!isValidFirestoreId(uid) || !cursorDoc) {
+    return { items: [], oldestDoc: null, hasMore: false };
+  }
+  const safeSize = Math.max(1, Math.min(50, pageSize));
+  try {
+    const q = query(
+      collection(db, COLLECTION_NAMES.notifications),
+      where('recipientUid', '==', uid),
+      orderBy('createdAt', 'desc'),
+      startAfter(cursorDoc),
+      limit(safeSize + 1)
+    );
+    const snap = await getDocs(q);
+    const hasMore = snap.docs.length > safeSize;
+    const pageDocs = snap.docs.slice(0, safeSize);
+    return {
+      items: pageDocs.map((item) => item.data() as NotificationItem),
+      oldestDoc: pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
+      hasMore,
+    };
+  } catch (error) {
+    if (isFirebaseErrorCode(error, 'failed-precondition')) {
+      return { items: [], oldestDoc: null, hasMore: false };
+    }
+    handleFirestoreError(
+      error,
+      OperationType.LIST,
+      COLLECTION_NAMES.notifications
+    );
+  }
 }
 
 export async function markNotificationAsRead(
@@ -1835,9 +1985,11 @@ export async function markNotificationAsRead(
   if (!isValidFirestoreId(notificationId)) return;
   const path = `${COLLECTION_NAMES.notifications}/${notificationId}`;
   try {
-    await updateDoc(doc(db, COLLECTION_NAMES.notifications, notificationId), {
-      isRead: true,
-    });
+    await runWithFirestoreConnectionRetry(() =>
+      updateDoc(doc(db, COLLECTION_NAMES.notifications, notificationId), {
+        isRead: true,
+      })
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -1846,19 +1998,316 @@ export async function markNotificationAsRead(
 export async function markAllNotificationsAsRead(
   notifications: readonly NotificationItem[]
 ): Promise<void> {
-  const unreadIds = notifications
-    .filter((item) => !item.isRead && isValidFirestoreId(item.id))
-    .map((item) => item.id);
+  const unreadIds = Array.from(
+    new Set(
+      notifications
+        .filter((item) => !item.isRead && isValidFirestoreId(item.id))
+        .map((item) => item.id)
+    )
+  );
   if (unreadIds.length === 0) return;
 
-  const batch = writeBatch(db);
-  for (const id of unreadIds) {
-    batch.update(doc(db, COLLECTION_NAMES.notifications, id), { isRead: true });
-  }
+  const CHUNK_SIZE = 380;
   try {
-    await batch.commit();
+    for (let i = 0; i < unreadIds.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      for (const id of unreadIds.slice(i, i + CHUNK_SIZE)) {
+        batch.update(doc(db, COLLECTION_NAMES.notifications, id), {
+          isRead: true,
+        });
+      }
+      await batch.commit();
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, COLLECTION_NAMES.notifications);
+  }
+}
+
+export async function deleteUserNotification(
+  notificationId: string
+): Promise<void> {
+  if (!isValidFirestoreId(notificationId)) return;
+  const path = `${COLLECTION_NAMES.notifications}/${notificationId}`;
+  try {
+    await runWithFirestoreConnectionRetry(() =>
+      deleteDoc(doc(db, COLLECTION_NAMES.notifications, notificationId))
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function createSafeMemberNotification(input: {
+  id: string;
+  recipientUid: string;
+  eventType: NotificationEventType;
+  title: string;
+  body?: string;
+  targetPath?: string;
+  actorUid?: string | null;
+  targetImageId?: string;
+  targetImageUrl?: string;
+}): Promise<void> {
+  if (!isValidFirestoreId(input.id) || !isValidFirestoreId(input.recipientUid)) {
+    return;
+  }
+
+  const requiresActor =
+    input.eventType === 'reaction' ||
+    input.eventType === 'comment' ||
+    input.eventType === 'reply';
+
+  if (requiresActor) {
+    if (
+      !shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: input.recipientUid,
+      })
+    ) {
+      return;
+    }
+  } else if (input.actorUid && input.actorUid === input.recipientUid) {
+    return;
+  }
+
+  try {
+    const notifRef = doc(db, COLLECTION_NAMES.notifications, input.id);
+    const existingSnap = await getDoc(notifRef).catch(() => null);
+    if (existingSnap?.exists()) {
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      id: input.id,
+      recipientUid: input.recipientUid,
+      eventType: input.eventType,
+      title: input.title.trim().slice(0, 160),
+      isRead: false,
+      createdAt: serverTimestamp(),
+    };
+
+    const cleanBody = input.body?.trim().slice(0, 500);
+    if (cleanBody) {
+      payload.body = cleanBody;
+    }
+    const cleanTargetPath = input.targetPath?.trim().slice(0, 256);
+    if (cleanTargetPath) {
+      payload.targetPath = cleanTargetPath;
+    }
+
+    if (
+      input.eventType !== 'anonymous_reply' &&
+      input.actorUid &&
+      isValidFirestoreId(input.actorUid)
+    ) {
+      payload.actorUid = input.actorUid;
+      try {
+        const actorSnap = await getDoc(
+          doc(db, COLLECTION_NAMES.users, input.actorUid)
+        );
+        if (actorSnap.exists()) {
+          const actor = actorSnap.data() as PublicUserProfile;
+          if (actor.username) {
+            payload.actorUsername = actor.username.slice(0, 32);
+          }
+          if (actor.fullName) {
+            payload.actorName = actor.fullName.slice(0, 100);
+          }
+          if (actor.photoImageId && isValidFirestoreId(actor.photoImageId)) {
+            payload.actorPhotoImageId = actor.photoImageId;
+          } else if (actor.photoUrl && isSafeMediaUrl(actor.photoUrl)) {
+            payload.actorPhotoUrl = actor.photoUrl.slice(0, 512);
+          }
+        }
+      } catch {
+        // Actor hydration is non-blocking; actorUid remains attached
+      }
+    }
+
+    if (input.targetImageId && isValidFirestoreId(input.targetImageId)) {
+      payload.targetImageId = input.targetImageId;
+    } else if (input.targetImageUrl && isSafeMediaUrl(input.targetImageUrl)) {
+      payload.targetImageUrl = input.targetImageUrl.slice(0, 512);
+    }
+
+    await setDoc(notifRef, payload);
+  } catch (error) {
+    if (
+      !isFirebaseErrorCode(error, 'permission-denied') &&
+      !isFirebaseErrorCode(error, 'already-exists')
+    ) {
+      console.warn('Background notification write skipped:', error);
+    }
+  }
+}
+
+function readSyncedIdCache(storageKey: string): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((v): v is string => typeof v === 'string'))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeSyncedIdCache(storageKey: string, ids: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const trimmed = Array.from(ids).slice(-250);
+    window.localStorage.setItem(storageKey, JSON.stringify(trimmed));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export async function syncOwnAnonymousReplyNotifications(
+  uid: string,
+  existingNotificationIds: ReadonlySet<string>
+): Promise<void> {
+  if (!isValidFirestoreId(uid)) return;
+  const cacheKey = `lasued_intel_synced_anon_notifs_${uid}`;
+  const syncedCache = readSyncedIdCache(cacheKey);
+  existingNotificationIds.forEach((id) => syncedCache.add(id));
+
+  try {
+    const privateSnap = await getDoc(
+      doc(db, COLLECTION_NAMES.privateUserData, uid)
+    );
+    if (!privateSnap.exists()) return;
+    const privateData = privateSnap.data() as PrivateUserData;
+    const ownedPostSet = new Set(privateData.ownedAnonymousPostIds ?? []);
+    const ownedCommentSet = new Set(privateData.ownedAnonymousCommentIds ?? []);
+
+    if (ownedPostSet.size === 0 && ownedCommentSet.size === 0) {
+      return;
+    }
+
+    const commentsSnap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.anonymousComments),
+        where('status', '==', 'published'),
+        limit(120)
+      )
+    );
+
+    const candidates: Array<{ comment: AnonymousComment; isDirectReply: boolean }> = [];
+    for (const item of commentsSnap.docs) {
+      const comment = item.data() as AnonymousComment;
+      if (ownedCommentSet.has(comment.id)) continue;
+      const isReplyToOwnComment = Boolean(
+        comment.parentCommentId && ownedCommentSet.has(comment.parentCommentId)
+      );
+      const isCommentOnOwnPost = ownedPostSet.has(comment.postId);
+      if (!isReplyToOwnComment && !isCommentOnOwnPost) continue;
+
+      const notifId = buildAnonymousReplyNotificationId(comment.id);
+      if (syncedCache.has(notifId)) continue;
+      candidates.push({ comment, isDirectReply: isReplyToOwnComment });
+    }
+
+    for (const candidate of candidates.slice(0, 12)) {
+      const notifId = buildAnonymousReplyNotificationId(candidate.comment.id);
+      const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+      try {
+        const snap = await getDoc(notifRef).catch(() => null);
+        if (snap?.exists()) {
+          syncedCache.add(notifId);
+          continue;
+        }
+        const excerpt = summarizeNotificationExcerpt(candidate.comment.body, 140);
+        await setDoc(notifRef, {
+          id: notifId,
+          recipientUid: uid,
+          eventType: 'anonymous_reply',
+          title: candidate.isDirectReply
+            ? 'New anonymous reply to your comment'
+            : 'New reply on your anonymous post',
+          ...(excerpt ? { body: excerpt } : {}),
+          targetPath: `/?view=anonymous&postId=${candidate.comment.postId}&commentId=${candidate.comment.id}`,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        });
+        syncedCache.add(notifId);
+      } catch {
+        // Ignore individual duplicate/rule races
+      }
+    }
+
+    writeSyncedIdCache(cacheKey, syncedCache);
+  } catch {
+    // Non-blocking background sync
+  }
+}
+
+export async function syncOwnExpiredMarketplaceNotifications(
+  uid: string,
+  existingNotificationIds: ReadonlySet<string>
+): Promise<void> {
+  if (!isValidFirestoreId(uid)) return;
+  const cacheKey = `lasued_intel_synced_mkt_exp_${uid}`;
+  const syncedCache = readSyncedIdCache(cacheKey);
+  existingNotificationIds.forEach((id) => syncedCache.add(id));
+
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.marketplaceListings),
+        where('ownerUID', '==', uid),
+        limit(40)
+      )
+    );
+    const nowMs = Date.now();
+
+    for (const item of snap.docs) {
+      const listing = item.data() as MarketplaceListing;
+      if (listing.approvalStatus !== 'approved') continue;
+      const expMs = extractTimestampMs(listing.expiresAt);
+      const isExpired =
+        listing.status === 'expired' ||
+        (listing.status === 'active' &&
+          expMs !== null &&
+          isMarketplaceListingExpired(expMs, nowMs));
+      if (!isExpired) continue;
+
+      const notifId = buildMarketplaceExpiredNotificationId(listing.id);
+      if (syncedCache.has(notifId)) continue;
+
+      const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+      try {
+        const existingSnap = await getDoc(notifRef).catch(() => null);
+        if (existingSnap?.exists()) {
+          syncedCache.add(notifId);
+          continue;
+        }
+        const payload: Record<string, unknown> = {
+          id: notifId,
+          recipientUid: uid,
+          eventType: 'marketplace_expired',
+          title: `Marketplace listing expired: ${listing.title}`.slice(0, 160),
+          body: 'Your 7-day Campus Marketplace listing window ended. You can renew it from your listing menu.',
+          targetPath: `/?view=marketplace&listingId=${listing.id}`,
+          isRead: false,
+          createdAt: serverTimestamp(),
+        };
+        const firstImageId = listing.mediaItems?.[0]?.imageId;
+        if (firstImageId && isValidFirestoreId(firstImageId)) {
+          payload.targetImageId = firstImageId;
+        }
+        await setDoc(notifRef, payload);
+        syncedCache.add(notifId);
+      } catch {
+        // Non-blocking
+      }
+    }
+
+    writeSyncedIdCache(cacheKey, syncedCache);
+  } catch {
+    // Non-blocking background sync
   }
 }
 

@@ -29,6 +29,28 @@ export function isFirestoreSdkError(error: unknown): boolean {
   return typeof maybeCode === 'string' && maybeCode.trim().length > 0;
 }
 
+export function hasValidFirebaseConfig(config: {
+  projectId?: unknown;
+  apiKey?: unknown;
+  firestoreDatabaseId?: unknown;
+} | null | undefined): boolean {
+  if (!config || typeof config !== 'object') {
+    return false;
+  }
+  const projectId =
+    typeof config.projectId === 'string' ? config.projectId.trim() : '';
+  const apiKey =
+    typeof config.apiKey === 'string' ? config.apiKey.trim() : '';
+  const databaseId =
+    typeof config.firestoreDatabaseId === 'string'
+      ? config.firestoreDatabaseId.trim()
+      : '';
+  if (!projectId || !apiKey || !databaseId) {
+    return false;
+  }
+  return projectId !== 'remixed-project-id';
+}
+
 export function isTransientFirestoreConnectionError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) {
     return false;

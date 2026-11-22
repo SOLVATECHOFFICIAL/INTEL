@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  Bell,
   CheckCircle2,
   ExternalLink,
   KeyRound,
@@ -50,6 +51,10 @@ import {
   type ProfileSettingsFormInput,
   type ProfileSettingsValidationErrors,
 } from '../../utils/authValidation';
+import {
+  NOTIFICATION_PREFERENCE_OPTIONS,
+  type NotificationPrefKey,
+} from '../../utils/notifications';
 import { RoleBadge } from '../RoleBadge';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
@@ -79,6 +84,8 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     profile,
     effectiveTier,
     isSuspended,
+    notificationPrefs,
+    updateNotificationPrefsOptimistic,
     refreshAccountState,
   } = useFirebase();
 
@@ -889,6 +896,87 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                     are stored privately in Firestore under owner-only access
                     rules. Public profile links use only your unique @username.
                   </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-start gap-2.5">
+                    <Bell
+                      className="mt-0.5 h-4 w-4 shrink-0 text-[#1E88E5]"
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
+                        Notification Preferences
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Choose which community activities appear in your
+                        Notification Centre and unread counter. Updates apply
+                        immediately.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3.5 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50/40">
+                    {NOTIFICATION_PREFERENCE_OPTIONS.map((opt) => {
+                      const enabled = notificationPrefs[opt.key] !== false;
+                      return (
+                        <div
+                          key={opt.key}
+                          className="flex items-center justify-between gap-3 px-3.5 py-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-[#0B1A2E]">
+                              {opt.label}
+                            </p>
+                            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
+                              {opt.description}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={enabled}
+                            aria-label={`Toggle ${opt.label} notifications`}
+                            disabled={isSuspended}
+                            onClick={() => {
+                              setErrorMessage(null);
+                              setStatusMessage(null);
+                              const nextPrefs: Record<
+                                NotificationPrefKey,
+                                boolean
+                              > = {
+                                ...notificationPrefs,
+                                [opt.key]: !enabled,
+                              };
+                              void updateNotificationPrefsOptimistic(
+                                nextPrefs
+                              ).catch((err) => {
+                                setErrorMessage(
+                                  formatFirestoreOrAppError(
+                                    err,
+                                    'Could not save notification preferences.'
+                                  )
+                                );
+                              });
+                            }}
+                            className={`inline-flex min-h-[34px] shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-60 ${
+                              enabled
+                                ? 'border-[#1E88E5]/40 bg-[#1E88E5]/10 text-[#0B1A2E]'
+                                : 'border-slate-300 bg-white text-slate-600'
+                            }`}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`inline-block h-2 w-2 rounded-full ${
+                                enabled ? 'bg-[#1E88E5]' : 'bg-slate-400'
+                              }`}
+                            />
+                            {enabled ? 'On' : 'Off'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 p-4">

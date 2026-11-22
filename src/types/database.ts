@@ -374,7 +374,8 @@ export type AdminAuditAction =
   | 'trusted_contact_created'
   | 'trusted_contact_updated'
   | 'trusted_contact_deleted'
-  | 'settings_updated';
+  | 'settings_updated'
+  | 'announcement_broadcast';
 
 export interface AdminAuditLog {
   id: string;
@@ -432,7 +433,7 @@ export function resolveOrdinaryPostType(
 export interface PostComment {
   id: string;
   postId: string;
-  targetCollection?: 'posts' | 'events';
+  targetCollection?: 'posts' | 'events' | 'marketplaceListings';
   parentCommentId?: string;
   ownerUID: string;
   body: string;
@@ -575,6 +576,7 @@ export interface MarketplaceListing {
   approvedByUid?: string;
   approvedAt?: unknown;
   visibility: 'public' | 'owner_and_admins';
+  commentsCount?: number;
   createdAt: unknown;
   updatedAt: unknown;
   expiresAt: unknown;
@@ -666,6 +668,8 @@ export interface NotificationItem {
   actorName?: string;
   actorPhotoUrl?: string;
   actorPhotoImageId?: string;
+  targetImageId?: string;
+  targetImageUrl?: string;
   isRead: boolean;
   createdAt: unknown;
 }

@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
-import { Crown, Loader2, Save, ShieldCheck } from 'lucide-react';
-import { saveGlobalPlatformSettings } from '../../services/adminDashboard';
+import { Crown, Loader2, Megaphone, Save, Send, ShieldCheck } from 'lucide-react';
+import {
+  broadcastOfficialAnnouncementNotification,
+  saveGlobalPlatformSettings,
+  type AnnouncementDestinationRoute,
+} from '../../services/adminDashboard';
 import type { PlatformSetting, UserRole } from '../../types/database';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 
@@ -44,6 +48,13 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   );
   const [saving, setSaving] = useState(false);
 
+  const [announcementTitle, setAnnouncementTitle] = useState('');
+  const [announcementBody, setAnnouncementBody] = useState('');
+  const [announcementRoute, setAnnouncementRoute] =
+    useState<AnnouncementDestinationRoute>('for-you');
+  const [broadcastingAnnouncement, setBroadcastingAnnouncement] =
+    useState(false);
+
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (saving) return;
@@ -66,6 +77,37 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleBroadcastAnnouncement = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+    if (broadcastingAnnouncement) return;
+    setBroadcastingAnnouncement(true);
+    try {
+      const result = await broadcastOfficialAnnouncementNotification({
+        title: announcementTitle,
+        body: announcementBody,
+        targetRoute: announcementRoute,
+        actorUid,
+        actorRole,
+      });
+      setAnnouncementTitle('');
+      setAnnouncementBody('');
+      onSuccess(
+        `Official community announcement delivered to ${result.sentCount} member notification center${result.sentCount === 1 ? '' : 's'}.`
+      );
+    } catch (error) {
+      onError(
+        formatFirestoreOrAppError(
+          error,
+          'Could not publish official announcement.'
+        )
+      );
+    } finally {
+      setBroadcastingAnnouncement(false);
     }
   };
 
@@ -211,6 +253,106 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               <Save className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
             )}
             Save Platform Settings
+          </button>
+        </div>
+      </form>
+
+      <form
+        onSubmit={handleBroadcastAnnouncement}
+        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+      >
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+          <Megaphone className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+          <div>
+            <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+              Publish Official Community Announcement
+            </h2>
+            <p className="text-[11px] text-slate-600">
+              Deliver an official notice directly to members&apos; notification
+              centres. Restricted to Supreme Admin and Owner accounts.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <label
+            htmlFor="announcement-title"
+            className="block text-xs font-semibold text-[#0B1A2E]"
+          >
+            Announcement Headline
+          </label>
+          <input
+            id="announcement-title"
+            type="text"
+            required
+            minLength={3}
+            maxLength={160}
+            value={announcementTitle}
+            onChange={(e) => setAnnouncementTitle(e.target.value)}
+            placeholder="e.g. Updated Second Semester Academic Calendar Released"
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="announcement-body"
+            className="block text-xs font-semibold text-[#0B1A2E]"
+          >
+            Announcement Message
+          </label>
+          <textarea
+            id="announcement-body"
+            rows={3}
+            required
+            minLength={5}
+            maxLength={500}
+            value={announcementBody}
+            onChange={(e) => setAnnouncementBody(e.target.value)}
+            placeholder="Write the official notice to display in member notifications..."
+            className="mt-1 block w-full rounded-xl border border-slate-300 p-3 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="announcement-route"
+            className="block text-xs font-semibold text-[#0B1A2E]"
+          >
+            Destination Section When Opened
+          </label>
+          <select
+            id="announcement-route"
+            value={announcementRoute}
+            onChange={(e) =>
+              setAnnouncementRoute(
+                e.target.value as AnnouncementDestinationRoute
+              )
+            }
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+          >
+            <option value="for-you">Home Feed (Updates)</option>
+            <option value="upcoming-events">Campus Events</option>
+            <option value="opportunities">Opportunities</option>
+            <option value="marketplace">Campus Marketplace</option>
+            <option value="trusted-circle">Trusted Circle</option>
+            <option value="anonymous">Anonymous Feed</option>
+            <option value="account">Account Settings</option>
+          </select>
+        </div>
+
+        <div className="pt-1">
+          <button
+            type="submit"
+            disabled={broadcastingAnnouncement}
+            className="inline-flex min-h-[42px] items-center gap-2 rounded-xl bg-[#1E88E5] px-5 py-2 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
+          >
+            {broadcastingAnnouncement ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Send className="h-4 w-4" aria-hidden="true" />
+            )}
+            Publish Official Announcement
           </button>
         </div>
       </form>

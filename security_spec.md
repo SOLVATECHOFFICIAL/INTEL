@@ -43,3 +43,9 @@
 ## 5. Prompt 10 Trusted Circle & Public Following Invariants
 1. **Atomic Follow Notification Guard**: Authenticated active users may create `'follow'` notifications ONLY inside an atomic transaction transitioning `follows/{actorUid}_{targetUid}` from non-existent (`!exists`) to existing (`existsAfter`), preventing self-notifications, spoofed actors, and duplicate follow notifications.
 2. **Non-Account Directory Separation**: Admin-managed `/trustedContacts` records enforce `entryType == 'admin_listed_contact'` and `isUserAccount == false`, support compressed profile images (`targetCollection == 'trustedContacts'`, Supreme Admin / Owner only), and never receive user accounts or follow controls.
+
+## 6. Task 13 Notifications & Marketplace Q&A Invariants
+1. **Activity Notification Spoof Protection**: Creating `'reaction'`, `'comment'`, or `'reply'` notifications requires `actorUid == request.auth.uid`, `recipientUid != request.auth.uid`, and verification that `users/{recipientUid}` exists, preventing impersonation and self-spam.
+2. **Zero-Identity Anonymous Reply Notifications**: Creating `'anonymous_reply'` notifications is allowed only for the recipient's own signed-in account (`recipientUid == request.auth.uid`) with `actorUid`, `actorUsername`, `actorName`, `actorPhotoUrl`, and `actorPhotoImageId` strictly absent so anonymous authors' identities can never be exposed in public collections or notification documents.
+3. **Marketplace Listing Q&A**: `/postComments` supports `targetCollection == 'marketplaceListings'` strictly when the target listing is `'active'`, updating `commentsCount` cleanly without loosening moderation ownership boundaries.
+

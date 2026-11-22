@@ -368,6 +368,8 @@ export function formatAdminAuditActionLabel(
       return 'Removed Trusted Circle contact';
     case 'settings_updated':
       return 'Updated platform settings';
+    case 'announcement_broadcast':
+      return 'Published official announcement';
   }
 }
 

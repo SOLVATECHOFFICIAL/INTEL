@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { CampusEvent } from '../types/database';
+import { filterCampusEvents } from './contextualSearch';
 import {
   buildEventNotificationDocId,
   buildEventShareUrl,
@@ -12,6 +13,7 @@ import {
   formatEventDateTimeRange,
   getEventCategoryLabel,
   getSafeEventUrl,
+  matchesEventSearchQuery,
   resolveEventLifecycle,
 } from './events';
 
@@ -217,4 +219,33 @@ test('share URLs, safe URLs, local time formatting, and notification dedupe guar
 
   const range = formatEventDateTimeRange(evt);
   assert.ok(range.includes('2026'));
+});
+
+test('contextual search matches event title, organiser, venue, category label, and hides drafts or cancelled events', () => {
+  const pub = makeEvent({
+    id: 'evt_pub',
+    title: 'SUG Town Hall',
+    organiser: 'Students Union Government',
+    category: 'student_association',
+    venue: 'Oluremi Tinubu Hall',
+  });
+  const draft = makeEvent({
+    id: 'evt_draft',
+    title: 'SUG Draft Town Hall',
+    published: false,
+  });
+  const cancelled = makeEvent({
+    id: 'evt_cancelled',
+    title: 'SUG Cancelled Rally',
+    status: 'cancelled',
+  });
+
+  assert.equal(matchesEventSearchQuery(pub, 'Student Association'), true);
+  assert.equal(matchesEventSearchQuery(pub, 'Oluremi Tinubu'), true);
+
+  const searchHits = filterCampusEvents([pub, draft, cancelled], 'SUG');
+  assert.deepEqual(
+    searchHits.map((e) => e.id),
+    ['evt_pub']
+  );
 });

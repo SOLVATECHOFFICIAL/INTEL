@@ -9,6 +9,7 @@ import type {
   TrustedContact,
 } from '../types/database';
 import type { SearchScopeId } from '../types/platform';
+import { getEventCategoryLabel } from './events';
 import { getOpportunityCategoryLabel } from './opportunities';
 
 export interface SearchScopeMeta {
@@ -57,7 +58,7 @@ export const SEARCH_SCOPE_CONFIG: Record<SearchScopeId, SearchScopeMeta> = {
   },
   'upcoming-events': {
     id: 'upcoming-events',
-    label: 'Upcoming Events',
+    label: 'Events',
     placeholder: 'Search campus events by title, organiser, venue, or details...',
     description: 'Matches active campus events (cancelled events are excluded).',
   },
@@ -318,13 +319,15 @@ export function filterCampusEvents(
     if (item.published === false) return false;
     if (item.status === 'cancelled') return false;
     const categoryText = (item.category ?? '').replace(/_/g, ' ').toLowerCase();
+    const categoryLabel = getEventCategoryLabel(item.category).toLowerCase();
     return (
       item.title.toLowerCase().includes(normalized) ||
       item.organiser.toLowerCase().includes(normalized) ||
       item.venue.toLowerCase().includes(normalized) ||
       item.description.toLowerCase().includes(normalized) ||
       (item.instructions ?? '').toLowerCase().includes(normalized) ||
-      categoryText.includes(normalized)
+      categoryText.includes(normalized) ||
+      categoryLabel.includes(normalized)
     );
   });
 }

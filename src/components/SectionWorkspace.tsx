@@ -16,6 +16,7 @@ import {
 import {
   fetchMyAnonymousHistory,
   fetchOwnedAnonymousEntries,
+  fetchSinglePublishedAnonymousPost,
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
 } from '../services/socialPosts';
@@ -43,6 +44,9 @@ interface SectionWorkspaceProps {
   sectionId: Exclude<SectionId, 'for-you' | 'following' | 'latest'>;
   selectedOpportunityId?: string | null;
   selectedEventId?: string | null;
+  selectedPostId?: string | null;
+  selectedCommentId?: string | null;
+  selectedListingId?: string | null;
   sectionStates: Record<SectionId, ViewState>;
   onNavigate: (
     route: ActiveRoute,
@@ -52,6 +56,9 @@ interface SectionWorkspaceProps {
       searchScope?: SearchScopeId;
       opportunityId?: string | null;
       eventId?: string | null;
+      postId?: string | null;
+      commentId?: string | null;
+      listingId?: string | null;
     }
   ) => void;
   onRetry: (sectionId: SectionId) => void;
@@ -62,6 +69,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   sectionId,
   selectedOpportunityId = null,
   selectedEventId = null,
+  selectedPostId = null,
+  selectedCommentId = null,
+  selectedListingId = null,
   sectionStates,
   onNavigate,
   onRetry,
@@ -72,6 +82,10 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   const fallbackState = sectionStates[activeSection.id];
 
   const [anonymousPosts, setAnonymousPosts] = useState<AnonymousPost[]>([]);
+  const [deepLinkedAnonPost, setDeepLinkedAnonPost] = useState<{
+    targetId: string;
+    post: AnonymousPost | null;
+  } | null>(null);
   const [anonCursor, setAnonCursor] = useState<AnonymousFeedPageCursor | null>(
     null
   );
@@ -212,6 +226,38 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     myAnonTargetKey,
     myAnonState.loadedKey,
   ]);
+
+  useEffect(() => {
+    if (
+      sectionId !== 'anonymous' ||
+      !selectedPostId ||
+      anonLoadState !== 'ready' ||
+      anonymousPosts.some((item) => item.id === selectedPostId)
+    ) {
+      return;
+    }
+    let active = true;
+    fetchSinglePublishedAnonymousPost(selectedPostId)
+      .then((found) => {
+        if (!active) return;
+        setDeepLinkedAnonPost({ targetId: selectedPostId, post: found });
+      })
+      .catch(() => {
+        if (!active) return;
+        setDeepLinkedAnonPost({ targetId: selectedPostId, post: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [sectionId, selectedPostId, anonLoadState, anonymousPosts]);
+
+  const feedAnonPosts =
+    selectedPostId &&
+    deepLinkedAnonPost?.targetId === selectedPostId &&
+    deepLinkedAnonPost.post &&
+    !anonymousPosts.some((item) => item.id === selectedPostId)
+      ? [deepLinkedAnonPost.post, ...anonymousPosts]
+      : anonymousPosts;
 
   const loadAnonymous = () => {
     setAnonLoadState('loading');
@@ -451,6 +497,10 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                       viewerSuspended={isSuspended}
                       isLiked={likedAnonIds.has(item.id)}
                       isSaved={savedAnonIds.has(item.id)}
+                      isHighlighted={item.id === selectedPostId}
+                      highlightCommentId={
+                        item.id === selectedPostId ? selectedCommentId : null
+                      }
                       onSaveChanged={(postId, saved) =>
                         setSavedAnonIds((prev) => {
                           const next = new Set(prev);
@@ -520,11 +570,11 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                 section={activeSection}
                 onRetry={() => void loadAnonymous()}
               />
-            ) : anonymousPosts.length === 0 ? (
+            ) : feedAnonPosts.length === 0 ? (
               <EmptyState section={activeSection} />
             ) : (
               <div className="space-y-4">
-                {anonymousPosts.map((item) => (
+                {feedAnonPosts.map((item) => (
                   <PostCard
                     key={item.id}
                     kind="anonymous"
@@ -534,6 +584,10 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                     viewerSuspended={isSuspended}
                     isLiked={likedAnonIds.has(item.id)}
                     isSaved={savedAnonIds.has(item.id)}
+                    isHighlighted={item.id === selectedPostId}
+                    highlightCommentId={
+                      item.id === selectedPostId ? selectedCommentId : null
+                    }
                     onSaveChanged={(postId, saved) =>
                       setSavedAnonIds((prev) => {
                         const next = new Set(prev);
@@ -620,6 +674,11 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
             )
           ) : sectionId === 'marketplace' ? (
             <MarketplaceSection
+              selectedListingId={selectedListingId}
+              selectedCommentId={selectedCommentId}
+              onSelectListing={(listingId) =>
+                onNavigate('marketplace', { listingId })
+              }
               onRequireAuth={onRequireAuth}
               onNavigateProfile={(uname) =>
                 onNavigate('profile', { username: uname })
@@ -636,6 +695,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           ) : sectionId === 'upcoming-events' ? (
             <EventsSection
               selectedEventId={selectedEventId}
+              selectedCommentId={selectedCommentId}
               onSelectEvent={(evtId) =>
                 onNavigate('upcoming-events', { eventId: evtId })
               }

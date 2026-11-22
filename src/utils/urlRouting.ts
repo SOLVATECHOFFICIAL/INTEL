@@ -81,6 +81,16 @@ export interface ParsedRouteLocation {
   searchScope: SearchScopeId;
   opportunityId: string | null;
   eventId: string | null;
+  postId: string | null;
+  commentId: string | null;
+  listingId: string | null;
+}
+
+function parseSafeIdParam(params: URLSearchParams, key: string): string | null {
+  const raw = params.get(key);
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return /^[a-zA-Z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
 }
 
 export function parseLocationSearch(search: string): ParsedRouteLocation {
@@ -95,16 +105,11 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
   const profileTab = isValidProfileTab(rawTab) ? rawTab : null;
   const rawScope = params.get('scope');
   const searchScope = isValidSearchScope(rawScope) ? rawScope : 'home';
-  const rawOppId = params.get('opportunityId');
-  const opportunityId =
-    rawOppId && /^[a-zA-Z0-9_-]{1,128}$/.test(rawOppId.trim())
-      ? rawOppId.trim()
-      : null;
-  const rawEventId = params.get('eventId');
-  const eventId =
-    rawEventId && /^[a-zA-Z0-9_-]{1,128}$/.test(rawEventId.trim())
-      ? rawEventId.trim()
-      : null;
+  const opportunityId = parseSafeIdParam(params, 'opportunityId');
+  const eventId = parseSafeIdParam(params, 'eventId');
+  const postId = parseSafeIdParam(params, 'postId');
+  const commentId = parseSafeIdParam(params, 'commentId');
+  const listingId = parseSafeIdParam(params, 'listingId');
 
   return {
     route,
@@ -113,6 +118,9 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
     searchScope,
     opportunityId,
     eventId,
+    postId,
+    commentId,
+    listingId,
   };
 }
 
@@ -128,10 +136,15 @@ export function buildSearchForRoute(
     searchScope?: SearchScopeId | null;
     opportunityId?: string | null;
     eventId?: string | null;
+    postId?: string | null;
+    commentId?: string | null;
+    listingId?: string | null;
   }
 ): string {
-  if (route === 'for-you') {
-    return window.location.pathname;
+  const pathname =
+    typeof window !== 'undefined' ? window.location.pathname : '/';
+  if (route === 'for-you' && !options?.postId) {
+    return pathname;
   }
   const params = new URLSearchParams();
   params.set('view', route);
@@ -152,9 +165,30 @@ export function buildSearchForRoute(
   }
   if (route === 'upcoming-events' && options?.eventId) {
     params.set('eventId', options.eventId);
+    if (options?.commentId) {
+      params.set('commentId', options.commentId);
+    }
+  }
+  if (
+    (route === 'for-you' ||
+      route === 'following' ||
+      route === 'latest' ||
+      route === 'anonymous') &&
+    options?.postId
+  ) {
+    params.set('postId', options.postId);
+    if (options?.commentId) {
+      params.set('commentId', options.commentId);
+    }
+  }
+  if (route === 'marketplace' && options?.listingId) {
+    params.set('listingId', options.listingId);
+    if (options?.commentId) {
+      params.set('commentId', options.commentId);
+    }
   }
 
-  return `${window.location.pathname}?${params.toString()}`;
+  return `${pathname}?${params.toString()}`;
 }
 
 export function isFeedRoute(route: ActiveRoute): boolean {

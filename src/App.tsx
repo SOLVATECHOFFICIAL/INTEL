@@ -39,6 +39,9 @@ interface RouteHistoryEntry {
   searchScope?: SearchScopeId;
   opportunityId?: string | null;
   eventId?: string | null;
+  postId?: string | null;
+  commentId?: string | null;
+  listingId?: string | null;
   scrollY?: number;
 }
 
@@ -64,6 +67,15 @@ export function App() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
     initialParsed.eventId
   );
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(
+    initialParsed.postId
+  );
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
+    initialParsed.commentId
+  );
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(
+    initialParsed.listingId
+  );
   const [previousEntry, setPreviousEntry] = useState<RouteHistoryEntry>({
     route: 'for-you',
   });
@@ -81,6 +93,9 @@ export function App() {
     searchScope: initialParsed.searchScope,
     opportunityId: initialParsed.opportunityId,
     eventId: initialParsed.eventId,
+    postId: initialParsed.postId,
+    commentId: initialParsed.commentId,
+    listingId: initialParsed.listingId,
   });
 
   useEffect(() => {
@@ -92,6 +107,9 @@ export function App() {
       setSearchScope(parsed.searchScope);
       setSelectedOpportunityId(parsed.opportunityId);
       setSelectedEventId(parsed.eventId);
+      setSelectedPostId(parsed.postId);
+      setSelectedCommentId(parsed.commentId);
+      setSelectedListingId(parsed.listingId);
       const stateScrollY =
         event.state &&
         typeof event.state === 'object' &&
@@ -105,6 +123,9 @@ export function App() {
         searchScope: parsed.searchScope,
         opportunityId: parsed.opportunityId,
         eventId: parsed.eventId,
+        postId: parsed.postId,
+        commentId: parsed.commentId,
+        listingId: parsed.listingId,
         scrollY: stateScrollY,
       };
       if (stateScrollY !== undefined) {
@@ -131,6 +152,9 @@ export function App() {
         searchScope?: SearchScopeId;
         opportunityId?: string | null;
         eventId?: string | null;
+        postId?: string | null;
+        commentId?: string | null;
+        listingId?: string | null;
         restoreScrollY?: number;
       }
     ) => {
@@ -149,6 +173,19 @@ export function App() {
         route === 'opportunities' ? options?.opportunityId ?? null : null;
       const nextEventId =
         route === 'upcoming-events' ? options?.eventId ?? null : null;
+      const nextPostId =
+        isFeedRoute(route) || route === 'anonymous'
+          ? options?.postId ?? null
+          : null;
+      const nextListingId =
+        route === 'marketplace' ? options?.listingId ?? null : null;
+      const nextCommentId =
+        isFeedRoute(route) ||
+        route === 'anonymous' ||
+        route === 'upcoming-events' ||
+        route === 'marketplace'
+          ? options?.commentId ?? null
+          : null;
 
       const isRouteChange =
         current.route !== route ||
@@ -194,6 +231,9 @@ export function App() {
       setSearchScope(nextSearchScope);
       setSelectedOpportunityId(nextOpportunityId);
       setSelectedEventId(nextEventId);
+      setSelectedPostId(nextPostId);
+      setSelectedCommentId(nextCommentId);
+      setSelectedListingId(nextListingId);
 
       const targetScrollY = options?.restoreScrollY ?? 0;
 
@@ -204,6 +244,9 @@ export function App() {
         searchScope: nextSearchScope,
         opportunityId: nextOpportunityId,
         eventId: nextEventId,
+        postId: nextPostId,
+        commentId: nextCommentId,
+        listingId: nextListingId,
         scrollY: targetScrollY,
       };
 
@@ -214,13 +257,16 @@ export function App() {
         opportunityId:
           route === 'opportunities' ? nextOpportunityId : undefined,
         eventId: route === 'upcoming-events' ? nextEventId : undefined,
+        postId: nextPostId,
+        commentId: nextCommentId,
+        listingId: route === 'marketplace' ? nextListingId : undefined,
       });
       window.history.pushState({ scrollY: targetScrollY }, '', nextUrl);
       if (options?.restoreScrollY !== undefined) {
         window.requestAnimationFrame(() => {
           window.scrollTo({ top: targetScrollY, behavior: 'auto' });
         });
-      } else {
+      } else if (!nextPostId && !nextCommentId) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     },
@@ -235,6 +281,9 @@ export function App() {
         searchScope: previousEntry.searchScope,
         opportunityId: previousEntry.opportunityId,
         eventId: previousEntry.eventId,
+        postId: previousEntry.postId,
+        commentId: previousEntry.commentId,
+        listingId: previousEntry.listingId,
         restoreScrollY: previousEntry.scrollY ?? 0,
       });
       return;
@@ -361,6 +410,8 @@ export function App() {
       return (
         <HomeFeedWorkspace
           activeFeedTab={activeRoute as FeedTabId}
+          selectedPostId={selectedPostId}
+          selectedCommentId={selectedCommentId}
           onSelectFeedTab={(tab) => handleNavigate(tab)}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
@@ -379,6 +430,11 @@ export function App() {
         }
         selectedEventId={
           activeRoute === 'upcoming-events' ? selectedEventId : null
+        }
+        selectedPostId={activeRoute === 'anonymous' ? selectedPostId : null}
+        selectedCommentId={selectedCommentId}
+        selectedListingId={
+          activeRoute === 'marketplace' ? selectedListingId : null
         }
         sectionStates={sectionStates}
         onNavigate={handleNavigate}

@@ -20,7 +20,7 @@ test('defines all 8 required LASUED Intel sections with Anonymous naming', () =>
       'Marketplace',
       'Trusted Circle',
       'Opportunities',
-      'Upcoming Events',
+      'Events',
     ]
   );
   assert.equal(

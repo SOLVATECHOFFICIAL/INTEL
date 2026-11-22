@@ -80,6 +80,14 @@ import {
   primeMediaImageCache,
   type UploadProgressState,
 } from './mediaStorage';
+import { createSafeMemberNotification } from './firestoreFoundation';
+import {
+  buildCommentNotificationId,
+  buildReactionNotificationId,
+  buildReplyNotificationId,
+  shouldEmitActivityNotification,
+  summarizeNotificationExcerpt,
+} from '../utils/notifications';
 
 export interface ComposerImageAttachment {
   clientId: string;
@@ -969,7 +977,7 @@ export async function togglePostReaction(input: {
   const path = `${collectionName}/${input.postId}`;
 
   try {
-    return await runWithFirestoreConnectionRetry(() =>
+    const result = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         const [postSnap, reactionSnap] = await Promise.all([
           tx.get(postRef),
@@ -980,10 +988,25 @@ export async function togglePostReaction(input: {
           throw new Error('This post is no longer available.');
         }
 
+        const postData = postSnap.data() as {
+          ownerUID?: string;
+          title?: string;
+          body?: string;
+          mediaItems?: PostMediaMeta[];
+          likesCount?: number;
+        };
+        const postOwnerUid =
+          input.kind === 'posts' ? postData.ownerUID ?? null : null;
+        const postSnippet =
+          input.kind === 'posts'
+            ? summarizeNotificationExcerpt(postData.title || postData.body, 120)
+            : '';
+        const postImageId =
+          input.kind === 'posts' ? postData.mediaItems?.[0]?.imageId : undefined;
+
         const nextState = computeNextReactionTransactionState({
           alreadyLiked: reactionSnap.exists(),
-          currentLikesCount: (postSnap.data() as { likesCount?: number })
-            .likesCount,
+          currentLikesCount: postData.likesCount,
         });
 
         if (!nextState.liked) {
@@ -991,7 +1014,13 @@ export async function togglePostReaction(input: {
           if (nextState.shouldUpdatePostLikesCount) {
             tx.update(postRef, { likesCount: nextState.likesCount });
           }
-          return { liked: false, likesCount: nextState.likesCount };
+          return {
+            liked: false,
+            likesCount: nextState.likesCount,
+            postOwnerUid,
+            postSnippet,
+            postImageId,
+          };
         }
 
         tx.set(reactionRef, {
@@ -1002,9 +1031,41 @@ export async function togglePostReaction(input: {
           createdAt: serverTimestamp(),
         });
         tx.update(postRef, { likesCount: nextState.likesCount });
-        return { liked: true, likesCount: nextState.likesCount };
+        return {
+          liked: true,
+          likesCount: nextState.likesCount,
+          postOwnerUid,
+          postSnippet,
+          postImageId,
+        };
       })
     );
+
+    if (
+      input.kind === 'posts' &&
+      result.liked &&
+      result.postOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: result.postOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: buildReactionNotificationId('posts', input.postId, input.actorUid),
+        recipientUid: result.postOwnerUid,
+        eventType: 'reaction',
+        title: 'Someone liked your post',
+        body: result.postSnippet || undefined,
+        targetPath: `/?view=for-you&postId=${input.postId}`,
+        actorUid: input.actorUid,
+        targetImageId: result.postImageId,
+      });
+    }
+
+    return {
+      liked: result.liked,
+      likesCount: result.likesCount,
+    };
   } catch (error) {
     if (!isFirestoreSdkError(error)) {
       throw error;
@@ -1691,9 +1752,14 @@ export async function addPostComment(input: {
   }
   if (input.kind === 'posts') {
     commentPayload.ownerUID = input.actorUid;
+    commentPayload.targetCollection = 'posts';
+    commentPayload.likesCount = 0;
   } else {
     commentPayload.likesCount = 0;
   }
+
+  let postOwnerUid: string | null = null;
+  let postImageId: string | undefined;
 
   const path = `${commentCollection}/${commentId}`;
   try {
@@ -1703,9 +1769,16 @@ export async function addPostComment(input: {
         if (!postSnap.exists()) {
           throw new Error('This post is no longer available.');
         }
-        const currentCount = Number(
-          (postSnap.data() as { commentsCount?: number }).commentsCount ?? 0
-        );
+        const postData = postSnap.data() as {
+          ownerUID?: string;
+          mediaItems?: PostMediaMeta[];
+          commentsCount?: number;
+        };
+        if (input.kind === 'posts') {
+          postOwnerUid = postData.ownerUID ?? null;
+          postImageId = postData.mediaItems?.[0]?.imageId;
+        }
+        const currentCount = Number(postData.commentsCount ?? 0);
         const nextCount = currentCount + 1;
 
         tx.set(commentRef, commentPayload);
@@ -1727,6 +1800,66 @@ export async function addPostComment(input: {
         return nextCount;
       })
     );
+
+    if (input.kind === 'posts') {
+      const targetPath = `/?view=for-you&postId=${input.postId}&commentId=${commentId}`;
+      const excerpt = summarizeNotificationExcerpt(cleanBody, 140);
+      let parentOwnerUid: string | null = null;
+
+      if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
+        try {
+          const parentSnap = await getDoc(
+            doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
+          );
+          if (parentSnap.exists()) {
+            parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
+          }
+        } catch {
+          parentOwnerUid = null;
+        }
+      }
+
+      if (
+        parentOwnerUid &&
+        shouldEmitActivityNotification({
+          actorUid: input.actorUid,
+          recipientUid: parentOwnerUid,
+        })
+      ) {
+        void createSafeMemberNotification({
+          id: buildReplyNotificationId(commentId),
+          recipientUid: parentOwnerUid,
+          eventType: 'reply',
+          title: 'Someone replied to your comment',
+          body: excerpt || undefined,
+          targetPath,
+          actorUid: input.actorUid,
+          targetImageId: postImageId,
+        });
+      }
+
+      if (
+        postOwnerUid &&
+        postOwnerUid !== parentOwnerUid &&
+        shouldEmitActivityNotification({
+          actorUid: input.actorUid,
+          recipientUid: postOwnerUid,
+        })
+      ) {
+        void createSafeMemberNotification({
+          id: buildCommentNotificationId(commentId),
+          recipientUid: postOwnerUid,
+          eventType: 'comment',
+          title: input.parentCommentId
+            ? 'New reply on your post'
+            : 'Someone commented on your post',
+          body: excerpt || undefined,
+          targetPath,
+          actorUid: input.actorUid,
+          targetImageId: postImageId,
+        });
+      }
+    }
 
     if (input.kind === 'anonymousPosts' && ownership?.exists) {
       const nextIds = [
@@ -1927,4 +2060,321 @@ export async function revealAnonymousEntryAuthor(input: {
     authorRole: mapping.authorRole,
     profile,
   };
+}
+
+export async function fetchSinglePublishedPostWithAuthor(
+  postId: string
+): Promise<{ post: CommunityPost; author: PublicProfileProjection | null } | null> {
+  if (!isValidFirestoreId(postId)) return null;
+  const path = `${COLLECTION_NAMES.posts}/${postId}`;
+  try {
+    const snap = await getDoc(doc(db, COLLECTION_NAMES.posts, postId));
+    if (!snap.exists()) return null;
+    const post = snap.data() as CommunityPost;
+    if (post.status !== 'published') return null;
+
+    let author: PublicProfileProjection | null = null;
+    if (isValidFirestoreId(post.ownerUID)) {
+      try {
+        const userSnap = await getDoc(
+          doc(db, COLLECTION_NAMES.users, post.ownerUID)
+        );
+        if (userSnap.exists()) {
+          const profile = userSnap.data() as PublicUserProfile;
+          if (!profile.isHiddenFromDirectory && profile.accountStatus === 'active') {
+            author = toPublicProfileProjection(profile);
+          }
+        }
+      } catch {
+        author = null;
+      }
+    }
+
+    return { post, author };
+  } catch (error) {
+    if (isFirebaseErrorCode(error, 'permission-denied')) {
+      return null;
+    }
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
+export async function fetchSinglePublishedAnonymousPost(
+  postId: string
+): Promise<AnonymousPost | null> {
+  if (!isValidFirestoreId(postId)) return null;
+  const path = `${COLLECTION_NAMES.anonymousPosts}/${postId}`;
+  try {
+    const snap = await getDoc(doc(db, COLLECTION_NAMES.anonymousPosts, postId));
+    if (!snap.exists()) return null;
+    const post = snap.data() as AnonymousPost;
+    return post.status === 'published' ? post : null;
+  } catch (error) {
+    if (isFirebaseErrorCode(error, 'permission-denied')) {
+      return null;
+    }
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
+export async function fetchCommentsForMarketplaceListing(
+  listingId: string
+): Promise<CommentWithAuthor[]> {
+  if (!isValidFirestoreId(listingId)) return [];
+  try {
+    const q = query(
+      collection(db, COLLECTION_NAMES.postComments),
+      where('postId', '==', listingId),
+      where('status', '==', 'published'),
+      limit(150)
+    );
+    const snap = await getDocs(q);
+    const items = snap.docs
+      .map((item) => item.data() as PostComment)
+      .filter((c) => c.targetCollection === 'marketplaceListings')
+      .sort((a, b) => {
+        const aMs = extractTimestampMs(a.createdAt) ?? 0;
+        const bMs = extractTimestampMs(b.createdAt) ?? 0;
+        return aMs - bMs;
+      });
+    return await hydrateCommentAuthors('posts', items);
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.LIST,
+      COLLECTION_NAMES.postComments
+    );
+  }
+}
+
+export async function addMarketplaceListingComment(input: {
+  listingId: string;
+  body: string;
+  parentCommentId?: string;
+  actorUid: string;
+}): Promise<{ comment: PostComment; commentsCount: number }> {
+  if (
+    !isValidFirestoreId(input.listingId) ||
+    !isValidFirestoreId(input.actorUid)
+  ) {
+    throw new Error('Sign in to ask questions or comment on listings.');
+  }
+
+  const trimmed = input.body.trim();
+  if (
+    trimmed.length < BLUEPRINT_LIMITS.commentBodyMin ||
+    trimmed.length > BLUEPRINT_LIMITS.commentBodyMax
+  ) {
+    throw new Error(
+      `Comments must be 1–${BLUEPRINT_LIMITS.commentBodyMax} characters.`
+    );
+  }
+
+  const listingRef = doc(db, COLLECTION_NAMES.marketplaceListings, input.listingId);
+  const commentId = generateFirestoreDocId(COLLECTION_NAMES.postComments);
+  const commentRef = doc(db, COLLECTION_NAMES.postComments, commentId);
+  const path = `${COLLECTION_NAMES.postComments}/${commentId}`;
+
+  const payload: Record<string, unknown> = {
+    id: commentId,
+    postId: input.listingId,
+    targetCollection: 'marketplaceListings',
+    ownerUID: input.actorUid,
+    body: trimmed,
+    status: 'published',
+    likesCount: 0,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
+    payload.parentCommentId = input.parentCommentId;
+  }
+
+  let sellerUid: string | null = null;
+  let listingTitle = '';
+  let listingImageId: string | undefined;
+
+  try {
+    const nextCount = await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const listingSnap = await tx.get(listingRef);
+        if (!listingSnap.exists()) {
+          throw new Error('This listing is no longer available.');
+        }
+        const listingData = listingSnap.data() as MarketplaceListing;
+        if (listingData.status !== 'active') {
+          throw new Error('Comments are only open on active marketplace listings.');
+        }
+        sellerUid = listingData.ownerUID;
+        listingTitle = listingData.title;
+        listingImageId = listingData.mediaItems?.[0]?.imageId;
+
+        const currentCount = Number(listingData.commentsCount ?? 0);
+        const updatedCount = Math.max(0, currentCount) + 1;
+
+        tx.set(commentRef, payload);
+        tx.update(listingRef, { commentsCount: updatedCount });
+        return updatedCount;
+      })
+    );
+
+    const targetPath = `/?view=marketplace&listingId=${input.listingId}&commentId=${commentId}`;
+    const excerpt = summarizeNotificationExcerpt(trimmed, 140);
+    let parentOwnerUid: string | null = null;
+
+    if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
+      try {
+        const parentSnap = await getDoc(
+          doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
+        );
+        if (parentSnap.exists()) {
+          parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
+        }
+      } catch {
+        parentOwnerUid = null;
+      }
+    }
+
+    if (
+      parentOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: parentOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: buildReplyNotificationId(commentId),
+        recipientUid: parentOwnerUid,
+        eventType: 'reply',
+        title: `Reply on "${summarizeNotificationExcerpt(listingTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: listingImageId,
+      });
+    }
+
+    if (
+      sellerUid &&
+      sellerUid !== parentOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: sellerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: buildCommentNotificationId(commentId),
+        recipientUid: sellerUid,
+        eventType: 'comment',
+        title: `New question on "${summarizeNotificationExcerpt(listingTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: listingImageId,
+      });
+    }
+
+    const nowMs = Date.now();
+    return {
+      comment: {
+        id: commentId,
+        postId: input.listingId,
+        targetCollection: 'marketplaceListings',
+        parentCommentId: payload.parentCommentId as string | undefined,
+        ownerUID: input.actorUid,
+        body: trimmed,
+        status: 'published',
+        likesCount: 0,
+        createdAt: nowMs,
+        updatedAt: nowMs,
+      },
+      commentsCount: nextCount,
+    };
+  } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function editMarketplaceListingComment(input: {
+  commentId: string;
+  body: string;
+}): Promise<void> {
+  if (!isValidFirestoreId(input.commentId)) {
+    throw new Error('Invalid comment identifier.');
+  }
+  const trimmed = input.body.trim();
+  if (
+    trimmed.length < BLUEPRINT_LIMITS.commentBodyMin ||
+    trimmed.length > BLUEPRINT_LIMITS.commentBodyMax
+  ) {
+    throw new Error(
+      `Comments must be 1–${BLUEPRINT_LIMITS.commentBodyMax} characters.`
+    );
+  }
+  const path = `${COLLECTION_NAMES.postComments}/${input.commentId}`;
+  try {
+    await runWithFirestoreConnectionRetry(() =>
+      updateDoc(doc(db, COLLECTION_NAMES.postComments, input.commentId), {
+        body: trimmed,
+        updatedAt: serverTimestamp(),
+      })
+    );
+  } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteMarketplaceListingComment(input: {
+  listingId: string;
+  commentId: string;
+  replyIdsToRemove?: string[];
+}): Promise<number> {
+  if (
+    !isValidFirestoreId(input.listingId) ||
+    !isValidFirestoreId(input.commentId)
+  ) {
+    throw new Error('Invalid comment identifier.');
+  }
+
+  const idsToDelete = Array.from(
+    new Set([input.commentId, ...(input.replyIdsToRemove ?? [])])
+  ).filter(isValidFirestoreId);
+
+  const listingRef = doc(
+    db,
+    COLLECTION_NAMES.marketplaceListings,
+    input.listingId
+  );
+  const path = `${COLLECTION_NAMES.postComments}/${input.commentId}`;
+
+  try {
+    return await runWithFirestoreConnectionRetry(() =>
+      runTransaction(db, async (tx) => {
+        const listingSnap = await tx.get(listingRef);
+        const currentCount = listingSnap.exists()
+          ? Number((listingSnap.data() as MarketplaceListing).commentsCount ?? 0)
+          : 0;
+        const nextCount = Math.max(0, currentCount - idsToDelete.length);
+
+        for (const id of idsToDelete) {
+          tx.delete(doc(db, COLLECTION_NAMES.postComments, id));
+        }
+        if (listingSnap.exists() && nextCount < currentCount) {
+          tx.update(listingRef, { commentsCount: nextCount });
+        }
+        return nextCount;
+      })
+    );
+  } catch (error) {
+    if (!isFirestoreSdkError(error)) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
 }

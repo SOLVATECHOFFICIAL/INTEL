@@ -1,0 +1,581 @@
+import {
+  isValidFirestoreId,
+  type NotificationEventType,
+  type NotificationItem,
+} from '../types/database';
+import type { ActiveRoute } from '../types/platform';
+import { extractTimestampMs } from './contextualSearch';
+import { extractActorUsernameFromNotification } from './followRelations';
+import { parseLocationSearch } from './urlRouting';
+
+export type NotificationReadFilter = 'all' | 'unread';
+
+export type NotificationCategoryFilter =
+  | 'all'
+  | 'interactions'
+  | 'followers'
+  | 'marketplace'
+  | 'campus_updates'
+  | 'announcements';
+
+export type NotificationPrefKey =
+  | 'likes'
+  | 'comments'
+  | 'replies'
+  | 'anonymous_replies'
+  | 'followers'
+  | 'marketplace'
+  | 'events'
+  | 'opportunities'
+  | 'announcements';
+
+export type NotificationPreferences = Record<NotificationPrefKey, boolean>;
+
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
+  likes: true,
+  comments: true,
+  replies: true,
+  anonymous_replies: true,
+  followers: true,
+  marketplace: true,
+  events: true,
+  opportunities: true,
+  announcements: true,
+};
+
+export interface NotificationPreferenceOption {
+  key: NotificationPrefKey;
+  label: string;
+  description: string;
+}
+
+export const NOTIFICATION_PREFERENCE_OPTIONS: readonly NotificationPreferenceOption[] =
+  [
+    {
+      key: 'likes',
+      label: 'Post & Comment Likes',
+      description: 'Notify when someone likes your posts or comments.',
+    },
+    {
+      key: 'comments',
+      label: 'Comments',
+      description: 'Notify when someone comments on your posts or listings.',
+    },
+    {
+      key: 'replies',
+      label: 'Replies',
+      description: 'Notify when someone replies to your comment thread.',
+    },
+    {
+      key: 'anonymous_replies',
+      label: 'Anonymous Thread Replies',
+      description:
+        'Notify inside your private notification center when an anonymous post or comment receives a reply, without revealing any identity.',
+    },
+    {
+      key: 'followers',
+      label: 'New Followers',
+      description: 'Notify when another LASUED Intel member follows you.',
+    },
+    {
+      key: 'marketplace',
+      label: 'Marketplace Activity',
+      description:
+        'Notify about listing approvals, rejections, expiry reminders, and buyer questions.',
+    },
+    {
+      key: 'events',
+      label: 'Campus Events',
+      description:
+        'Notify about newly published campus events and important schedule or venue updates.',
+    },
+    {
+      key: 'opportunities',
+      label: 'Opportunities & Deadlines',
+      description:
+        'Notify about newly published scholarships, internships, grants, and closing deadlines.',
+    },
+    {
+      key: 'announcements',
+      label: 'Official Announcements',
+      description:
+        'Receive official community notices published by LASUED Intel Administrators.',
+    },
+  ] as const;
+
+export const NOTIFICATION_CATEGORY_FILTERS: readonly {
+  id: NotificationCategoryFilter;
+  label: string;
+}[] = [
+  { id: 'all', label: 'All Types' },
+  { id: 'interactions', label: 'Likes & Replies' },
+  { id: 'followers', label: 'Followers' },
+  { id: 'marketplace', label: 'Marketplace' },
+  { id: 'campus_updates', label: 'Events & Opps' },
+  { id: 'announcements', label: 'Announcements' },
+] as const;
+
+export function normalizeNotificationPrefs(
+  raw?: Record<string, boolean> | null
+): NotificationPreferences {
+  const normalized: NotificationPreferences = { ...DEFAULT_NOTIFICATION_PREFS };
+  if (!raw || typeof raw !== 'object') {
+    return normalized;
+  }
+
+  // Backward compatibility with legacy signup keys
+  if (typeof raw.commentsAndReplies === 'boolean') {
+    normalized.comments = raw.commentsAndReplies;
+    normalized.replies = raw.commentsAndReplies;
+  }
+  if (typeof raw.reactions === 'boolean') {
+    normalized.likes = raw.reactions;
+  }
+  if (typeof raw.marketplaceUpdates === 'boolean') {
+    normalized.marketplace = raw.marketplaceUpdates;
+  }
+  if (typeof raw.opportunitiesAndEvents === 'boolean') {
+    normalized.opportunities = raw.opportunitiesAndEvents;
+    normalized.events = raw.opportunitiesAndEvents;
+  }
+
+  (Object.keys(DEFAULT_NOTIFICATION_PREFS) as NotificationPrefKey[]).forEach(
+    (key) => {
+      if (typeof raw[key] === 'boolean') {
+        normalized[key] = raw[key];
+      }
+    }
+  );
+
+  return normalized;
+}
+
+export function mapEventTypeToPrefKey(
+  eventType: NotificationEventType
+): NotificationPrefKey | null {
+  switch (eventType) {
+    case 'reaction':
+      return 'likes';
+    case 'comment':
+      return 'comments';
+    case 'reply':
+      return 'replies';
+    case 'anonymous_reply':
+      return 'anonymous_replies';
+    case 'follow':
+      return 'followers';
+    case 'marketplace_approved':
+    case 'marketplace_rejected':
+    case 'marketplace_expired':
+      return 'marketplace';
+    case 'new_event':
+      return 'events';
+    case 'new_opportunity':
+      return 'opportunities';
+    case 'announcement':
+      return 'announcements';
+    case 'badge_change':
+    case 'account_change':
+    default:
+      return null;
+  }
+}
+
+export function isNotificationAllowedByPrefs(
+  item: Pick<NotificationItem, 'eventType'>,
+  prefs?: NotificationPreferences | null
+): boolean {
+  if (!prefs) return true;
+  const prefKey = mapEventTypeToPrefKey(item.eventType);
+  if (!prefKey) return true;
+  return prefs[prefKey] !== false;
+}
+
+export function getNotificationCategoryGroup(
+  eventType: NotificationEventType
+): Exclude<NotificationCategoryFilter, 'all'> {
+  switch (eventType) {
+    case 'reaction':
+    case 'comment':
+    case 'reply':
+    case 'anonymous_reply':
+      return 'interactions';
+    case 'follow':
+      return 'followers';
+    case 'marketplace_approved':
+    case 'marketplace_rejected':
+    case 'marketplace_expired':
+      return 'marketplace';
+    case 'new_event':
+    case 'new_opportunity':
+      return 'campus_updates';
+    case 'announcement':
+    case 'badge_change':
+    case 'account_change':
+    default:
+      return 'announcements';
+  }
+}
+
+export function getNotificationTypeLabel(
+  eventType: NotificationEventType
+): string {
+  switch (eventType) {
+    case 'reaction':
+      return 'Like';
+    case 'comment':
+      return 'Comment';
+    case 'reply':
+      return 'Reply';
+    case 'anonymous_reply':
+      return 'Anonymous Reply';
+    case 'follow':
+      return 'Follower';
+    case 'marketplace_approved':
+      return 'Marketplace Approved';
+    case 'marketplace_rejected':
+      return 'Marketplace Review';
+    case 'marketplace_expired':
+      return 'Marketplace Expired';
+    case 'new_event':
+      return 'Campus Event';
+    case 'new_opportunity':
+      return 'Opportunity';
+    case 'badge_change':
+      return 'Badge Update';
+    case 'account_change':
+      return 'Account Update';
+    case 'announcement':
+      return 'Official Announcement';
+  }
+}
+
+function sanitizeIdPart(raw: string, maxLen: number): string {
+  return raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, maxLen);
+}
+
+export function buildReactionNotificationId(
+  targetCollection: 'posts' | 'events' | 'postComments' | 'marketplaceListings',
+  targetId: string,
+  actorUid: string
+): string {
+  const shortCol =
+    targetCollection === 'posts'
+      ? 'p'
+      : targetCollection === 'events'
+        ? 'e'
+        : targetCollection === 'marketplaceListings'
+          ? 'm'
+          : 'pc';
+  return `rx_${shortCol}_${sanitizeIdPart(targetId, 44)}_${sanitizeIdPart(actorUid, 44)}`;
+}
+
+export function buildCommentNotificationId(commentId: string): string {
+  return `cmt_${sanitizeIdPart(commentId, 118)}`;
+}
+
+export function buildReplyNotificationId(commentId: string): string {
+  return `rpl_${sanitizeIdPart(commentId, 118)}`;
+}
+
+export function buildAnonymousReplyNotificationId(commentId: string): string {
+  return `anon_reply_${sanitizeIdPart(commentId, 110)}`;
+}
+
+export function buildMarketplaceReviewNotificationId(
+  listingId: string,
+  decision: 'approved' | 'rejected'
+): string {
+  return `mkt_${decision === 'approved' ? 'apv' : 'rej'}_${sanitizeIdPart(listingId, 110)}`;
+}
+
+export function buildMarketplaceExpiredNotificationId(listingId: string): string {
+  return `mkt_exp_${sanitizeIdPart(listingId, 110)}`;
+}
+
+export function buildAnnouncementNotificationId(
+  announcementId: string,
+  recipientUid: string
+): string {
+  return `ann_${sanitizeIdPart(announcementId, 48)}_${sanitizeIdPart(recipientUid, 48)}`;
+}
+
+export function shouldEmitActivityNotification(input: {
+  actorUid?: string | null;
+  recipientUid?: string | null;
+}): boolean {
+  if (!input.actorUid || !input.recipientUid) return false;
+  if (!isValidFirestoreId(input.actorUid) || !isValidFirestoreId(input.recipientUid)) {
+    return false;
+  }
+  return input.actorUid !== input.recipientUid;
+}
+
+export function isAnonymousNotificationLeakFree(
+  item: Partial<NotificationItem>
+): boolean {
+  if (item.eventType !== 'anonymous_reply') return true;
+  return (
+    !item.actorUid &&
+    !item.actorUsername &&
+    !item.actorName &&
+    !item.actorPhotoUrl &&
+    !item.actorPhotoImageId
+  );
+}
+
+export function applyOptimisticMarkRead(
+  items: readonly NotificationItem[],
+  notificationId: string
+): {
+  nextItems: NotificationItem[];
+  changed: boolean;
+  previousWasRead: boolean;
+} {
+  let changed = false;
+  let previousWasRead = true;
+  const nextItems = items.map((item) => {
+    if (item.id !== notificationId) return item;
+    previousWasRead = item.isRead;
+    if (!item.isRead) {
+      changed = true;
+      return { ...item, isRead: true };
+    }
+    return item;
+  });
+  return { nextItems, changed, previousWasRead };
+}
+
+export function applyOptimisticMarkAllRead(
+  items: readonly NotificationItem[]
+): {
+  nextItems: NotificationItem[];
+  changedIds: string[];
+} {
+  const changedIds: string[] = [];
+  const nextItems = items.map((item) => {
+    if (!item.isRead) {
+      changedIds.push(item.id);
+      return { ...item, isRead: true };
+    }
+    return item;
+  });
+  return { nextItems, changedIds };
+}
+
+export function rollbackOptimisticMarkReadIds(
+  items: readonly NotificationItem[],
+  unreadIdsToRestore: readonly string[]
+): NotificationItem[] {
+  const restoreSet = new Set(unreadIdsToRestore);
+  if (restoreSet.size === 0) return [...items];
+  return items.map((item) =>
+    restoreSet.has(item.id) ? { ...item, isRead: false } : item
+  );
+}
+
+export function applyOptimisticDeleteNotification(
+  items: readonly NotificationItem[],
+  notificationId: string
+): {
+  nextItems: NotificationItem[];
+  removedItem: NotificationItem | null;
+  removedIndex: number;
+} {
+  const removedIndex = items.findIndex((item) => item.id === notificationId);
+  if (removedIndex === -1) {
+    return {
+      nextItems: [...items],
+      removedItem: null,
+      removedIndex: -1,
+    };
+  }
+  const removedItem = items[removedIndex];
+  const nextItems = [
+    ...items.slice(0, removedIndex),
+    ...items.slice(removedIndex + 1),
+  ];
+  return { nextItems, removedItem, removedIndex };
+}
+
+export function restoreDeletedNotification(
+  items: readonly NotificationItem[],
+  removedItem: NotificationItem,
+  originalIndex: number
+): NotificationItem[] {
+  if (items.some((item) => item.id === removedItem.id)) {
+    return [...items];
+  }
+  const safeIndex = Math.max(0, Math.min(items.length, originalIndex));
+  return [
+    ...items.slice(0, safeIndex),
+    removedItem,
+    ...items.slice(safeIndex),
+  ];
+}
+
+export function mergeNotifications(
+  liveItems: readonly NotificationItem[],
+  olderItems: readonly NotificationItem[]
+): NotificationItem[] {
+  const map = new Map<string, NotificationItem>();
+  for (const item of olderItems) {
+    map.set(item.id, item);
+  }
+  for (const item of liveItems) {
+    // Live items override older cached snapshots for real-time updates
+    map.set(item.id, item);
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const aMs = extractTimestampMs(a.createdAt) ?? 0;
+    const bMs = extractTimestampMs(b.createdAt) ?? 0;
+    return bMs - aMs;
+  });
+}
+
+export function computeUnreadNotificationsCount(
+  items: readonly NotificationItem[],
+  prefs?: NotificationPreferences | null
+): number {
+  let count = 0;
+  for (const item of items) {
+    if (!item.isRead && isNotificationAllowedByPrefs(item, prefs)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+export function filterNotifications(
+  items: readonly NotificationItem[],
+  options: {
+    readFilter: NotificationReadFilter;
+    categoryFilter: NotificationCategoryFilter;
+    prefs?: NotificationPreferences | null;
+  }
+): NotificationItem[] {
+  return items.filter((item) => {
+    if (!isNotificationAllowedByPrefs(item, options.prefs)) {
+      return false;
+    }
+    if (options.readFilter === 'unread' && item.isRead) {
+      return false;
+    }
+    if (
+      options.categoryFilter !== 'all' &&
+      getNotificationCategoryGroup(item.eventType) !== options.categoryFilter
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function formatNotificationRelativeTime(
+  value: unknown,
+  nowMs: number = Date.now()
+): string {
+  const ms = extractTimestampMs(value);
+  if (!ms) return 'Just now';
+  const diffSec = Math.max(0, Math.floor((nowMs - ms) / 1000));
+  if (diffSec < 45) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(ms).toLocaleDateString('en-NG', {
+    day: 'numeric',
+    month: 'short',
+    year:
+      new Date(ms).getFullYear() !== new Date(nowMs).getFullYear()
+        ? 'numeric'
+        : undefined,
+  });
+}
+
+export function formatNotificationExactTime(value: unknown): string {
+  const ms = extractTimestampMs(value);
+  if (!ms) return 'Just now';
+  return new Date(ms).toLocaleString('en-NG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export interface NotificationDestination {
+  route: ActiveRoute;
+  options: {
+    username?: string | null;
+    opportunityId?: string | null;
+    eventId?: string | null;
+    postId?: string | null;
+    commentId?: string | null;
+    listingId?: string | null;
+  };
+}
+
+export function resolveNotificationDestination(
+  item: NotificationItem
+): NotificationDestination | null {
+  if (item.targetPath) {
+    const queryIndex = item.targetPath.indexOf('?');
+    if (queryIndex !== -1) {
+      const searchPart = item.targetPath.slice(queryIndex);
+      const parsed = parseLocationSearch(searchPart);
+      return {
+        route: parsed.route,
+        options: {
+          username: parsed.profileUsername,
+          opportunityId: parsed.opportunityId,
+          eventId: parsed.eventId,
+          postId: parsed.postId,
+          commentId: parsed.commentId,
+          listingId: parsed.listingId,
+        },
+      };
+    }
+  }
+
+  if (item.eventType === 'follow') {
+    const actorUsername = extractActorUsernameFromNotification(item);
+    if (actorUsername) {
+      return {
+        route: 'profile',
+        options: { username: actorUsername },
+      };
+    }
+  }
+
+  switch (item.eventType) {
+    case 'new_event':
+      return { route: 'upcoming-events', options: {} };
+    case 'new_opportunity':
+      return { route: 'opportunities', options: {} };
+    case 'marketplace_approved':
+    case 'marketplace_rejected':
+    case 'marketplace_expired':
+      return { route: 'marketplace', options: {} };
+    case 'anonymous_reply':
+      return { route: 'anonymous', options: {} };
+    case 'announcement':
+      return { route: 'for-you', options: {} };
+    default:
+      return null;
+  }
+}
+
+export function summarizeNotificationExcerpt(
+  text: string | undefined | null,
+  maxLength = 140
+): string {
+  if (!text) return '';
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= maxLength) return collapsed;
+  return `${collapsed.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}

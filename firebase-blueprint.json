@@ -133,7 +133,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "targetCollection": { "type": "string", "enum": ["posts", "events"] },
+        "targetCollection": { "type": "string", "enum": ["posts", "events", "marketplaceListings"] },
         "parentCommentId": { "type": "string", "maxLength": 128 },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "body": { "type": "string", "minLength": 1, "maxLength": 1500 },
@@ -286,6 +286,7 @@
         "approvedByUid": { "type": "string", "maxLength": 128 },
         "approvedAt": { "type": "string", "format": "date-time" },
         "visibility": { "type": "string", "enum": ["public", "owner_and_admins"] },
+        "commentsCount": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "expiresAt": { "type": "string", "format": "date-time" }
@@ -395,6 +396,8 @@
         "actorName": { "type": "string", "maxLength": 100 },
         "actorPhotoUrl": { "type": "string", "maxLength": 512 },
         "actorPhotoImageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetImageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetImageUrl": { "type": "string", "maxLength": 512 },
         "isRead": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -517,7 +520,8 @@
             "trusted_contact_created",
             "trusted_contact_updated",
             "trusted_contact_deleted",
-            "settings_updated"
+            "settings_updated",
+            "announcement_broadcast"
           ]
         },
         "targetCollection": { "type": "string", "minLength": 2, "maxLength": 64 },

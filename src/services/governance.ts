@@ -44,10 +44,14 @@ import type {
   UserRole,
   UserRoleRecord,
 } from '../types/database';
-import { toPublicProfileProjection } from '../utils/authValidation';
+import { toPublicProfileProjection, isFirebaseErrorCode } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import type { CompressedImageResult } from '../utils/imageCompression';
-import { fetchPublicProfileProjectionsByUids } from './firestoreFoundation';
+import { buildMarketplaceReviewNotificationId } from '../utils/notifications';
+import {
+  createSafeMemberNotification,
+  fetchPublicProfileProjectionsByUids,
+} from './firestoreFoundation';
 import {
   buildMediaImageFirestoreRecord,
   evictMediaImageCache,
@@ -725,6 +729,24 @@ export async function deleteTrustedContactRecord(
   }
 }
 
+export async function fetchMarketplaceListingById(
+  listingId: string
+): Promise<MarketplaceListing | null> {
+  if (!isValidFirestoreId(listingId)) return null;
+  const path = `${COLLECTION_NAMES.marketplaceListings}/${listingId}`;
+  try {
+    const snap = await getDoc(
+      doc(db, COLLECTION_NAMES.marketplaceListings, listingId)
+    );
+    return snap.exists() ? (snap.data() as MarketplaceListing) : null;
+  } catch (error) {
+    if (isFirebaseErrorCode(error, 'permission-denied')) {
+      return null;
+    }
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
 export async function fetchPublicMarketplaceListings(): Promise<
   MarketplaceListing[]
 > {
@@ -951,6 +973,7 @@ export async function reviewPendingMarketplaceListing(input: {
   actorUid: string;
   actorRole: UserRole;
   decision: 'approved' | 'rejected';
+  emitNotification?: boolean;
 }): Promise<MarketplaceListing> {
   if (!isValidFirestoreId(input.listingId) || !isValidFirestoreId(input.actorUid)) {
     throw new Error('Invalid marketplace review identifiers.');
@@ -960,7 +983,7 @@ export async function reviewPendingMarketplaceListing(input: {
   const expiryDate = computeMarketplaceExpiryDate();
 
   try {
-    return await runTransaction(db, async (tx) => {
+    const updated = await runTransaction(db, async (tx) => {
       const snap = await tx.get(listingRef);
       if (!snap.exists()) {
         throw new Error('Marketplace listing no longer exists.');
@@ -999,6 +1022,30 @@ export async function reviewPendingMarketplaceListing(input: {
         updatedAt: Date.now(),
       };
     });
+
+    if (input.emitNotification !== false) {
+      void createSafeMemberNotification({
+        id: buildMarketplaceReviewNotificationId(input.listingId, input.decision),
+        recipientUid: updated.ownerUID,
+        eventType:
+          input.decision === 'approved'
+            ? 'marketplace_approved'
+            : 'marketplace_rejected',
+        title:
+          input.decision === 'approved'
+            ? `Marketplace listing approved: ${updated.title}`
+            : `Marketplace listing declined: ${updated.title}`,
+        body:
+          input.decision === 'approved'
+            ? 'Your listing is now visible in Campus Marketplace for 7 days.'
+            : 'Your submission did not pass marketplace moderation guidelines.',
+        targetPath: `/?view=marketplace&listingId=${input.listingId}`,
+        actorUid: input.actorUid,
+        targetImageId: updated.mediaItems?.[0]?.imageId,
+      });
+    }
+
+    return updated;
   } catch (error) {
     if (error instanceof Error && !('code' in error)) {
       throw error;

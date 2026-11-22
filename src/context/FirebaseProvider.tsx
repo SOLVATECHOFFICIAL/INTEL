@@ -1,19 +1,40 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { User } from 'firebase/auth';
+import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import { testConnection } from '../lib/firebase';
 import { subscribeToAuthChanges } from '../services/auth';
 import {
+  deleteUserNotification,
+  fetchOlderUserNotificationsPage,
+  fetchPrivateUserData,
   fetchPublicMemberProfile,
   fetchUserRoleRecord,
   followMemberByUsername,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
   subscribePublicMemberProfile,
   subscribeUserNotifications,
   subscribeUserRoleRecord,
   subscribeViewerFollowUsernames,
+  syncOwnAnonymousReplyNotifications,
+  syncOwnExpiredMarketplaceNotifications,
   unfollowMemberByUsername,
+  updateNotificationPreferences,
 } from '../services/firestoreFoundation';
-import type { PublicUserProfile, UserRoleRecord } from '../types/database';
+import type {
+  NotificationItem,
+  PublicUserProfile,
+  UserRoleRecord,
+} from '../types/database';
 import {
+  formatFirestoreOrAppError,
   isAccountSuspended,
   resolveEffectiveAccountTier,
 } from '../utils/authValidation';
@@ -23,6 +44,18 @@ import {
   resolveFollowRelationshipState,
   type FollowRelationshipState,
 } from '../utils/followRelations';
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  applyOptimisticDeleteNotification,
+  applyOptimisticMarkAllRead,
+  applyOptimisticMarkRead,
+  computeUnreadNotificationsCount,
+  mergeNotifications,
+  normalizeNotificationPrefs,
+  restoreDeletedNotification,
+  rollbackOptimisticMarkReadIds,
+  type NotificationPreferences,
+} from '../utils/notifications';
 import { FirebaseContext } from './firebaseContext';
 
 interface FirebaseProviderProps {
@@ -34,7 +67,23 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<PublicUserProfile | null>(null);
   const [roleRecord, setRoleRecord] = useState<UserRoleRecord | null>(null);
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [liveNotifications, setLiveNotifications] = useState<NotificationItem[]>(
+    []
+  );
+  const [olderNotifications, setOlderNotifications] = useState<
+    NotificationItem[]
+  >([]);
+  const [notificationsStatus, setNotificationsStatus] = useState<
+    'loading' | 'ready' | 'error'
+  >('loading');
+  const [hasMoreNotifications, setHasMoreNotifications] = useState(false);
+  const [loadingOlderNotifications, setLoadingOlderNotifications] =
+    useState(false);
+  const [notificationError, setNotificationError] = useState<string | null>(
+    null
+  );
+  const [notificationPrefs, setNotificationPrefs] =
+    useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFS);
   const [firestoreConnected, setFirestoreConnected] = useState<boolean | null>(
     null
   );
@@ -49,6 +98,19 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   >(() => new Set());
 
   const uidToUsernameCacheRef = useRef<Map<string, string>>(new Map());
+  const oldestNotificationCursorRef =
+    useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const syncedBackgroundUidRef = useRef<string | null>(null);
+
+  const notifications = useMemo(
+    () => mergeNotifications(liveNotifications, olderNotifications),
+    [liveNotifications, olderNotifications]
+  );
+
+  const unreadNotificationsCount = useMemo(
+    () => computeUnreadNotificationsCount(notifications, notificationPrefs),
+    [notifications, notificationPrefs]
+  );
 
   useEffect(() => {
     let active = true;
@@ -65,10 +127,24 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       if (!nextUser) {
         setProfile(null);
         setRoleRecord(null);
-        setUnreadNotificationsCount(0);
+        setLiveNotifications([]);
+        setOlderNotifications([]);
+        setNotificationsStatus('ready');
+        setHasMoreNotifications(false);
+        setLoadingOlderNotifications(false);
+        setNotificationError(null);
+        setNotificationPrefs(DEFAULT_NOTIFICATION_PREFS);
+        oldestNotificationCursorRef.current = null;
+        syncedBackgroundUidRef.current = null;
         setFollowingUsernames(new Set());
         setFollowerUsernames(new Set());
         setPendingFollowUsernames(new Set());
+      } else {
+        setNotificationsStatus('loading');
+        setOlderNotifications([]);
+        oldestNotificationCursorRef.current = null;
+        setHasMoreNotifications(false);
+        setNotificationError(null);
       }
     });
 
@@ -82,6 +158,17 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     if (!authReady || !user) {
       return;
     }
+
+    let cancelled = false;
+    void fetchPrivateUserData(user.uid)
+      .then((priv) => {
+        if (!cancelled && priv?.notificationPrefs) {
+          setNotificationPrefs(
+            normalizeNotificationPrefs(priv.notificationPrefs)
+          );
+        }
+      })
+      .catch(() => undefined);
 
     const unsubscribeRole = subscribeUserRoleRecord(user.uid, (record) => {
       setRoleRecord(record);
@@ -102,8 +189,23 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
 
     const unsubscribeNotifications = subscribeUserNotifications(
       user.uid,
-      (items) => {
-        setUnreadNotificationsCount(items.filter((item) => !item.isRead).length);
+      (snapshot) => {
+        setLiveNotifications(snapshot.items);
+        if (olderNotifications.length === 0) {
+          oldestNotificationCursorRef.current = snapshot.oldestDoc;
+          setHasMoreNotifications(snapshot.hasMore);
+        }
+        setNotificationsStatus('ready');
+        setNotificationError(null);
+      },
+      (err) => {
+        setNotificationsStatus('error');
+        setNotificationError(
+          formatFirestoreOrAppError(
+            err,
+            'Unable to sync notifications right now.'
+          )
+        );
       }
     );
 
@@ -117,22 +219,241 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     );
 
     return () => {
+      cancelled = true;
       unsubscribeRole();
       unsubscribeProfile();
       unsubscribeNotifications();
       unsubscribeFollows();
     };
+    // Intentionally omitting olderNotifications.length to keep real-time listeners stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, user]);
+
+  useEffect(() => {
+    if (
+      !authReady ||
+      !user ||
+      !profile ||
+      isAccountSuspended(profile) ||
+      notificationsStatus !== 'ready' ||
+      syncedBackgroundUidRef.current === user.uid
+    ) {
+      return;
+    }
+
+    syncedBackgroundUidRef.current = user.uid;
+    const existingIds = new Set(liveNotifications.map((item) => item.id));
+    void syncOwnAnonymousReplyNotifications(user.uid, existingIds);
+    void syncOwnExpiredMarketplaceNotifications(user.uid, existingIds);
+  }, [authReady, user, profile, notificationsStatus, liveNotifications]);
 
   const refreshAccountState = useCallback(async () => {
     if (!user) return;
-    const [nextProfile, nextRole] = await Promise.all([
+    const [nextProfile, nextRole, nextPrivate] = await Promise.all([
       fetchPublicMemberProfile(user.uid),
       fetchUserRoleRecord(user.uid),
+      fetchPrivateUserData(user.uid).catch(() => null),
     ]);
     setProfile(nextProfile);
     setRoleRecord(nextRole);
+    if (nextPrivate?.notificationPrefs) {
+      setNotificationPrefs(
+        normalizeNotificationPrefs(nextPrivate.notificationPrefs)
+      );
+    }
   }, [user]);
+
+  const markNotificationReadOptimistic = useCallback(
+    async (notificationId: string) => {
+      if (!user || isAccountSuspended(profile)) return;
+      const liveApplied = applyOptimisticMarkRead(
+        liveNotifications,
+        notificationId
+      );
+      const olderApplied = applyOptimisticMarkRead(
+        olderNotifications,
+        notificationId
+      );
+
+      if (!liveApplied.changed && !olderApplied.changed) {
+        return;
+      }
+
+      if (liveApplied.changed) {
+        setLiveNotifications(liveApplied.nextItems);
+      }
+      if (olderApplied.changed) {
+        setOlderNotifications(olderApplied.nextItems);
+      }
+      setNotificationError(null);
+
+      try {
+        await markNotificationAsRead(notificationId);
+      } catch (err) {
+        if (liveApplied.changed) {
+          setLiveNotifications((prev) =>
+            rollbackOptimisticMarkReadIds(prev, [notificationId])
+          );
+        }
+        if (olderApplied.changed) {
+          setOlderNotifications((prev) =>
+            rollbackOptimisticMarkReadIds(prev, [notificationId])
+          );
+        }
+        setNotificationError(
+          formatFirestoreOrAppError(
+            err,
+            'Could not mark notification as read. Restored state.'
+          )
+        );
+      }
+    },
+    [user, profile, liveNotifications, olderNotifications]
+  );
+
+  const markAllNotificationsReadOptimistic = useCallback(async () => {
+    if (!user || isAccountSuspended(profile)) return;
+    const unreadTargets = notifications.filter((item) => !item.isRead);
+    if (unreadTargets.length === 0) return;
+
+    const liveApplied = applyOptimisticMarkAllRead(liveNotifications);
+    const olderApplied = applyOptimisticMarkAllRead(olderNotifications);
+
+    setLiveNotifications(liveApplied.nextItems);
+    setOlderNotifications(olderApplied.nextItems);
+    setNotificationError(null);
+
+    try {
+      await markAllNotificationsAsRead(unreadTargets);
+    } catch (err) {
+      if (liveApplied.changedIds.length > 0) {
+        setLiveNotifications((prev) =>
+          rollbackOptimisticMarkReadIds(prev, liveApplied.changedIds)
+        );
+      }
+      if (olderApplied.changedIds.length > 0) {
+        setOlderNotifications((prev) =>
+          rollbackOptimisticMarkReadIds(prev, olderApplied.changedIds)
+        );
+      }
+      setNotificationError(
+        formatFirestoreOrAppError(
+          err,
+          'Unable to mark all notifications as read right now.'
+        )
+      );
+    }
+  }, [user, profile, notifications, liveNotifications, olderNotifications]);
+
+  const deleteNotificationOptimistic = useCallback(
+    async (notificationId: string) => {
+      if (!user || isAccountSuspended(profile)) return;
+      const liveRemoved = applyOptimisticDeleteNotification(
+        liveNotifications,
+        notificationId
+      );
+      const olderRemoved = applyOptimisticDeleteNotification(
+        olderNotifications,
+        notificationId
+      );
+
+      if (!liveRemoved.removedItem && !olderRemoved.removedItem) {
+        return;
+      }
+
+      if (liveRemoved.removedItem) {
+        setLiveNotifications(liveRemoved.nextItems);
+      }
+      if (olderRemoved.removedItem) {
+        setOlderNotifications(olderRemoved.nextItems);
+      }
+      setNotificationError(null);
+
+      try {
+        await deleteUserNotification(notificationId);
+      } catch (err) {
+        if (liveRemoved.removedItem) {
+          const item = liveRemoved.removedItem;
+          const idx = liveRemoved.removedIndex;
+          setLiveNotifications((prev) => restoreDeletedNotification(prev, item, idx));
+        }
+        if (olderRemoved.removedItem) {
+          const item = olderRemoved.removedItem;
+          const idx = olderRemoved.removedIndex;
+          setOlderNotifications((prev) =>
+            restoreDeletedNotification(prev, item, idx)
+          );
+        }
+        setNotificationError(
+          formatFirestoreOrAppError(
+            err,
+            'Could not remove that notification. It has been restored.'
+          )
+        );
+      }
+    },
+    [user, profile, liveNotifications, olderNotifications]
+  );
+
+  const loadOlderNotifications = useCallback(async () => {
+    if (
+      !user ||
+      loadingOlderNotifications ||
+      !hasMoreNotifications ||
+      !oldestNotificationCursorRef.current
+    ) {
+      return;
+    }
+
+    setLoadingOlderNotifications(true);
+    setNotificationError(null);
+    try {
+      const page = await fetchOlderUserNotificationsPage(
+        user.uid,
+        oldestNotificationCursorRef.current,
+        30
+      );
+      setOlderNotifications((prev) => mergeNotifications(prev, page.items));
+      oldestNotificationCursorRef.current = page.oldestDoc;
+      setHasMoreNotifications(page.hasMore);
+    } catch (err) {
+      setNotificationError(
+        formatFirestoreOrAppError(
+          err,
+          'Unable to load older notifications right now.'
+        )
+      );
+    } finally {
+      setLoadingOlderNotifications(false);
+    }
+  }, [user, loadingOlderNotifications, hasMoreNotifications]);
+
+  const updateNotificationPrefsOptimistic = useCallback(
+    async (nextPrefs: NotificationPreferences) => {
+      if (!user || isAccountSuspended(profile)) return;
+      const previousPrefs = notificationPrefs;
+      const normalized = normalizeNotificationPrefs(nextPrefs);
+      setNotificationPrefs(normalized);
+      setNotificationError(null);
+
+      try {
+        await updateNotificationPreferences(user.uid, normalized);
+      } catch (err) {
+        setNotificationPrefs(previousPrefs);
+        const msg = formatFirestoreOrAppError(
+          err,
+          'Could not save notification preferences. Previous settings restored.'
+        );
+        setNotificationError(msg);
+        throw new Error(msg, { cause: err });
+      }
+    },
+    [user, profile, notificationPrefs]
+  );
+
+  const clearNotificationError = useCallback(() => {
+    setNotificationError(null);
+  }, []);
 
   const getRelationshipState = useCallback(
     (targetUsername: string): FollowRelationshipState => {
@@ -203,7 +524,6 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         }
         return nextFollowing;
       } catch (err) {
-        // Roll back optimistic state on error
         setFollowingUsernames((prev) => {
           const reverted = new Set(prev);
           if (wasFollowing) reverted.add(normalized);
@@ -246,12 +566,24 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         effectiveTier,
         isSuspended,
         unreadNotificationsCount,
+        notifications,
+        notificationsStatus,
+        hasMoreNotifications,
+        loadingOlderNotifications,
+        notificationError,
+        notificationPrefs,
         firestoreConnected,
         followingUsernames,
         followerUsernames,
         pendingFollowUsernames,
         getRelationshipState,
         toggleFollow,
+        markNotificationReadOptimistic,
+        markAllNotificationsReadOptimistic,
+        deleteNotificationOptimistic,
+        loadOlderNotifications,
+        updateNotificationPrefsOptimistic,
+        clearNotificationError,
         refreshAccountState,
       }}
     >

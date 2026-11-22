@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Bookmark,
   Check,
@@ -19,6 +19,8 @@ import {
   getAnonymousBackgroundTheme,
   getTextPostBackgroundTheme,
 } from '../../config/anonymousBackgrounds';
+import { useFirebase } from '../../context/firebaseContext';
+import { togglePostCommentReaction } from '../../services/events';
 import {
   addPostComment,
   deletePostCascading,
@@ -55,10 +57,22 @@ import {
 import type { ActiveRoute } from '../../types/platform';
 import {
   formatFirestoreOrAppError,
+  toPublicProfileProjection,
   type EffectiveAccountTier,
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
 import { mediaMetaToGridItems } from '../../utils/mediaGrid';
+import {
+  appendOptimisticCommentEntry,
+  buildOptimisticCommentEntry,
+  computeOptimisticCommentReactionMap,
+  computeOptimisticReactionToggle,
+  createOptimisticTempId,
+  isOptimisticTempId,
+  reconcileOptimisticCommentEntry,
+  removeCommentTreeEntries,
+  restoreCommentEntriesOrdered,
+} from '../../utils/optimisticInteractions';
 import { RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
@@ -75,6 +89,8 @@ interface PostCardProps {
   isLiked: boolean;
   isSaved?: boolean;
   defaultCommentsOpen?: boolean;
+  isHighlighted?: boolean;
+  highlightCommentId?: string | null;
   isOwnedAnonymous?: boolean;
   ownedAnonymousCommentIds?: Set<string>;
   onNavigateProfile?: (username: string) => void;
@@ -118,6 +134,8 @@ export const PostCard: React.FC<PostCardProps> = ({
   isLiked,
   isSaved = false,
   defaultCommentsOpen = false,
+  isHighlighted = false,
+  highlightCommentId = null,
   isOwnedAnonymous = false,
   ownedAnonymousCommentIds,
   onNavigateProfile,
@@ -131,6 +149,10 @@ export const PostCard: React.FC<PostCardProps> = ({
 }) => {
   const targetCollection = kind === 'ordinary' ? 'posts' : 'anonymousPosts';
 
+  const { profile: viewerProfile } = useFirebase();
+  const viewerAuthorProjection: PublicProfileProjection | null =
+    viewerProfile ? toPublicProfileProjection(viewerProfile) : null;
+
   const [likedOverride, setLikedOverride] = useState<{
     base: boolean;
     value: boolean;
@@ -143,12 +165,16 @@ export const PostCard: React.FC<PostCardProps> = ({
     base: boolean;
     value: boolean;
   } | null>(null);
-  const [saveBusy, setSaveBusy] = useState(false);
   const [commentsCountOverride, setCommentsCountOverride] = useState<{
     base: number;
     value: number;
   } | null>(null);
-  const [likeBusy, setLikeBusy] = useState(false);
+
+  // In-flight locks to prevent duplicate rapid clicks/submits without blocking instant UI
+  const likeInFlightRef = useRef(false);
+  const saveInFlightRef = useRef(false);
+  const commentSubmitLockRef = useRef<Set<string>>(new Set());
+  const commentLikeInFlightRef = useRef<Set<string>>(new Set());
 
   const likedState =
     likedOverride && likedOverride.base === isLiked
@@ -171,8 +197,14 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [confirmDeletePost, setConfirmDeletePost] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const [commentsOpen, setCommentsOpen] = useState(defaultCommentsOpen);
-  const [commentsLoading, setCommentsLoading] = useState(defaultCommentsOpen);
+  const [commentsManualOpen, setCommentsManualOpen] = useState<boolean | null>(
+    null
+  );
+  const commentsOpen =
+    commentsManualOpen ?? Boolean(defaultCommentsOpen || highlightCommentId);
+  const [commentsLoading, setCommentsLoading] = useState(
+    Boolean(defaultCommentsOpen || highlightCommentId)
+  );
   const [loadingMoreComments, setLoadingMoreComments] = useState(false);
   const [comments, setComments] = useState<CommentWithAuthor[]>([]);
   const [commentsCursor, setCommentsCursor] =
@@ -183,7 +215,6 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [newCommentBody, setNewCommentBody] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
-  const [commentSubmitting, setCommentSubmitting] = useState(false);
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentBody, setEditingCommentBody] = useState('');
@@ -203,21 +234,18 @@ export const PostCard: React.FC<PostCardProps> = ({
     null
   );
 
-  // Anonymous comment likes & content safety reporting
-  const [likedAnonCommentState, setLikedAnonCommentState] = useState<{
+  // Comment & reply likes (supports both postComments and anonymousComments)
+  const [likedCommentState, setLikedCommentState] = useState<{
     uid: string | null;
     ids: Set<string>;
   }>({ uid: null, ids: new Set() });
-  const likedAnonCommentIds =
-    viewerUid && likedAnonCommentState.uid === viewerUid
-      ? likedAnonCommentState.ids
+  const likedCommentIds =
+    viewerUid && likedCommentState.uid === viewerUid
+      ? likedCommentState.ids
       : new Set<string>();
-  const [anonCommentLikesCounts, setAnonCommentLikesCounts] = useState<
+  const [commentLikesCounts, setCommentLikesCounts] = useState<
     Record<string, number>
   >({});
-  const [commentLikeBusyId, setCommentLikeBusyId] = useState<string | null>(
-    null
-  );
 
   const [reportingTarget, setReportingTarget] = useState<{
     targetType: AnonymousReportTargetType;
@@ -302,13 +330,15 @@ export const PostCard: React.FC<PostCardProps> = ({
     : null;
 
   useEffect(() => {
-    if (kind !== 'anonymous' || !commentsOpen || !viewerUid) {
+    if (!commentsOpen || !viewerUid) {
       return;
     }
     let active = true;
-    fetchViewerLikedPostIds('anonymousComments', viewerUid)
+    const commentTarget =
+      kind === 'anonymous' ? 'anonymousComments' : 'postComments';
+    fetchViewerLikedPostIds(commentTarget, viewerUid)
       .then((ids) => {
-        if (active) setLikedAnonCommentState({ uid: viewerUid, ids });
+        if (active) setLikedCommentState({ uid: viewerUid, ids });
       })
       .catch(() => undefined);
     return () => {
@@ -317,7 +347,7 @@ export const PostCard: React.FC<PostCardProps> = ({
   }, [kind, commentsOpen, viewerUid]);
 
   useEffect(() => {
-    if (!defaultCommentsOpen || commentsLoaded) return;
+    if (!commentsOpen || commentsLoaded) return;
     let active = true;
     fetchCommentsPageForPost(targetCollection, post.id, { pageSize: 15 })
       .then((page) => {
@@ -339,7 +369,27 @@ export const PostCard: React.FC<PostCardProps> = ({
     return () => {
       active = false;
     };
-  }, [defaultCommentsOpen, commentsLoaded, targetCollection, post.id]);
+  }, [commentsOpen, commentsLoaded, targetCollection, post.id]);
+
+  useEffect(() => {
+    if (!isHighlighted && !highlightCommentId) return;
+    const raf = window.requestAnimationFrame(() => {
+      if (highlightCommentId && commentsLoaded) {
+        const commentEl = document.getElementById(
+          `comment-${highlightCommentId}`
+        );
+        if (commentEl) {
+          commentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
+      if (isHighlighted && (!highlightCommentId || commentsLoaded)) {
+        const postEl = document.getElementById(`post-${post.id}`);
+        postEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [isHighlighted, highlightCommentId, commentsLoaded, post.id]);
 
   const loadComments = async () => {
     setCommentsLoading(true);
@@ -388,13 +438,13 @@ export const PostCard: React.FC<PostCardProps> = ({
 
   const handleToggleComments = () => {
     const next = !commentsOpen;
-    setCommentsOpen(next);
+    setCommentsManualOpen(next);
     if (next && !commentsLoaded) {
       void loadComments();
     }
   };
 
-  const handleToggleLike = async () => {
+  const handleToggleLike = () => {
     setCardError(null);
     setGuestActionPrompt(null);
     if (!viewerUid) {
@@ -405,29 +455,52 @@ export const PostCard: React.FC<PostCardProps> = ({
       setCardError('Suspended accounts cannot react to posts.');
       return;
     }
-    if (likeBusy) return;
+    if (likeInFlightRef.current) return;
 
-    setLikeBusy(true);
-    try {
-      const result = await togglePostReaction({
-        kind: targetCollection,
-        postId: post.id,
-        actorUid: viewerUid,
-        currentlyLiked: likedState,
+    likeInFlightRef.current = true;
+    const prevLiked = likedState;
+    const prevCount = likesCount;
+    const { nextLiked, nextCount } = computeOptimisticReactionToggle({
+      currentlyLiked: prevLiked,
+      currentCount: prevCount,
+    });
+
+    // Immediate optimistic UI update
+    setLikedOverride({ base: isLiked, value: nextLiked });
+    setLikesCountOverride({ base: post.likesCount, value: nextCount });
+    onPostUpdated({ ...post, likesCount: nextCount });
+
+    void togglePostReaction({
+      kind: targetCollection,
+      postId: post.id,
+      actorUid: viewerUid,
+      currentlyLiked: prevLiked,
+    })
+      .then((result) => {
+        setLikedOverride({ base: isLiked, value: result.liked });
+        setLikesCountOverride({
+          base: post.likesCount,
+          value: result.likesCount,
+        });
+        onPostUpdated({ ...post, likesCount: result.likesCount });
+      })
+      .catch((error) => {
+        setLikedOverride({ base: isLiked, value: prevLiked });
+        setLikesCountOverride({ base: post.likesCount, value: prevCount });
+        onPostUpdated({ ...post, likesCount: prevCount });
+        setCardError(
+          formatFirestoreOrAppError(
+            error,
+            'Could not update your like right now.'
+          )
+        );
+      })
+      .finally(() => {
+        likeInFlightRef.current = false;
       });
-      setLikedOverride({ base: isLiked, value: result.liked });
-      setLikesCountOverride({ base: post.likesCount, value: result.likesCount });
-      onPostUpdated({ ...post, likesCount: result.likesCount });
-    } catch (error) {
-      setCardError(
-        formatFirestoreOrAppError(error, 'Could not update your like right now.')
-      );
-    } finally {
-      setLikeBusy(false);
-    }
   };
 
-  const handleToggleSave = async () => {
+  const handleToggleSave = () => {
     setCardError(null);
     setGuestActionPrompt(null);
     if (!viewerUid) {
@@ -438,25 +511,39 @@ export const PostCard: React.FC<PostCardProps> = ({
       setCardError('Suspended accounts cannot bookmark posts.');
       return;
     }
-    if (saveBusy) return;
+    if (saveInFlightRef.current) return;
 
-    setSaveBusy(true);
-    try {
-      const result = await toggleSavedPost({
-        actorUid: viewerUid,
-        targetCollection,
-        targetId: post.id,
-        currentlySaved: savedState,
+    saveInFlightRef.current = true;
+    const prevSaved = savedState;
+    const nextSaved = !prevSaved;
+
+    // Immediate optimistic UI update
+    setSavedOverride({ base: isSaved, value: nextSaved });
+    onSaveChanged?.(post.id, nextSaved);
+
+    void toggleSavedPost({
+      actorUid: viewerUid,
+      targetCollection,
+      targetId: post.id,
+      currentlySaved: prevSaved,
+    })
+      .then((result) => {
+        setSavedOverride({ base: isSaved, value: result.saved });
+        onSaveChanged?.(post.id, result.saved);
+      })
+      .catch((error) => {
+        setSavedOverride({ base: isSaved, value: prevSaved });
+        onSaveChanged?.(post.id, prevSaved);
+        setCardError(
+          formatFirestoreOrAppError(
+            error,
+            'Could not update bookmark right now.'
+          )
+        );
+      })
+      .finally(() => {
+        saveInFlightRef.current = false;
       });
-      setSavedOverride({ base: isSaved, value: result.saved });
-      onSaveChanged?.(post.id, result.saved);
-    } catch (error) {
-      setCardError(
-        formatFirestoreOrAppError(error, 'Could not update bookmark right now.')
-      );
-    } finally {
-      setSaveBusy(false);
-    }
   };
 
   const handleDeletePost = async () => {
@@ -512,10 +599,7 @@ export const PostCard: React.FC<PostCardProps> = ({
     }
   };
 
-  const handleAddComment = async (
-    text: string,
-    parentCommentId?: string
-  ) => {
+  const handleAddComment = (text: string, parentCommentId?: string) => {
     setCardError(null);
     setGuestActionPrompt(null);
     if (!viewerUid) {
@@ -526,71 +610,127 @@ export const PostCard: React.FC<PostCardProps> = ({
       setCardError('Suspended accounts cannot post comments.');
       return;
     }
-    if (!text.trim() || commentSubmitting) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (parentCommentId && isOptimisticTempId(parentCommentId)) return;
 
-    setCommentSubmitting(true);
-    try {
-      const roleForWrite =
-        viewerTier === 'guest' ? 'member' : viewerTier;
-      const result = await addPostComment({
-        kind: targetCollection,
-        postId: post.id,
-        body: text,
-        parentCommentId,
-        actorUid: viewerUid,
-        actorRole: roleForWrite,
-      });
-      setCommentsCountOverride({
-        base: post.commentsCount,
-        value: result.commentsCount,
-      });
-      onPostUpdated({ ...post, commentsCount: result.commentsCount });
-      if (kind === 'anonymous') {
-        onAnonymousCommentTracked?.(result.comment.id, 'add');
-      }
-      if (parentCommentId) {
-        setReplyBody('');
-        setReplyingToId(null);
-      } else {
-        setNewCommentBody('');
-      }
-      await loadComments();
-    } catch (error) {
-      setCardError(
-        formatFirestoreOrAppError(error, 'Could not post your comment.')
-      );
-    } finally {
-      setCommentSubmitting(false);
+    const lockKey = `${parentCommentId ?? 'root'}:${trimmed}`;
+    if (commentSubmitLockRef.current.has(lockKey)) return;
+    commentSubmitLockRef.current.add(lockKey);
+
+    const tempId = createOptimisticTempId();
+    const optimisticEntry = buildOptimisticCommentEntry({
+      tempId,
+      targetCollection,
+      postId: post.id,
+      actorUid: viewerUid,
+      body: trimmed,
+      parentCommentId,
+      author: kind === 'ordinary' ? viewerAuthorProjection : null,
+    });
+
+    const previousCount = commentsCount;
+    setComments((prev) => appendOptimisticCommentEntry(prev, optimisticEntry));
+    setCommentsCountOverride({
+      base: post.commentsCount,
+      value: previousCount + 1,
+    });
+    onPostUpdated({ ...post, commentsCount: previousCount + 1 });
+
+    if (parentCommentId) {
+      setReplyBody('');
+      setReplyingToId(null);
+    } else {
+      setNewCommentBody('');
     }
+
+    const roleForWrite = viewerTier === 'guest' ? 'member' : viewerTier;
+    void addPostComment({
+      kind: targetCollection,
+      postId: post.id,
+      body: trimmed,
+      parentCommentId,
+      actorUid: viewerUid,
+      actorRole: roleForWrite,
+    })
+      .then((result) => {
+        setComments((prev) =>
+          reconcileOptimisticCommentEntry(
+            prev,
+            tempId,
+            result.comment,
+            kind === 'ordinary' ? viewerAuthorProjection : null
+          )
+        );
+        setCommentsCountOverride({
+          base: post.commentsCount,
+          value: result.commentsCount,
+        });
+        onPostUpdated({ ...post, commentsCount: result.commentsCount });
+        if (kind === 'anonymous') {
+          onAnonymousCommentTracked?.(result.comment.id, 'add');
+        }
+      })
+      .catch((error) => {
+        setComments((prev) =>
+          prev.filter((entry) => entry.comment.id !== tempId)
+        );
+        setCommentsCountOverride({
+          base: post.commentsCount,
+          value: previousCount,
+        });
+        onPostUpdated({ ...post, commentsCount: previousCount });
+        if (parentCommentId) {
+          setReplyingToId(parentCommentId);
+          setReplyBody((curr) => curr || trimmed);
+        } else {
+          setNewCommentBody((curr) => curr || trimmed);
+        }
+        setCardError(
+          formatFirestoreOrAppError(error, 'Could not post your comment.')
+        );
+      })
+      .finally(() => {
+        commentSubmitLockRef.current.delete(lockKey);
+      });
   };
 
   const handleSaveCommentEdit = async (commentId: string) => {
-    if (!editingCommentBody.trim() || commentActionBusyId) return;
+    if (
+      !editingCommentBody.trim() ||
+      commentActionBusyId ||
+      isOptimisticTempId(commentId)
+    ) {
+      return;
+    }
+    const trimmed = editingCommentBody.trim();
+    const prevComments = comments;
+    setComments((prev) =>
+      prev.map((entry) =>
+        entry.comment.id === commentId
+          ? {
+              ...entry,
+              comment: {
+                ...entry.comment,
+                body: trimmed,
+                updatedAt: Date.now(),
+              },
+            }
+          : entry
+      )
+    );
+    setEditingCommentId(null);
+    setEditingCommentBody('');
     setCommentActionBusyId(commentId);
     setCardError(null);
     try {
       await editPostComment({
         kind: targetCollection,
         commentId,
-        body: editingCommentBody,
+        body: trimmed,
       });
-      setComments((prev) =>
-        prev.map((entry) =>
-          entry.comment.id === commentId
-            ? {
-                ...entry,
-                comment: {
-                  ...entry.comment,
-                  body: editingCommentBody.trim(),
-                  updatedAt: Date.now(),
-                },
-              }
-            : entry
-        )
-      );
-      setEditingCommentId(null);
-      setEditingCommentBody('');
     } catch (error) {
+      setComments(prevComments);
       setCardError(
         formatFirestoreOrAppError(error, 'Could not save comment edit.')
       );
@@ -611,15 +751,16 @@ export const PostCard: React.FC<PostCardProps> = ({
     return false;
   };
 
-  const handleDeleteComment = async (comment: PostComment | AnonymousComment) => {
-    if (!viewerUid || commentActionBusyId) return;
-    setCommentActionBusyId(comment.id);
+  const handleDeleteComment = (comment: PostComment | AnonymousComment) => {
+    if (!viewerUid || commentActionBusyId || isOptimisticTempId(comment.id)) {
+      return;
+    }
     setCardError(null);
 
     const treeIds = collectCommentTreeIds(
       comments.map((entry) => entry.comment),
       comment.id
-    ).filter((id) => id !== comment.id);
+    ).filter((id) => id !== comment.id && !isOptimisticTempId(id));
 
     const entryById = new Map(
       comments.map((entry) => [entry.comment.id, entry])
@@ -636,45 +777,68 @@ export const PostCard: React.FC<PostCardProps> = ({
       }
       return true;
     });
-    try {
-      const nextCount = await deletePostComment({
-        kind: targetCollection,
-        postId: post.id,
-        commentId: comment.id,
-        replyIdsToRemove: childReplyIds,
-        actorUid: viewerUid,
-      });
-      setCommentsCountOverride({ base: post.commentsCount, value: nextCount });
-      onPostUpdated({ ...post, commentsCount: nextCount });
-      if (kind === 'anonymous') {
-        onAnonymousCommentTracked?.(comment.id, 'remove');
-        for (const rId of childReplyIds) {
-          onAnonymousCommentTracked?.(rId, 'remove');
+
+    const deletedSet = new Set([comment.id, ...childReplyIds]);
+    const { remaining, removed } = removeCommentTreeEntries(
+      comments,
+      deletedSet
+    );
+    const previousCount = commentsCount;
+
+    setComments(remaining);
+    setCommentsCountOverride({
+      base: post.commentsCount,
+      value: Math.max(0, previousCount - deletedSet.size),
+    });
+    onPostUpdated({
+      ...post,
+      commentsCount: Math.max(0, previousCount - deletedSet.size),
+    });
+    setCommentActionBusyId(comment.id);
+
+    void deletePostComment({
+      kind: targetCollection,
+      postId: post.id,
+      commentId: comment.id,
+      replyIdsToRemove: childReplyIds,
+      actorUid: viewerUid,
+    })
+      .then((nextCount) => {
+        setCommentsCountOverride({ base: post.commentsCount, value: nextCount });
+        onPostUpdated({ ...post, commentsCount: nextCount });
+        if (kind === 'anonymous') {
+          onAnonymousCommentTracked?.(comment.id, 'remove');
+          for (const rId of childReplyIds) {
+            onAnonymousCommentTracked?.(rId, 'remove');
+          }
         }
-      }
-      const deletedSet = new Set([comment.id, ...childReplyIds]);
-      setComments((prev) =>
-        prev.filter((entry) => !deletedSet.has(entry.comment.id))
-      );
-    } catch (error) {
-      const formatted = formatFirestoreOrAppError(
-        error,
-        'You do not have permission to delete that comment.'
-      );
-      if (
-        kind === 'anonymous' &&
-        viewerTier === 'moderator' &&
-        /Permission denied/i.test(formatted)
-      ) {
-        setCardError(
-          'This anonymous comment cannot be removed by a Moderator under platform moderation rules.'
+      })
+      .catch((error) => {
+        setComments((curr) => restoreCommentEntriesOrdered(curr, removed));
+        setCommentsCountOverride({
+          base: post.commentsCount,
+          value: previousCount,
+        });
+        onPostUpdated({ ...post, commentsCount: previousCount });
+        const formatted = formatFirestoreOrAppError(
+          error,
+          'You do not have permission to delete that comment.'
         );
-      } else {
-        setCardError(formatted);
-      }
-    } finally {
-      setCommentActionBusyId(null);
-    }
+        if (
+          kind === 'anonymous' &&
+          viewerTier === 'moderator' &&
+          /Permission denied/i.test(formatted)
+        ) {
+          setCardError(
+            'This anonymous comment cannot be removed by a Moderator under platform moderation rules.'
+          );
+        } else {
+          setCardError(formatted);
+        }
+      })
+      .finally(() => {
+        setCommentActionBusyId(null);
+      });
   };
 
   const handleRevealAuthor = async (
@@ -704,62 +868,121 @@ export const PostCard: React.FC<PostCardProps> = ({
     }
   };
 
-  const handleToggleAnonCommentLike = async (comment: AnonymousComment) => {
+  const handleToggleCommentLike = (
+    comment: PostComment | AnonymousComment
+  ) => {
     setCardError(null);
     setGuestActionPrompt(null);
     if (!viewerUid) {
-      setGuestActionPrompt('Sign in to like anonymous comments.');
+      setGuestActionPrompt('Sign in to like comments and replies.');
       return;
     }
     if (viewerSuspended) {
       setCardError('Suspended accounts cannot react to comments.');
       return;
     }
-    if (commentLikeBusyId) return;
-
-    setCommentLikeBusyId(comment.id);
-    const currentlyLiked = likedAnonCommentIds.has(comment.id);
-    try {
-      const res = await toggleAnonymousCommentReaction({
-        commentId: comment.id,
-        actorUid: viewerUid,
-        currentlyLiked,
-      });
-      setLikedAnonCommentState((prev) => {
-        const base =
-          prev.uid === viewerUid ? prev.ids : new Set<string>();
-        const next = new Set(base);
-        if (res.liked) next.add(comment.id);
-        else next.delete(comment.id);
-        return { uid: viewerUid, ids: next };
-      });
-      setAnonCommentLikesCounts((prev) => ({
-        ...prev,
-        [comment.id]: res.likesCount,
-      }));
-      setComments((prev) =>
-        prev.map((entry) =>
-          entry.comment.id === comment.id
-            ? {
-                ...entry,
-                comment: {
-                  ...entry.comment,
-                  likesCount: res.likesCount,
-                },
-              }
-            : entry
-        )
-      );
-    } catch (error) {
-      setCardError(
-        formatFirestoreOrAppError(
-          error,
-          'Could not update comment like right now.'
-        )
-      );
-    } finally {
-      setCommentLikeBusyId(null);
+    if (
+      isOptimisticTempId(comment.id) ||
+      commentLikeInFlightRef.current.has(comment.id)
+    ) {
+      return;
     }
+
+    commentLikeInFlightRef.current.add(comment.id);
+    const prevLikedSet = new Set(likedCommentIds);
+    const prevCountsMap = { ...commentLikesCounts };
+    const baseCount = Number(comment.likesCount ?? 0);
+
+    const optimistic = computeOptimisticCommentReactionMap({
+      commentId: comment.id,
+      likedSet: prevLikedSet,
+      countsMap: prevCountsMap,
+      baseCount,
+    });
+
+    // Immediate optimistic update
+    setLikedCommentState({ uid: viewerUid, ids: optimistic.nextLikedSet });
+    setCommentLikesCounts(optimistic.nextCountsMap);
+    setComments((prev) =>
+      prev.map((entry) =>
+        entry.comment.id === comment.id
+          ? {
+              ...entry,
+              comment: {
+                ...entry.comment,
+                likesCount: optimistic.nextCount,
+              },
+            }
+          : entry
+      )
+    );
+
+    const request =
+      kind === 'anonymous'
+        ? toggleAnonymousCommentReaction({
+            commentId: comment.id,
+            actorUid: viewerUid,
+            currentlyLiked: prevLikedSet.has(comment.id),
+          })
+        : togglePostCommentReaction({
+            commentId: comment.id,
+            actorUid: viewerUid,
+          });
+
+    void request
+      .then((res) => {
+        setLikedCommentState((prev) => {
+          const base = prev.uid === viewerUid ? prev.ids : new Set<string>();
+          const next = new Set(base);
+          if (res.liked) next.add(comment.id);
+          else next.delete(comment.id);
+          return { uid: viewerUid, ids: next };
+        });
+        setCommentLikesCounts((prev) => ({
+          ...prev,
+          [comment.id]: res.likesCount,
+        }));
+        setComments((prev) =>
+          prev.map((entry) =>
+            entry.comment.id === comment.id
+              ? {
+                  ...entry,
+                  comment: {
+                    ...entry.comment,
+                    likesCount: res.likesCount,
+                  },
+                }
+              : entry
+          )
+        );
+      })
+      .catch((error) => {
+        // Rollback on failure
+        setLikedCommentState({ uid: viewerUid, ids: prevLikedSet });
+        setCommentLikesCounts(prevCountsMap);
+        setComments((prev) =>
+          prev.map((entry) =>
+            entry.comment.id === comment.id
+              ? {
+                  ...entry,
+                  comment: {
+                    ...entry.comment,
+                    likesCount: baseCount,
+                  },
+                }
+              : entry
+          )
+        );
+        setCardError(
+          formatFirestoreOrAppError(
+            error,
+            'Could not update comment like right now.'
+          )
+        );
+      })
+      .finally(() => {
+        commentLikeInFlightRef.current.delete(comment.id);
+      });
   };
 
   const handleOpenReport = (
@@ -909,7 +1132,12 @@ export const PostCard: React.FC<PostCardProps> = ({
 
   return (
     <article
-      className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"
+      id={`post-${post.id}`}
+      className={`rounded-2xl border bg-white p-4 transition-colors sm:p-5 ${
+        isHighlighted && !highlightCommentId
+          ? 'border-[#1E88E5] ring-2 ring-[#1E88E5]/25'
+          : 'border-slate-200'
+      }`}
       data-testid={`post-card-${post.id}`}
     >
       {/* Header Row: Author / Anonymous Identity + Category + Timestamp */}
@@ -1277,8 +1505,7 @@ export const PostCard: React.FC<PostCardProps> = ({
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             type="button"
-            disabled={likeBusy}
-            onClick={() => void handleToggleLike()}
+            onClick={handleToggleLike}
             aria-pressed={likedState}
             className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-3 ${
               likedState
@@ -1339,8 +1566,7 @@ export const PostCard: React.FC<PostCardProps> = ({
 
           <button
             type="button"
-            disabled={saveBusy}
-            onClick={() => void handleToggleSave()}
+            onClick={handleToggleSave}
             aria-pressed={savedState}
             aria-label={savedState ? 'Remove bookmark' : 'Save post'}
             className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-3 ${
@@ -1349,14 +1575,10 @@ export const PostCard: React.FC<PostCardProps> = ({
                 : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
             }`}
           >
-            {saveBusy ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Bookmark
-                className={`h-4 w-4 ${savedState ? 'fill-white' : ''}`}
-                aria-hidden="true"
-              />
-            )}
+            <Bookmark
+              className={`h-4 w-4 ${savedState ? 'fill-white' : ''}`}
+              aria-hidden="true"
+            />
             <span className="hidden sm:inline">
               {savedState ? 'Saved' : 'Save'}
             </span>
@@ -1375,12 +1597,11 @@ export const PostCard: React.FC<PostCardProps> = ({
               type="text"
               maxLength={BLUEPRINT_LIMITS.commentBodyMax}
               value={newCommentBody}
-              disabled={commentSubmitting}
               onChange={(e) => setNewCommentBody(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  void handleAddComment(newCommentBody);
+                  handleAddComment(newCommentBody);
                 }
               }}
               placeholder={
@@ -1392,15 +1613,11 @@ export const PostCard: React.FC<PostCardProps> = ({
             />
             <button
               type="button"
-              disabled={commentSubmitting || !newCommentBody.trim()}
-              onClick={() => void handleAddComment(newCommentBody)}
+              disabled={!newCommentBody.trim()}
+              onClick={() => handleAddComment(newCommentBody)}
               className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-50"
             >
-              {commentSubmitting ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              ) : (
-                <Send className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
-              )}
+              <Send className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
               Post
             </button>
           </div>
@@ -1439,10 +1656,17 @@ export const PostCard: React.FC<PostCardProps> = ({
                       isAdminOrOwner ||
                       viewerTier === 'moderator');
 
+                const isCommentHighlighted = highlightCommentId === comment.id;
+
                 return (
                   <div
                     key={comment.id}
-                    className="rounded-xl border border-slate-100 bg-slate-50/80 p-3"
+                    id={`comment-${comment.id}`}
+                    className={`rounded-xl border p-3 transition-colors ${
+                      isCommentHighlighted
+                        ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
+                        : 'border-slate-100 bg-slate-50/80'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -1485,39 +1709,33 @@ export const PostCard: React.FC<PostCardProps> = ({
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        {kind === 'anonymous' && (
-                          <button
-                            type="button"
-                            disabled={commentLikeBusyId === comment.id}
-                            onClick={() =>
-                              void handleToggleAnonCommentLike(
-                                comment as AnonymousComment
-                              )
-                            }
-                            aria-pressed={likedAnonCommentIds.has(comment.id)}
-                            className={`inline-flex items-center gap-1 font-semibold ${
-                              likedAnonCommentIds.has(comment.id)
-                                ? 'text-[#1E88E5]'
-                                : 'text-slate-600 hover:text-[#0B1A2E]'
-                            }`}
-                          >
-                            <Heart
-                              className={`h-3 w-3 ${
-                                likedAnonCommentIds.has(comment.id)
-                                  ? 'fill-[#1E88E5]'
-                                  : ''
-                              }`}
-                              aria-hidden="true"
-                            />
-                            <span className="tabular-nums">
-                              {anonCommentLikesCounts[comment.id] ??
-                                (comment as AnonymousComment).likesCount ??
-                                0}
-                            </span>
-                          </button>
-                        )}
                         <button
                           type="button"
+                          disabled={isOptimisticTempId(comment.id)}
+                          onClick={() => handleToggleCommentLike(comment)}
+                          aria-pressed={likedCommentIds.has(comment.id)}
+                          className={`inline-flex items-center gap-1 font-semibold ${
+                            likedCommentIds.has(comment.id)
+                              ? 'text-[#1E88E5]'
+                              : 'text-slate-600 hover:text-[#0B1A2E]'
+                          }`}
+                        >
+                          <Heart
+                            className={`h-3 w-3 ${
+                              likedCommentIds.has(comment.id)
+                                ? 'fill-[#1E88E5]'
+                                : ''
+                            }`}
+                            aria-hidden="true"
+                          />
+                          <span className="tabular-nums">
+                            {commentLikesCounts[comment.id] ??
+                              Number(comment.likesCount ?? 0)}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isOptimisticTempId(comment.id)}
                           onClick={() => {
                             if (!viewerUid) {
                               setGuestActionPrompt(
@@ -1530,14 +1748,17 @@ export const PostCard: React.FC<PostCardProps> = ({
                             );
                             setReplyBody('');
                           }}
-                          className="font-semibold text-[#1E88E5] hover:underline"
+                          className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
                         >
                           Reply
                         </button>
                         {kind === 'anonymous' && (
                           <button
                             type="button"
-                            disabled={reportedTargetIds.has(comment.id)}
+                            disabled={
+                              isOptimisticTempId(comment.id) ||
+                              reportedTargetIds.has(comment.id)
+                            }
                             onClick={() =>
                               handleOpenReport(
                                 'anonymousComment',
@@ -1556,7 +1777,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                               : 'Report'}
                           </button>
                         )}
-                        {canModifyComment && (
+                        {canModifyComment && !isOptimisticTempId(comment.id) && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1568,11 +1789,11 @@ export const PostCard: React.FC<PostCardProps> = ({
                             Edit
                           </button>
                         )}
-                        {canDeleteComment && (
+                        {canDeleteComment && !isOptimisticTempId(comment.id) && (
                           <button
                             type="button"
                             disabled={commentActionBusyId === comment.id}
-                            onClick={() => void handleDeleteComment(comment)}
+                            onClick={() => handleDeleteComment(comment)}
                             className="font-semibold text-red-700 hover:underline disabled:opacity-50"
                           >
                             Delete
@@ -1623,15 +1844,19 @@ export const PostCard: React.FC<PostCardProps> = ({
                           value={replyBody}
                           maxLength={BLUEPRINT_LIMITS.commentBodyMax}
                           onChange={(e) => setReplyBody(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              handleAddComment(replyBody, comment.id);
+                            }
+                          }}
                           placeholder="Write a reply..."
                           className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
                         />
                         <button
                           type="button"
-                          disabled={commentSubmitting || !replyBody.trim()}
-                          onClick={() =>
-                            void handleAddComment(replyBody, comment.id)
-                          }
+                          disabled={!replyBody.trim()}
+                          onClick={() => handleAddComment(replyBody, comment.id)}
                           className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
                         >
                           Reply
@@ -1664,10 +1889,18 @@ export const PostCard: React.FC<PostCardProps> = ({
                                   isAdminOrOwner ||
                                   viewerTier === 'moderator');
 
+                            const isReplyHighlighted =
+                              highlightCommentId === reply.id;
+
                             return (
                               <div
                                 key={reply.id}
-                                className="rounded-lg bg-white p-2.5"
+                                id={`comment-${reply.id}`}
+                                className={`rounded-lg p-2.5 transition-colors ${
+                                  isReplyHighlighted
+                                    ? 'border border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
+                                    : 'bg-white'
+                                }`}
                               >
                                 <div className="flex items-center justify-between gap-2 text-[11px]">
                                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1718,48 +1951,37 @@ export const PostCard: React.FC<PostCardProps> = ({
                                   </div>
 
                                   <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      disabled={isOptimisticTempId(reply.id)}
+                                      onClick={() => handleToggleCommentLike(reply)}
+                                      aria-pressed={likedCommentIds.has(reply.id)}
+                                      className={`inline-flex items-center gap-1 font-semibold ${
+                                        likedCommentIds.has(reply.id)
+                                          ? 'text-[#1E88E5]'
+                                          : 'text-slate-600 hover:text-[#0B1A2E]'
+                                      }`}
+                                    >
+                                      <Heart
+                                        className={`h-3 w-3 ${
+                                          likedCommentIds.has(reply.id)
+                                            ? 'fill-[#1E88E5]'
+                                            : ''
+                                        }`}
+                                        aria-hidden="true"
+                                      />
+                                      <span className="tabular-nums">
+                                        {commentLikesCounts[reply.id] ??
+                                          Number(reply.likesCount ?? 0)}
+                                      </span>
+                                    </button>
                                     {kind === 'anonymous' && (
                                       <button
                                         type="button"
                                         disabled={
-                                          commentLikeBusyId === reply.id
+                                          isOptimisticTempId(reply.id) ||
+                                          reportedTargetIds.has(reply.id)
                                         }
-                                        onClick={() =>
-                                          void handleToggleAnonCommentLike(
-                                            reply as AnonymousComment
-                                          )
-                                        }
-                                        aria-pressed={likedAnonCommentIds.has(
-                                          reply.id
-                                        )}
-                                        className={`inline-flex items-center gap-1 font-semibold ${
-                                          likedAnonCommentIds.has(reply.id)
-                                            ? 'text-[#1E88E5]'
-                                            : 'text-slate-600 hover:text-[#0B1A2E]'
-                                        }`}
-                                      >
-                                        <Heart
-                                          className={`h-3 w-3 ${
-                                            likedAnonCommentIds.has(reply.id)
-                                              ? 'fill-[#1E88E5]'
-                                              : ''
-                                          }`}
-                                          aria-hidden="true"
-                                        />
-                                        <span className="tabular-nums">
-                                          {anonCommentLikesCounts[reply.id] ??
-                                            (reply as AnonymousComment)
-                                              .likesCount ??
-                                            0}
-                                        </span>
-                                      </button>
-                                    )}
-                                    {kind === 'anonymous' && (
-                                      <button
-                                        type="button"
-                                        disabled={reportedTargetIds.has(
-                                          reply.id
-                                        )}
                                         onClick={() =>
                                           handleOpenReport(
                                             'anonymousComment',
@@ -1778,32 +2000,34 @@ export const PostCard: React.FC<PostCardProps> = ({
                                           : 'Report'}
                                       </button>
                                     )}
-                                    {canModifyReply && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingCommentId(reply.id);
-                                          setEditingCommentBody(reply.body);
-                                        }}
-                                        className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
-                                      >
-                                        Edit
-                                      </button>
-                                    )}
-                                    {canDeleteReply && (
-                                      <button
-                                        type="button"
-                                        disabled={
-                                          commentActionBusyId === reply.id
-                                        }
-                                        onClick={() =>
-                                          void handleDeleteComment(reply)
-                                        }
-                                        className="font-semibold text-red-700 hover:underline disabled:opacity-50"
-                                      >
-                                        Delete
-                                      </button>
-                                    )}
+                                    {canModifyReply &&
+                                      !isOptimisticTempId(reply.id) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingCommentId(reply.id);
+                                            setEditingCommentBody(reply.body);
+                                          }}
+                                          className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
+                                        >
+                                          Edit
+                                        </button>
+                                      )}
+                                    {canDeleteReply &&
+                                      !isOptimisticTempId(reply.id) && (
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            commentActionBusyId === reply.id
+                                          }
+                                          onClick={() =>
+                                            handleDeleteComment(reply)
+                                          }
+                                          className="font-semibold text-red-700 hover:underline disabled:opacity-50"
+                                        >
+                                          Delete
+                                        </button>
+                                      )}
                                   </div>
                                 </div>
 

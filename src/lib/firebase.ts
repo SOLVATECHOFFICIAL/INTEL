@@ -7,7 +7,11 @@ import {
   initializeFirestore,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { isTransientFirestoreConnectionError } from '../utils/firestoreRetry';
+import {
+  hasValidFirebaseConfig,
+  isTransientFirestoreConnectionError,
+  runWithFirestoreConnectionRetry,
+} from '../utils/firestoreRetry';
 
 export enum OperationType {
   CREATE = 'create',
@@ -42,7 +46,7 @@ function createFirestoreClient() {
     return initializeFirestore(
       app,
       {
-        experimentalAutoDetectLongPolling: true,
+        experimentalForceLongPolling: true,
       },
       firebaseConfig.firestoreDatabaseId
     );
@@ -93,20 +97,21 @@ export interface ConnectionCheckResult {
 }
 
 export async function testConnection(): Promise<ConnectionCheckResult> {
+  if (!hasValidFirebaseConfig(firebaseConfig)) {
+    console.error('Please check your Firebase configuration.');
+    return {
+      connected: false,
+      offlineError: 'Please check your Firebase configuration.',
+    };
+  }
+
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await runWithFirestoreConnectionRetry(
+      () => getDocFromServer(doc(db, 'test', 'connection')),
+      { maxAttempts: 2, baseDelayMs: 500 }
+    );
     return { connected: true };
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes('the client is offline')
-    ) {
-      console.error('Please check your Firebase configuration.');
-      return {
-        connected: false,
-        offlineError: 'Please check your Firebase configuration.',
-      };
-    }
     if (isTransientFirestoreConnectionError(error)) {
       return {
         connected: false,

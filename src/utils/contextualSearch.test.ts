@@ -254,7 +254,8 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
     {
       id: 'e1',
       ownerUID: 'admin1',
-      title: 'Freshers Orientation',
+      category: 'orientation',
+      title: 'Freshers Welcome Programme',
       description: 'Main auditorium welcome',
       eventDate: now + 50_000,
       venue: 'Main Auditorium',
@@ -266,6 +267,7 @@ test('filterTrustedContacts, filterOpportunities, and filterCampusEvents respect
     {
       id: 'e2',
       ownerUID: 'admin1',
+      category: 'orientation',
       title: 'Cancelled Orientation',
       description: 'Postponed',
       eventDate: now + 50_000,
