@@ -70,6 +70,7 @@ import {
   type UserRole,
 } from '../../types/database';
 import type { ActiveRoute, MarketplaceTab } from '../../types/platform';
+import { canActorModerateMarketplaceListing } from '../../utils/adminPermissions';
 import {
   buildWhatsAppChatUrl,
   formatFirestoreOrAppError,
@@ -377,9 +378,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           }
         }
 
-        const sellers = await fetchMarketplaceSellersMap(pubItems).catch(
-          () => new Map<string, PublicProfileProjection>()
-        );
+        const sellers = await fetchMarketplaceSellersMap([
+          ...pubItems,
+          ...pendingItems,
+        ]).catch(() => new Map<string, PublicProfileProjection>());
         if (isCancelled?.()) return;
         setSellerMap((prev) => {
           if (mode === 'initial' || prev.size === 0) return sellers;
@@ -1012,12 +1014,17 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           : 'Listing rejected cleanly.'
       );
     } catch (error) {
-      setErrorMessage(
-        formatFirestoreOrAppError(
-          error,
-          'Could not complete marketplace listing review.'
-        )
+      const formatted = formatFirestoreOrAppError(
+        error,
+        'Could not complete marketplace listing review.'
       );
+      if (actorRole === 'moderator' && /Permission denied/i.test(formatted)) {
+        setErrorMessage(
+          'Moderators can only approve or reject marketplace listings submitted by ordinary members.'
+        );
+      } else {
+        setErrorMessage(formatted);
+      }
     } finally {
       setBusyListingId(null);
     }
@@ -2234,43 +2241,57 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         </div>
       ) : (
         <div className="space-y-4">
-          {pendingListings.map((item) => (
-            <div
-              key={item.id}
-              className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center"
-            >
-              <div className="min-w-0 space-y-1">
-                <p className="text-xs font-bold text-[#1E88E5] uppercase">
-                  {item.listingKind} · {item.category}
-                </p>
-                <h3 className="font-display text-base font-bold text-[#0B1A2E]">
-                  {item.title} — ₦{item.price.toLocaleString()}
-                </h3>
-                <p className="text-xs text-slate-600">{item.description}</p>
-              </div>
+          {pendingListings.map((item) => {
+            const sellerBadge = sellerMap.get(item.ownerUID)?.badge;
+            const canReviewItem = canActorModerateMarketplaceListing(
+              actorRole,
+              sellerBadge,
+              item.approvalStatus
+            );
+            return (
+              <div
+                key={item.id}
+                className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center"
+              >
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-bold text-[#1E88E5] uppercase">
+                    {item.listingKind} · {item.category}
+                  </p>
+                  <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                    {item.title} — ₦{item.price.toLocaleString()}
+                  </h3>
+                  <p className="text-xs text-slate-600">{item.description}</p>
+                </div>
 
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  disabled={busyListingId === item.id}
-                  onClick={() => void handleReviewPending(item.id, 'approved')}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700"
-                >
-                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  disabled={busyListingId === item.id}
-                  onClick={() => void handleReviewPending(item.id, 'rejected')}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-800 hover:bg-red-100"
-                >
-                  <XCircle className="h-4 w-4" aria-hidden="true" />
-                  Reject
-                </button>
+                {canReviewItem ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busyListingId === item.id}
+                      onClick={() => void handleReviewPending(item.id, 'approved')}
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+                    >
+                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyListingId === item.id}
+                      onClick={() => void handleReviewPending(item.id, 'rejected')}
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-800 hover:bg-red-100"
+                    >
+                      <XCircle className="h-4 w-4" aria-hidden="true" />
+                      Reject
+                    </button>
+                  </div>
+                ) : (
+                  <span className="inline-flex shrink-0 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                    Admin review only
+                  </span>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

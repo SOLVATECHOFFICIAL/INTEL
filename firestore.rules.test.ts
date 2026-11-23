@@ -460,3 +460,54 @@ test('Prompt 20 designated Supreme Admins, underground privacy, compulsory Trust
   assert.match(mktUpdatesBlock, /allow delete: if isValidId\(updateId\) && isSupremeAdminOrOwner\(\);/);
 });
 
+test('Audit fixes enforce resource==null reads, unfollow decrements on suspended targets, and hardened marketplace seller lifecycle', () => {
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  // Missing user doc lookups must return exists==false cleanly rather than permission-denied
+  assert.match(usersBlock, /allow get: if isValidId\(userId\) && \(\s*resource == null \|\|/);
+  // Unfollowing / self-delete cleanup (-1) must not fail when target is suspended, while +1 still requires active signed-in + active target
+  assert.match(
+    usersBlock,
+    /\(isActiveSignedInUser\(\) &&\s*existing\(\)\.accountStatus == 'active' &&\s*incoming\(\)\.followersCount == existing\(\)\.followersCount \+ 1/
+  );
+  assert.match(
+    usersBlock,
+    /\(existing\(\)\.followersCount > 0 &&\s*incoming\(\)\.followersCount == existing\(\)\.followersCount - 1/
+  );
+
+  // Notifications allow get supports deterministic existence checks (resource == null)
+  const notifBlock = rulesText.slice(
+    rulesText.indexOf('match /notifications/{notificationId}'),
+    rulesText.indexOf('match /polls/{pollId}')
+  );
+  assert.match(
+    notifBlock,
+    /allow get: if isValidId\(notificationId\) && isSignedIn\(\) && \(\s*resource == null \|\|\s*existing\(\)\.recipientUid == request\.auth\.uid/
+  );
+
+  // Marketplace seller update separates pending_approval (anti-escalation) from approved (active/sold/expired renew/restock + visibility restore + 8d expiry cap)
+  const marketplaceBlock = rulesText.slice(
+    rulesText.indexOf('match /marketplaceListings/{listingId}'),
+    rulesText.indexOf('match /trustedContacts/{contactId}')
+  );
+  assert.match(
+    marketplaceBlock,
+    /existing\(\)\.approvalStatus == 'pending_approval' &&\s*existing\(\)\.status == 'pending_approval' &&\s*incoming\(\)\.approvalStatus == 'pending_approval' &&\s*incoming\(\)\.status == 'pending_approval'/
+  );
+  assert.match(
+    marketplaceBlock,
+    /existing\(\)\.approvalStatus == 'approved' &&\s*existing\(\)\.status in \['active', 'sold', 'expired'\]/
+  );
+  assert.match(
+    marketplaceBlock,
+    /incoming\(\)\.quantity >= 1 && incoming\(\)\.status == 'active' && incoming\(\)\.visibility == 'public'/
+  );
+  assert.match(
+    marketplaceBlock,
+    /incoming\(\)\.expiresAt <= request\.time \+ duration\.value\(8, 'd'\)/
+  );
+});
+
+

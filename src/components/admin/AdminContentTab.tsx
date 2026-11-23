@@ -340,12 +340,24 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
       setReasonNote('');
       onReload();
     } catch (error) {
-      onError(
-        formatFirestoreOrAppError(
-          error,
-          'Permission denied or unable to remove this item.'
-        )
+      const formatted = formatFirestoreOrAppError(
+        error,
+        'Permission denied or unable to remove this item.'
       );
+      if (
+        !isFullAdmin &&
+        (pendingDelete.kind === 'anonymousPosts' ||
+          pendingDelete.kind === 'anonymousComments') &&
+        /Permission denied/i.test(formatted)
+      ) {
+        onError(
+          pendingDelete.kind === 'anonymousPosts'
+            ? 'This anonymous post cannot be removed by a Moderator under platform moderation rules.'
+            : 'This anonymous comment cannot be removed by a Moderator under platform moderation rules.'
+        );
+      } else {
+        onError(formatted);
+      }
     } finally {
       setBusyId(null);
     }

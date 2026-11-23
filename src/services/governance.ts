@@ -1302,11 +1302,14 @@ export async function updateOwnMarketplaceListingQuantity(input: {
   nextQuantity: number;
 }): Promise<MarketplaceListing> {
   const resolved = resolveMarketplaceUpdateFromQuantity(input.nextQuantity);
+  const nextVisibility =
+    resolved.status === 'active' ? 'public' : input.listing.visibility;
   const listingRef = doc(db, COLLECTION_NAMES.marketplaceListings, input.listing.id);
   const batch = writeBatch(db);
   batch.update(listingRef, {
     quantity: resolved.quantity,
     status: resolved.status,
+    visibility: nextVisibility,
     updatedAt: serverTimestamp(),
   });
 
@@ -1316,6 +1319,7 @@ export async function updateOwnMarketplaceListingQuantity(input: {
       ...input.listing,
       quantity: resolved.quantity,
       status: resolved.status,
+      visibility: nextVisibility,
       updatedAt: Date.now(),
     };
     notifyMarketplaceListingUpdated(updatedListing);
@@ -1337,6 +1341,7 @@ export async function renewMarketplaceListing(
   const batch = writeBatch(db);
   batch.update(listingRef, {
     status: 'active',
+    visibility: 'public',
     expiresAt: Timestamp.fromDate(newExpiry),
     updatedAt: serverTimestamp(),
   });
@@ -1345,6 +1350,7 @@ export async function renewMarketplaceListing(
     const renewedListing: MarketplaceListing = {
       ...listing,
       status: 'active',
+      visibility: 'public',
       expiresAt: newExpiry.getTime(),
       updatedAt: Date.now(),
     };

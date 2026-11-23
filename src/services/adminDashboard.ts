@@ -982,13 +982,38 @@ export async function adminDeleteCommentWithAudit(input: {
     if (!isFullAdmin && input.kind === 'anonymousPosts') {
       const msg = error instanceof Error ? error.message : '';
       if (/permission|insufficient/i.test(msg)) {
-        throw new Error(
-          'Moderators cannot delete anonymous comments or replies belonging to Verified, Moderator, or Admin accounts.',
-          { cause: error }
-        );
+        if (replyIds.length > 0) {
+          try {
+            await deletePostComment({
+              kind: input.kind,
+              postId: input.comment.postId,
+              commentId: input.comment.id,
+              replyIdsToRemove: [],
+              actorUid: input.actorUid,
+            });
+          } catch (retryError) {
+            const retryMsg =
+              retryError instanceof Error ? retryError.message : '';
+            if (/permission|insufficient/i.test(retryMsg)) {
+              throw new Error(
+                'Moderators cannot delete anonymous comments or replies belonging to Verified, Moderator, or Admin accounts.',
+                { cause: retryError }
+              );
+            }
+            throw retryError;
+          }
+        } else {
+          throw new Error(
+            'Moderators cannot delete anonymous comments or replies belonging to Verified, Moderator, or Admin accounts.',
+            { cause: error }
+          );
+        }
+      } else {
+        throw error;
       }
+    } else {
+      throw error;
     }
-    throw error;
   }
 
   await recordAdminAuditLog({

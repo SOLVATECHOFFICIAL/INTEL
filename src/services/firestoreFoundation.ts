@@ -2378,9 +2378,11 @@ export async function createSafeMemberNotification(input: {
 
   try {
     const notifRef = doc(db, COLLECTION_NAMES.notifications, input.id);
-    const existingSnap = await getDoc(notifRef).catch(() => null);
-    if (existingSnap?.exists()) {
-      return;
+    if (auth.currentUser?.uid === input.recipientUid) {
+      const existingSnap = await getDoc(notifRef).catch(() => null);
+      if (existingSnap?.exists()) {
+        return;
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -2485,13 +2487,37 @@ export async function syncOwnAnonymousReplyNotifications(
   existingNotificationIds.forEach((id) => syncedCache.add(id));
 
   try {
-    const privateSnap = await getDoc(
-      doc(db, COLLECTION_NAMES.privateUserData, uid)
-    );
-    if (!privateSnap.exists()) return;
-    const privateData = privateSnap.data() as PrivateUserData;
-    const ownedPostSet = new Set(privateData.ownedAnonymousPostIds ?? []);
-    const ownedCommentSet = new Set(privateData.ownedAnonymousCommentIds ?? []);
+    const [privateSnap, historySnap] = await Promise.all([
+      getDoc(doc(db, COLLECTION_NAMES.privateUserData, uid)),
+      getDocs(
+        query(
+          collection(
+            db,
+            COLLECTION_NAMES.privateUserData,
+            uid,
+            SUBCOLLECTION_NAMES.anonymousHistory
+          ),
+          limit(100)
+        )
+      ).catch(() => null),
+    ]);
+    const privateData = privateSnap.exists()
+      ? (privateSnap.data() as PrivateUserData)
+      : null;
+    const ownedPostSet = new Set(privateData?.ownedAnonymousPostIds ?? []);
+    if (historySnap) {
+      for (const item of historySnap.docs) {
+        const data = item.data() as { postId?: unknown };
+        const candidateId =
+          typeof data.postId === 'string' && isValidFirestoreId(data.postId)
+            ? data.postId
+            : item.id;
+        if (isValidFirestoreId(candidateId)) {
+          ownedPostSet.add(candidateId);
+        }
+      }
+    }
+    const ownedCommentSet = new Set(privateData?.ownedAnonymousCommentIds ?? []);
 
     if (ownedPostSet.size === 0 && ownedCommentSet.size === 0) {
       return;

@@ -216,10 +216,33 @@ test('buildWhatsAppChatUrl formats Nigerian local and international numbers clea
 });
 
 test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks suspended access', () => {
-  const fakeUser = { uid: 'uid_123' } as User;
+  const fakeUser = { uid: 'uid_123', emailVerified: true } as User;
+  const unverifiedFakeUser = { uid: 'uid_123', emailVerified: false } as User;
 
   assert.equal(resolveEffectiveAccountTier(null, null), 'guest');
   assert.equal(resolveEffectiveAccountTier(fakeUser, null), 'member');
+  assert.equal(
+    resolveEffectiveAccountTier(unverifiedFakeUser, {
+      uid: 'uid_123',
+      role: 'verified',
+      badge: 'verified',
+      isPermanentOwner: false,
+      isHiddenFromDirectory: false,
+      updatedAt: null,
+    }),
+    'member'
+  );
+  assert.equal(
+    resolveEffectiveAccountTier(unverifiedFakeUser, {
+      uid: 'uid_123',
+      role: 'moderator',
+      badge: 'moderator',
+      isPermanentOwner: false,
+      isHiddenFromDirectory: false,
+      updatedAt: null,
+    }),
+    'member'
+  );
   assert.equal(
     resolveEffectiveAccountTier(fakeUser, {
       uid: 'uid_123',
@@ -420,6 +443,16 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
       profile: activeVerifiedProfile,
       roleRecord: validVerifiedRole,
       suspended: true,
+    }),
+    false
+  );
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: unverifiedFakeUser,
+      tier: 'verified',
+      profile: activeVerifiedProfile,
+      roleRecord: validVerifiedRole,
+      suspended: false,
     }),
     false
   );

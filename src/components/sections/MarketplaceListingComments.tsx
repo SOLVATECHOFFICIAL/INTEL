@@ -580,10 +580,18 @@ export const MarketplaceListingComments: React.FC<
       });
   };
 
-  const topLevel = comments.filter((e) => !e.comment.parentCommentId);
+  const loadedCommentIds = new Set(comments.map((e) => e.comment.id));
+  const topLevel = comments.filter(
+    (e) =>
+      !e.comment.parentCommentId ||
+      !loadedCommentIds.has(e.comment.parentCommentId)
+  );
   const repliesByParent = new Map<string, CommentWithAuthor[]>();
   for (const entry of comments) {
-    if (entry.comment.parentCommentId) {
+    if (
+      entry.comment.parentCommentId &&
+      loadedCommentIds.has(entry.comment.parentCommentId)
+    ) {
       const list = repliesByParent.get(entry.comment.parentCommentId) ?? [];
       list.push(entry);
       repliesByParent.set(entry.comment.parentCommentId, list);

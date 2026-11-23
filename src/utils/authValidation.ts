@@ -441,6 +441,9 @@ export function resolveEffectiveAccountTier(
   if (!user) {
     return 'guest';
   }
+  if (user.emailVerified !== true) {
+    return 'member';
+  }
   if (isPermanentOwnerUser(user)) {
     return 'owner';
   }
@@ -525,7 +528,7 @@ export function canPublishOrdinaryPostStrict(input: {
   roleRecord: UserRoleRecord | null;
   suspended: boolean;
 }): boolean {
-  if (!input.user || input.suspended || input.tier === 'guest') {
+  if (!input.user || input.user.emailVerified !== true || input.suspended || input.tier === 'guest') {
     return false;
   }
   if (!canPublishOrdinaryFeedUpdate(input.tier, input.suspended)) {

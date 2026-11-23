@@ -281,15 +281,21 @@ export async function verifyPushApiCaller(
         email === UNDERGROUND_SUPREME_ADMIN_EMAIL)
     ) {
       role = 'supreme_admin';
-    } else {
-      const rawRole = roleSnap?.data()?.role;
+    } else if (emailVerified) {
+      const roleData = roleSnap?.data();
+      const rawRole = roleData?.role;
       if (
-        rawRole === 'owner' ||
         rawRole === 'supreme_admin' ||
         rawRole === 'moderator' ||
         rawRole === 'verified'
       ) {
         role = rawRole;
+      } else if (
+        rawRole === 'owner' &&
+        roleData?.isPermanentOwner === true &&
+        email === PERMANENT_OWNER_EMAIL
+      ) {
+        role = 'owner';
       }
     }
 

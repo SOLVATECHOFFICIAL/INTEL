@@ -1022,7 +1022,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           entry.author
         );
       }
-      return true;
+      return isAdminOrOwner || Boolean(ownedAnonymousCommentIds?.has(replyId));
     });
 
     const deletedSet = new Set([comment.id, ...childReplyIds]);
@@ -1266,12 +1266,18 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     }
   };
 
+  const loadedCommentIds = new Set(comments.map((entry) => entry.comment.id));
   const topLevelComments = comments.filter(
-    (entry) => !entry.comment.parentCommentId
+    (entry) =>
+      !entry.comment.parentCommentId ||
+      !loadedCommentIds.has(entry.comment.parentCommentId)
   );
   const repliesByParent = new Map<string, CommentWithAuthor[]>();
   for (const entry of comments) {
-    if (entry.comment.parentCommentId) {
+    if (
+      entry.comment.parentCommentId &&
+      loadedCommentIds.has(entry.comment.parentCommentId)
+    ) {
       const list = repliesByParent.get(entry.comment.parentCommentId) ?? [];
       list.push(entry);
       repliesByParent.set(entry.comment.parentCommentId, list);
