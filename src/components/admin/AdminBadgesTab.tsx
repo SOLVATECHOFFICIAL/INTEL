@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Crown, Loader2, Search, UserCheck } from 'lucide-react';
 import {
   assignMemberRoleAndBadgeAtomically,
+  toggleModeratorVerifiedStatusAtomically,
   type AdminManagedMember,
 } from '../../services/governance';
 import {
@@ -11,7 +12,7 @@ import {
 } from '../../types/database';
 import { formatAdminAuditActionLabel } from '../../utils/adminPermissions';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
@@ -78,14 +79,60 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
     }
   };
 
+  const handleToggleModeratorVerified = async (member: AdminManagedMember) => {
+    if (busyUid) return;
+    const nextVerified = !member.profile.isVerified;
+    setBusyUid(member.profile.uid);
+    try {
+      await toggleModeratorVerifiedStatusAtomically({
+        actorUid,
+        actorRole,
+        targetUid: member.profile.uid,
+        isVerified: nextVerified,
+        reason: auditReason,
+      });
+      onSuccess(
+        `@${member.profile.username}: ${
+          nextVerified
+            ? 'Granted Verified dual badge alongside Moderator.'
+            : 'Removed Verified dual badge from Moderator.'
+        }`
+      );
+      setAuditReason('');
+      onReload();
+    } catch (error) {
+      onError(
+        formatFirestoreOrAppError(
+          error,
+          'Unable to update Moderator Verified status.'
+        )
+      );
+    } finally {
+      setBusyUid(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 text-xs text-slate-700">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-semibold text-[#0B1A2E]">Platform Badges:</span>
-          <RoleBadge badge="supreme_admin" size="xs" />
-          <RoleBadge badge="moderator" size="xs" />
-          <RoleBadge badge="verified" size="xs" />
+          <span className="inline-flex items-center gap-1">
+            <RoleBadge badge="verified" variant="icon" size="xs" />
+            <RoleBadge badge="verified" variant="full" size="xs" />
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <RoleBadge badge="moderator" variant="icon" size="xs" />
+            <RoleBadge badge="moderator" variant="full" size="xs" />
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <RoleBadge badge="trust" variant="icon" size="xs" />
+            <RoleBadge badge="trust" variant="full" size="xs" />
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <RoleBadge badge="supreme_admin" variant="icon" size="xs" />
+            <RoleBadge badge="supreme_admin" variant="full" size="xs" />
+          </span>
         </div>
         <p className="mt-1.5 text-slate-600">
           Every role assignment or removal updates both <code>users</code> and{' '}
@@ -187,7 +234,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                       >
                         {profile.fullName}
                       </button>
-                      <RoleBadge badge={profile.badge} size="xs" />
+                      <ProfileBadgesRow profile={profile} size="xs" />
                       {profile.accountStatus === 'suspended' && (
                         <span className="rounded-md bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800">
                           Suspended
@@ -227,7 +274,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                                 label: 'Grant Verified Badge',
                               })
                             }
-                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-[#1E88E5] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
                           >
                             <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
                             Grant Verified
@@ -242,7 +289,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                                 label: 'Grant Moderator Role',
                               })
                             }
-                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                           >
                             Grant Moderator
                           </button>
@@ -261,7 +308,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                                 label: 'Promote to Moderator',
                               })
                             }
-                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                           >
                             Promote to Moderator
                           </button>
@@ -287,6 +334,19 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                           <button
                             type="button"
                             disabled={isBusy}
+                            onClick={() => void handleToggleModeratorVerified(entry)}
+                            className={`inline-flex min-h-[38px] items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${
+                              profile.isVerified
+                                ? 'border border-[#1E88E5]/40 bg-[#1E88E5]/10 text-[#1565C0] hover:bg-[#1E88E5]/20'
+                                : 'bg-[#1E88E5] text-white hover:bg-[#1565C0]'
+                            }`}
+                          >
+                            <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                            {profile.isVerified ? 'Remove Verified' : 'Grant Verified'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isBusy}
                             onClick={() =>
                               setPendingRoleChange({
                                 member: entry,
@@ -294,7 +354,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                                 label: 'Demote Moderator to Verified',
                               })
                             }
-                            className="inline-flex min-h-[38px] items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center rounded-lg border border-[#1E88E5]/40 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-60"
                           >
                             Demote to Verified
                           </button>
@@ -327,9 +387,9 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                                 label: 'Assign Supreme Admin',
                               })
                             }
-                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-purple-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-800 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13386C] disabled:opacity-60"
                           >
-                            <Crown className="h-3.5 w-3.5" aria-hidden="true" />
+                            <Crown className="h-3.5 w-3.5 text-[#64B5F6]" aria-hidden="true" />
                             Grant Supreme Admin
                           </button>
                         )}
@@ -346,7 +406,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                                 label: 'Remove Supreme Admin',
                               })
                             }
-                            className="inline-flex min-h-[38px] items-center rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-900 hover:bg-purple-100 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-60"
                           >
                             Remove Supreme Admin
                           </button>

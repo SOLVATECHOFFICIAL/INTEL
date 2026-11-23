@@ -160,6 +160,7 @@ export type TrustedCircleCategoryFilter =
   | 'all'
   | 'supreme_admin'
   | 'officially_verified'
+  | 'trust_contacts'
   | 'community_recommended'
   | 'official_contacts';
 
@@ -180,6 +181,7 @@ export const TRUSTED_CONTACT_CATEGORY_LABELS: Record<
 export interface PartitionedTrustedCircleDirectory {
   supremeAdmins: PublicProfileProjection[];
   officiallyVerifiedUsers: PublicProfileProjection[];
+  trustContacts: TrustedContact[];
   officiallyVerifiedContacts: TrustedContact[];
   communityRecommendedContacts: TrustedContact[];
   officialCampusContacts: TrustedContact[];
@@ -196,7 +198,9 @@ export function partitionTrustedCircleDirectory(input: {
   );
   const officiallyVerifiedUsers = input.verifiedMembers.filter(
     (member) =>
-      member.accountStatus === 'active' && member.badge === 'verified'
+      member.accountStatus === 'active' &&
+      (member.badge === 'verified' ||
+        (member.badge === 'moderator' && member.isVerified === true))
   );
 
   const safeContacts = input.officialContacts.filter(
@@ -222,6 +226,7 @@ export function partitionTrustedCircleDirectory(input: {
   return {
     supremeAdmins,
     officiallyVerifiedUsers,
+    trustContacts: safeContacts,
     officiallyVerifiedContacts,
     communityRecommendedContacts,
     officialCampusContacts,

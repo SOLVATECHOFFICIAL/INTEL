@@ -7,11 +7,11 @@ import {
   CornerDownRight,
   Edit3,
   Eye,
-  Flag,
   Heart,
   Loader2,
   MessageCircle,
   Send,
+  Share2,
   Shield,
   Trash2,
 } from 'lucide-react';
@@ -19,7 +19,9 @@ import {
   getAnonymousBackgroundTheme,
   getTextPostBackgroundTheme,
 } from '../../config/anonymousBackgrounds';
+import { buildPostShareUrl } from '../../config/site';
 import { useFirebase } from '../../context/firebaseContext';
+import { subscribeCacheMutations } from '../../services/cacheInvalidation';
 import { togglePostCommentReaction } from '../../services/events';
 import {
   getPostUiSnapshot,
@@ -38,9 +40,9 @@ import {
   editPostComment,
   fetchCommentsPageForPost,
   fetchViewerLikedPostIds,
+  recordDeduplicatedPostView,
   removeSingleImageFromPost,
   revealAnonymousEntryAuthor,
-  submitAnonymousReport,
   toggleAnonymousCommentReaction,
   togglePostReaction,
   toggleSavedPost,
@@ -49,7 +51,6 @@ import {
   type RevealedAuthorResult,
 } from '../../services/socialPosts';
 import {
-  ALLOWED_ANONYMOUS_REPORT_REASONS,
   BLUEPRINT_LIMITS,
   canActorDeleteOrdinaryPost,
   canModeratorDeleteByBadge,
@@ -58,14 +59,13 @@ import {
   resolveOrdinaryPostType,
   type AnonymousComment,
   type AnonymousPost,
-  type AnonymousReportReason,
-  type AnonymousReportTargetType,
   type CommunityPost,
   type PostComment,
   type PublicProfileProjection,
 } from '../../types/database';
 import type { ActiveRoute } from '../../types/platform';
 import {
+  canRevealAnonymousAuthor,
   formatFirestoreOrAppError,
   toPublicProfileProjection,
   type EffectiveAccountTier,
@@ -83,7 +83,8 @@ import {
   removeCommentTreeEntries,
   restoreCommentEntriesOrdered,
 } from '../../utils/optimisticInteractions';
-import { RoleBadge } from '../RoleBadge';
+import { formatCompactViewCount } from '../../utils/postViews';
+import { ProfileBadgesRow } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
@@ -111,18 +112,8 @@ interface PostCardProps {
   onPostDeleted: (postId: string) => void;
   onSaveChanged?: (postId: string, saved: boolean) => void;
   onAnonymousCommentTracked?: (commentId: string, action: 'add' | 'remove') => void;
-  allowAnonymousReport?: boolean;
   onOpenPost?: (postId: string) => void;
 }
-
-const ANONYMOUS_REPORT_REASON_LABELS: Record<AnonymousReportReason, string> = {
-  harassment: 'Harassment or bullying',
-  hate_speech: 'Hate speech or slurs',
-  privacy_leak: 'Exposes private personal info / doxxing',
-  misinformation: 'Harmful misinformation',
-  spam: 'Spam or scam',
-  other: 'Other safety concern',
-};
 
 function formatPostTimestamp(value: unknown): string {
   const ms = extractTimestampMs(value);
@@ -158,12 +149,12 @@ const PostCardComponent: React.FC<PostCardProps> = ({
   onPostDeleted,
   onSaveChanged,
   onAnonymousCommentTracked,
-  allowAnonymousReport = false,
   onOpenPost,
 }) => {
   const targetCollection = kind === 'ordinary' ? 'posts' : 'anonymousPosts';
 
-  const { profile: viewerProfile } = useFirebase();
+  const { user: authUser, profile: viewerProfile } = useFirebase();
+  const canRevealAnonymous = canRevealAnonymousAuthor(authUser);
   const viewerAuthorProjection: PublicProfileProjection | null =
     viewerProfile ? toPublicProfileProjection(viewerProfile) : null;
 
@@ -206,6 +197,82 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     commentsCountOverride && commentsCountOverride.base === post.commentsCount
       ? commentsCountOverride.value
       : post.commentsCount;
+
+  const rawViewsCount = Math.max(0, Number(post.viewsCount ?? 0));
+  const [viewsCountOverride, setViewsCountOverride] = useState<{
+    base: number;
+    value: number;
+  } | null>(null);
+  const effectiveViewsCount =
+    viewsCountOverride && viewsCountOverride.base === rawViewsCount
+      ? Math.max(viewsCountOverride.value, rawViewsCount)
+      : rawViewsCount;
+  const articleRef = useRef<HTMLElement | null>(null);
+  const recordedViewKeyRef = useRef<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  useEffect(() => {
+    return subscribeCacheMutations((event) => {
+      if (
+        event.type === 'post_view_updated' &&
+        event.kind === kind &&
+        event.postId === post.id
+      ) {
+        setViewsCountOverride({
+          base: rawViewsCount,
+          value: event.viewsCount,
+        });
+      }
+    });
+  }, [kind, post.id, rawViewsCount]);
+
+  useEffect(() => {
+    const viewKey = `${kind}:${post.id}`;
+    if (recordedViewKeyRef.current === viewKey) return;
+    const target = articleRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+
+    let dwellTimer: number | null = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+          if (dwellTimer === null && recordedViewKeyRef.current !== viewKey) {
+            dwellTimer = window.setTimeout(() => {
+              if (recordedViewKeyRef.current === viewKey) return;
+              recordedViewKeyRef.current = viewKey;
+              void recordDeduplicatedPostView({
+                kind,
+                postId: post.id,
+                viewerUid,
+                currentViewsCount: rawViewsCount,
+              }).then((nextViews) => {
+                if (typeof nextViews === 'number') {
+                  setViewsCountOverride({
+                    base: rawViewsCount,
+                    value: nextViews,
+                  });
+                }
+              });
+            }, 1000);
+          }
+        } else if (dwellTimer !== null) {
+          window.clearTimeout(dwellTimer);
+          dwellTimer = null;
+        }
+      },
+      { threshold: [0.5] }
+    );
+
+    observer.observe(target);
+    return () => {
+      observer.disconnect();
+      if (dwellTimer !== null) {
+        window.clearTimeout(dwellTimer);
+      }
+    };
+  }, [kind, post.id, viewerUid, rawViewsCount]);
 
   const viewerKey = viewerUid ?? 'guest';
   const initialUiSnapshot = getPostUiSnapshot(viewerKey, kind, post.id);
@@ -421,22 +488,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     }, 250);
     return () => window.clearTimeout(timer);
   }, [viewerKey, kind, post.id, replyingToId, replyBody]);
-
-  const [reportingTarget, setReportingTarget] = useState<{
-    targetType: AnonymousReportTargetType;
-    targetId: string;
-    excerpt: string;
-  } | null>(null);
-  const [reportReason, setReportReason] =
-    useState<AnonymousReportReason>('harassment');
-  const [reportDetails, setReportDetails] = useState('');
-  const [reportSubmitting, setReportSubmitting] = useState(false);
-  const [reportedTargetIds, setReportedTargetIds] = useState<Set<string>>(
-    new Set()
-  );
-  const [reportStatusMessage, setReportStatusMessage] = useState<string | null>(
-    null
-  );
 
   const isAdminOrOwner =
     viewerTier === 'supreme_admin' || viewerTier === 'owner';
@@ -1041,7 +1092,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
-    if (!viewerUid || !isAdminOrOwner || revealBusy) return;
+    if (!viewerUid || !canRevealAnonymous || revealBusy) return;
     setRevealBusy(true);
     setCardError(null);
     try {
@@ -1181,141 +1232,38 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       });
   };
 
-  const handleOpenReport = (
-    targetType: AnonymousReportTargetType,
-    targetId: string,
-    excerpt: string
-  ) => {
-    setCardError(null);
-    setGuestActionPrompt(null);
-    setReportStatusMessage(null);
-    if (!viewerUid) {
-      setGuestActionPrompt('Sign in to report inappropriate anonymous content.');
-      return;
-    }
-    if (viewerSuspended) {
-      setCardError('Suspended accounts cannot submit moderation reports.');
-      return;
-    }
-    if (reportingTarget?.targetId === targetId) {
-      setReportingTarget(null);
-      return;
-    }
-    setReportingTarget({ targetType, targetId, excerpt });
-    setReportReason('harassment');
-    setReportDetails('');
-  };
+  const handleSharePost = async () => {
+    const shareUrl = buildPostShareUrl(kind, post.id);
+    const titleText =
+      'title' in post && post.title?.trim()
+        ? post.title.trim()
+        : kind === 'anonymous'
+        ? `Anonymous post on LASUED Intel (${post.category})`
+        : `Post by ${author?.fullName || 'LASUED member'} on LASUED Intel`;
+    const bodyExcerpt = post.body.trim().slice(0, 120);
 
-  const handleSubmitReport = async (
-    event: React.FormEvent<HTMLFormElement>
-  ) => {
-    event.preventDefault();
-    if (!viewerUid || !reportingTarget || reportSubmitting) return;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      setCardError('You are offline. Reconnect to submit your report.');
-      return;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: titleText,
+          text: bodyExcerpt || titleText,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard copy below
+      }
     }
-    setReportSubmitting(true);
-    setCardError(null);
-    try {
-      await submitAnonymousReport({
-        targetType: reportingTarget.targetType,
-        targetId: reportingTarget.targetId,
-        postId: post.id,
-        reporterUid: viewerUid,
-        reason: reportReason,
-        details: reportDetails,
-        excerpt: reportingTarget.excerpt || 'Anonymous image submission',
-      });
-      const submittedId = reportingTarget.targetId;
-      setReportedTargetIds((prev) => {
-        const next = new Set(prev);
-        next.add(submittedId);
-        return next;
-      });
-      setReportingTarget(null);
-      setReportDetails('');
-      setReportStatusMessage(
-        'Report submitted to LASUED Intel moderators for review.'
-      );
-    } catch (error) {
-      setCardError(
-        formatFirestoreOrAppError(
-          error,
-          'Could not submit report right now.'
-        )
-      );
-    } finally {
-      setReportSubmitting(false);
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setLinkCopied(true);
+        window.setTimeout(() => setLinkCopied(false), 2000);
+      } catch {
+        // Ignore clipboard errors gracefully
+      }
     }
-  };
-
-  const renderInlineReportBox = (targetId: string) => {
-    if (!reportingTarget || reportingTarget.targetId !== targetId) {
-      return null;
-    }
-    return (
-      <form
-        onSubmit={handleSubmitReport}
-        className="mt-3 space-y-2.5 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs"
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-semibold text-[#0B1A2E]">
-            Report{' '}
-            {reportingTarget.targetType === 'anonymousPost'
-              ? 'Anonymous Post'
-              : 'Anonymous Comment'}
-          </span>
-          <button
-            type="button"
-            onClick={() => setReportingTarget(null)}
-            className="text-[11px] font-semibold text-slate-500 hover:text-[#0B1A2E]"
-          >
-            Cancel
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <label className="block">
-            <span className="sr-only">Report reason</span>
-            <select
-              value={reportReason}
-              onChange={(e) =>
-                setReportReason(e.target.value as AnonymousReportReason)
-              }
-              className="min-h-[38px] w-full rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
-            >
-              {ALLOWED_ANONYMOUS_REPORT_REASONS.map((reasonKey) => (
-                <option key={reasonKey} value={reasonKey}>
-                  {ANONYMOUS_REPORT_REASON_LABELS[reasonKey]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            type="text"
-            maxLength={500}
-            value={reportDetails}
-            onChange={(e) => setReportDetails(e.target.value)}
-            placeholder="Optional context for moderators..."
-            className="min-h-[38px] w-full rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
-          />
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="submit"
-            disabled={reportSubmitting}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60"
-          >
-            {reportSubmitting && (
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-            )}
-            Submit Report
-          </button>
-        </div>
-      </form>
-    );
   };
 
   const topLevelComments = comments.filter(
@@ -1332,6 +1280,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
   return (
     <article
+      ref={articleRef}
       id={`post-${post.id}`}
       className={`rounded-2xl border bg-white p-4 transition-colors sm:p-5 ${
         isHighlighted && !highlightCommentId
@@ -1366,16 +1315,16 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
                 {author ? (
-                  <>
+                  <span className="inline-flex min-w-0 items-center gap-1">
                     <button
                       type="button"
                       onClick={() => onNavigateProfile?.(author.username)}
-                      className="inline-flex items-center gap-1.5 text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                      className="inline-flex min-w-0 items-center text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
                     >
                       <span className="truncate">{author.fullName}</span>
                     </button>
-                    <RoleBadge badge={author.badge} size="xs" />
-                  </>
+                    <ProfileBadgesRow profile={author} size="xs" />
+                  </span>
                 ) : (
                   <span className="text-sm font-bold text-[#0B1A2E]">
                     Campus Contributor
@@ -1439,9 +1388,31 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           </div>
         )}
 
-        {/* Permitted Edit / Delete / Supreme Admin Reveal Triggers */}
+        {/* Share + Permitted Edit / Delete / Supreme Admin Reveal Triggers */}
         <div className="flex shrink-0 items-center gap-1">
-          {kind === 'anonymous' && isAdminOrOwner && (
+          <button
+            type="button"
+            onClick={() => void handleSharePost()}
+            aria-label="Share post"
+            title="Share or copy link"
+            className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+          >
+            {linkCopied ? (
+              <>
+                <Check
+                  className="h-3.5 w-3.5 text-emerald-600"
+                  aria-hidden="true"
+                />
+                <span className="hidden text-emerald-700 sm:inline">Copied</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="sr-only sm:not-sr-only sm:inline">Share</span>
+              </>
+            )}
+          </button>
+          {kind === 'anonymous' && canRevealAnonymous && (
             <button
               type="button"
               onClick={() => setRevealOpen((prev) => !prev)}
@@ -1510,7 +1481,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       )}
 
       {/* Supreme Admin Identity Audit Form */}
-      {kind === 'anonymous' && isAdminOrOwner && revealOpen && (
+      {kind === 'anonymous' && canRevealAnonymous && revealOpen && (
         <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50/60 p-3 text-xs">
           <form onSubmit={handleRevealAuthor} className="space-y-2">
             <label className="block font-semibold text-purple-950">
@@ -1677,16 +1648,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
         </div>
       )}
 
-      {reportStatusMessage && (
-        <div
-          role="status"
-          className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900"
-        >
-          <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>{reportStatusMessage}</span>
-        </div>
-      )}
-
       {guestActionPrompt && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
           <span>{guestActionPrompt}</span>
@@ -1700,9 +1661,37 @@ const PostCardComponent: React.FC<PostCardProps> = ({
         </div>
       )}
 
-      {/* Post Actions Footer */}
+      {/* Post Actions Footer: Left = View Counter | Right = Save -> Like -> Comment */}
       <div className="mt-3.5 flex flex-wrap items-center justify-between gap-1.5 border-t border-slate-100 pt-2.5">
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div
+          className="inline-flex min-h-[36px] items-center gap-1.5 px-1 text-xs font-medium text-slate-500 tabular-nums"
+          title="Unique post views"
+        >
+          <Eye className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+          <span>{formatCompactViewCount(effectiveViewsCount)}</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
+          <button
+            type="button"
+            onClick={handleToggleSave}
+            aria-pressed={savedState}
+            aria-label={savedState ? 'Remove bookmark' : 'Save post'}
+            className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-3 ${
+              savedState
+                ? 'bg-[#0B1A2E] text-white'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
+            }`}
+          >
+            <Bookmark
+              className={`h-4 w-4 ${savedState ? 'fill-white' : ''}`}
+              aria-hidden="true"
+            />
+            <span className="hidden sm:inline">
+              {savedState ? 'Saved' : 'Save'}
+            </span>
+          </button>
+
           <button
             type="button"
             onClick={handleToggleLike}
@@ -1736,53 +1725,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
               <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             )}
           </button>
-        </div>
-
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          {kind === 'anonymous' && allowAnonymousReport && (
-            <button
-              type="button"
-              disabled={reportedTargetIds.has(post.id)}
-              onClick={() =>
-                handleOpenReport(
-                  'anonymousPost',
-                  post.id,
-                  post.body.trim() || `${gridItems.length} anonymous photo(s)`
-                )
-              }
-              aria-label="Report anonymous post"
-              className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-2.5 ${
-                reportedTargetIds.has(post.id)
-                  ? 'text-emerald-700'
-                  : 'text-slate-600 hover:bg-amber-50 hover:text-amber-800'
-              }`}
-            >
-              <Flag className="h-3.5 w-3.5" aria-hidden="true" />
-              <span className="hidden sm:inline">
-                {reportedTargetIds.has(post.id) ? 'Reported' : 'Report'}
-              </span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={handleToggleSave}
-            aria-pressed={savedState}
-            aria-label={savedState ? 'Remove bookmark' : 'Save post'}
-            className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-3 ${
-              savedState
-                ? 'bg-[#0B1A2E] text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
-            }`}
-          >
-            <Bookmark
-              className={`h-4 w-4 ${savedState ? 'fill-white' : ''}`}
-              aria-hidden="true"
-            />
-            <span className="hidden sm:inline">
-              {savedState ? 'Saved' : 'Save'}
-            </span>
-          </button>
 
           {onOpenPost && (
             <button
@@ -1795,8 +1737,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           )}
         </div>
       </div>
-
-      {kind === 'anonymous' && allowAnonymousReport && renderInlineReportBox(post.id)}
 
       {/* Expandable Comments & Nested Replies Drawer */}
       {commentsOpen && (
@@ -1882,19 +1822,27 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
                         {kind === 'ordinary' && commentAuthor ? (
                           <>
+                            <span className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onNavigateProfile?.(commentAuthor.username)
+                                }
+                                className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                              >
+                                {commentAuthor.fullName}
+                              </button>
+                              <ProfileBadgesRow profile={commentAuthor} size="xs" />
+                            </span>
                             <button
                               type="button"
                               onClick={() =>
                                 onNavigateProfile?.(commentAuthor.username)
                               }
-                              className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                              className="font-normal text-slate-500 hover:text-[#1E88E5]"
                             >
-                              {commentAuthor.fullName}{' '}
-                              <span className="font-normal text-slate-500">
-                                @{commentAuthor.username}
-                              </span>
+                              @{commentAuthor.username}
                             </button>
-                            <RoleBadge badge={commentAuthor.badge} size="xs" />
                             <TikTokFollowButton
                               targetUsername={commentAuthor.username}
                               compact
@@ -1962,31 +1910,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                         >
                           Reply
                         </button>
-                        {kind === 'anonymous' && allowAnonymousReport && (
-                          <button
-                            type="button"
-                            disabled={
-                              isOptimisticTempId(comment.id) ||
-                              reportedTargetIds.has(comment.id)
-                            }
-                            onClick={() =>
-                              handleOpenReport(
-                                'anonymousComment',
-                                comment.id,
-                                comment.body
-                              )
-                            }
-                            className={`font-semibold ${
-                              reportedTargetIds.has(comment.id)
-                                ? 'text-emerald-700'
-                                : 'text-slate-600 hover:text-amber-800'
-                            }`}
-                          >
-                            {reportedTargetIds.has(comment.id)
-                              ? 'Reported'
-                              : 'Report'}
-                          </button>
-                        )}
                         {canModifyComment && !isOptimisticTempId(comment.id) && (
                           <button
                             type="button"
@@ -2043,8 +1966,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                         {comment.body}
                       </p>
                     )}
-
-                    {kind === 'anonymous' && allowAnonymousReport && renderInlineReportBox(comment.id)}
 
                     {/* Reply Input */}
                     {replyingToId === comment.id && (
@@ -2131,8 +2052,8 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                         >
                                           {replyAuthor.fullName}
                                         </button>
-                                        <RoleBadge
-                                          badge={replyAuthor.badge}
+                                        <ProfileBadgesRow
+                                          profile={replyAuthor}
                                           size="xs"
                                         />
                                         <TikTokFollowButton
@@ -2185,31 +2106,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                           Number(reply.likesCount ?? 0)}
                                       </span>
                                     </button>
-                                    {kind === 'anonymous' && allowAnonymousReport && (
-                                      <button
-                                        type="button"
-                                        disabled={
-                                          isOptimisticTempId(reply.id) ||
-                                          reportedTargetIds.has(reply.id)
-                                        }
-                                        onClick={() =>
-                                          handleOpenReport(
-                                            'anonymousComment',
-                                            reply.id,
-                                            reply.body
-                                          )
-                                        }
-                                        className={`font-semibold ${
-                                          reportedTargetIds.has(reply.id)
-                                            ? 'text-emerald-700'
-                                            : 'text-slate-600 hover:text-amber-800'
-                                        }`}
-                                      >
-                                        {reportedTargetIds.has(reply.id)
-                                          ? 'Reported'
-                                          : 'Report'}
-                                      </button>
-                                    )}
                                     {canModifyReply &&
                                       !isOptimisticTempId(reply.id) && (
                                         <button
@@ -2267,9 +2163,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                     {reply.body}
                                   </p>
                                 )}
-
-                                {kind === 'anonymous' &&
-                                  renderInlineReportBox(reply.id)}
                               </div>
                             );
                           }

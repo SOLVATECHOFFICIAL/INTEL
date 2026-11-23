@@ -1467,7 +1467,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           viewerSuspended={isSuspended}
                           isLiked={interactions.likedPostIds.has(post.id)}
                           isSaved={interactions.savedPostIds.has(post.id)}
-                          allowAnonymousReport={false}
                           onOpenPost={(pid) =>
                             onNavigate('for-you', { postId: pid })
                           }
@@ -1766,7 +1765,6 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           ownedAnonymousCommentIds={
                             interactions.ownedAnonCommentIds
                           }
-                          allowAnonymousReport={false}
                           onOpenPost={(pid) =>
                             onNavigate('anonymous', { postId: pid })
                           }

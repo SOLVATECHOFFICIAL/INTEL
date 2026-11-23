@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Award,
   Building2,
   Camera,
   CheckCircle2,
@@ -35,21 +34,22 @@ import type {
   UserRole,
 } from '../../types/database';
 import type { ActiveRoute } from '../../types/platform';
-import {
-  buildWhatsAppChatUrl,
-  formatFirestoreOrAppError,
-} from '../../utils/authValidation';
+import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import {
   partitionTrustedCircleDirectory,
   TRUSTED_CONTACT_CATEGORY_LABELS,
-  type TrustedCircleCategoryFilter,
 } from '../../utils/followRelations';
 import {
   compressImageFile,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
 import { isDataSaverConnection } from '../../utils/mediaCache';
-import { RoleBadge } from '../RoleBadge';
+import {
+  resolveTrustedContactWhatsappUrl,
+  rotateTrustedContactsDeterministically,
+  validateTrustedContactWhatsapp,
+} from '../../utils/trustedDirectory';
+import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
 
@@ -64,16 +64,38 @@ interface TrustedCircleSectionProps {
   ) => void;
 }
 
+type ActiveTrustedFilterTab =
+  | 'all'
+  | 'supreme_admin'
+  | 'officially_verified'
+  | 'trust_contacts';
+
 const FILTER_TABS: Array<{
-  id: TrustedCircleCategoryFilter;
+  id: ActiveTrustedFilterTab;
   label: string;
 }> = [
   { id: 'all', label: 'All' },
   { id: 'supreme_admin', label: 'Supreme Admin' },
   { id: 'officially_verified', label: 'Officially Verified' },
-  { id: 'community_recommended', label: 'Community Recommended' },
-  { id: 'official_contacts', label: 'Official Contacts' },
+  { id: 'trust_contacts', label: 'Trust Contacts' },
 ];
+
+function normalizeTrustedCircleFilter(
+  value: unknown
+): ActiveTrustedFilterTab {
+  if (
+    value === 'all' ||
+    value === 'supreme_admin' ||
+    value === 'officially_verified' ||
+    value === 'trust_contacts'
+  ) {
+    return value;
+  }
+  if (value === 'community_recommended' || value === 'official_contacts') {
+    return 'trust_contacts';
+  }
+  return 'all';
+}
 
 export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
   onNavigate,
@@ -98,10 +120,12 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
   const [officialContacts, setOfficialContacts] = useState<TrustedContact[]>(
     () => initialCache?.officialContacts ?? []
   );
-  const [activeFilter, setActiveFilter] =
-    useState<TrustedCircleCategoryFilter>(
-      () => initialCache?.activeFilter ?? 'all'
-    );
+  const [activeFilter, setActiveFilter] = useState<ActiveTrustedFilterTab>(() =>
+    normalizeTrustedCircleFilter(initialCache?.activeFilter)
+  );
+  const [selectedTrustContact, setSelectedTrustContact] =
+    useState<TrustedContact | null>(null);
+  const [rotationTimestampMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(() => !initialCache);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -216,7 +240,7 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         setVerifiedMembers(persisted.verifiedMembers);
         setOfficialContacts(persisted.officialContacts);
         if (persisted.activeFilter) {
-          setActiveFilter(persisted.activeFilter);
+          setActiveFilter(normalizeTrustedCircleFilter(persisted.activeFilter));
         }
         hasDirectoryDataRef.current = true;
         setLoading(false);
@@ -292,6 +316,15 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     [supremeAdmins, verifiedMembers, officialContacts]
   );
 
+  const rotatedTrustContacts = useMemo(
+    () =>
+      rotateTrustedContactsDeterministically(
+        partitioned.trustContacts,
+        rotationTimestampMs
+      ),
+    [partitioned.trustContacts, rotationTimestampMs]
+  );
+
   const resetForm = () => {
     setEditingContact(null);
     setFullName('');
@@ -351,9 +384,24 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
   const handleSaveContact = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!user || !isSupremeAdminOrOwner || submitting) return;
-    setSubmitting(true);
     setErrorMessage(null);
     setStatusMessage(null);
+
+    try {
+      validateTrustedContactWhatsapp(
+        contactNumber.trim() || whatsappLink.trim()
+      );
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(
+          error,
+          'A valid WhatsApp phone number or WhatsApp link is required for Trusted Contacts.'
+        )
+      );
+      return;
+    }
+
+    setSubmitting(true);
 
     try {
       if (editingContact) {
@@ -467,7 +515,7 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
               <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
                 {member.fullName}
               </span>
-              <RoleBadge badge={member.badge} size="xs" />
+              <ProfileBadgesRow profile={member} size="xs" />
               {isSelf && (
                 <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                   You
@@ -494,21 +542,27 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     );
   };
 
-  // Directory-only profiles strictly NEVER have user accounts, fake follower counts, or follow buttons.
+  // Directory-only Trust Contacts strictly NEVER have user accounts, fake follower counts, or follow buttons.
   const renderDirectoryOnlyCard = (contact: TrustedContact) => {
-    const waUrl = contact.contactNumber
-      ? buildWhatsAppChatUrl(contact.contactNumber)
-      : contact.whatsappLink || null;
+    const waUrl = resolveTrustedContactWhatsappUrl(contact);
     const isConfirmingDelete = confirmDeleteId === contact.id;
+    const categoryLabel =
+      contact.badgeLabel ||
+      TRUSTED_CONTACT_CATEGORY_LABELS[contact.category] ||
+      'Trust Contact';
 
     return (
       <article
         key={contact.id}
         data-directory-entry-id={contact.id}
-        className="rounded-xl border border-slate-200 bg-white p-4"
+        className="rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-purple-300"
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-start gap-3">
+          <button
+            type="button"
+            onClick={() => setSelectedTrustContact(contact)}
+            className="flex min-w-0 flex-1 items-start gap-3 text-left"
+          >
             <AvatarMedia
               fullName={contact.fullName}
               photoImageId={contact.photoImageId}
@@ -517,25 +571,21 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
               roundedClass="rounded-xl"
               textClass="text-xs"
             />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                  {contact.badgeLabel ||
-                    TRUSTED_CONTACT_CATEGORY_LABELS[contact.category] ||
-                    'Directory Profile'}
-                </span>
-                <span className="rounded-md border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
-                  Directory Profile
+                <h3 className="inline-flex min-w-0 items-center gap-1 font-display text-sm font-bold text-[#0B1A2E] hover:text-purple-700">
+                  <span className="truncate">{contact.fullName}</span>
+                  <RoleBadge badge="trust" size="xs" />
+                </h3>
+                <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+                  {categoryLabel}
                 </span>
               </div>
-              <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E]">
-                {contact.fullName}
-              </h3>
-              <p className="text-xs font-medium text-[#1E88E5]">
+              <p className="mt-0.5 text-xs font-medium text-[#1E88E5]">
                 {contact.roleTitle}
               </p>
             </div>
-          </div>
+          </button>
 
           {isSupremeAdminOrOwner && (
             <div className="flex shrink-0 items-center gap-1">
@@ -575,25 +625,34 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         )}
 
         {contact.description && (
-          <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-600">
             {contact.description}
           </p>
         )}
 
-        {waUrl && (
-          <a
-            href={waUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]"
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {waUrl && (
+            <a
+              href={waUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]"
+            >
+              <MessageCircle
+                className="h-3.5 w-3.5 text-[#1E88E5]"
+                aria-hidden="true"
+              />
+              Message on WhatsApp
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelectedTrustContact(contact)}
+            className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100"
           >
-            <MessageCircle
-              className="h-3.5 w-3.5 text-[#1E88E5]"
-              aria-hidden="true"
-            />
-            WhatsApp Contact
-          </a>
-        )}
+            Contact Info
+          </button>
+        </div>
 
         {isConfirmingDelete && isSupremeAdminOrOwner && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-900">
@@ -636,29 +695,22 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     );
   }
 
-  const filterCounts: Record<TrustedCircleCategoryFilter, number> = {
+  const filterCounts: Record<ActiveTrustedFilterTab, number> = {
     all:
       partitioned.supremeAdmins.length +
       partitioned.officiallyVerifiedUsers.length +
-      partitioned.officiallyVerifiedContacts.length +
-      partitioned.communityRecommendedContacts.length +
-      partitioned.officialCampusContacts.length,
+      partitioned.trustContacts.length,
     supreme_admin: partitioned.supremeAdmins.length,
-    officially_verified:
-      partitioned.officiallyVerifiedUsers.length +
-      partitioned.officiallyVerifiedContacts.length,
-    community_recommended: partitioned.communityRecommendedContacts.length,
-    official_contacts: partitioned.officialCampusContacts.length,
+    officially_verified: partitioned.officiallyVerifiedUsers.length,
+    trust_contacts: partitioned.trustContacts.length,
   };
 
   const showSupremeAdminSection =
     activeFilter === 'all' || activeFilter === 'supreme_admin';
   const showOfficiallyVerifiedSection =
     activeFilter === 'all' || activeFilter === 'officially_verified';
-  const showCommunityRecommendedSection =
-    activeFilter === 'all' || activeFilter === 'community_recommended';
-  const showOfficialContactsSection =
-    activeFilter === 'all' || activeFilter === 'official_contacts';
+  const showTrustContactsSection =
+    activeFilter === 'all' || activeFilter === 'trust_contacts';
 
   const hasExistingStoredPhoto = Boolean(
     editingContact &&
@@ -886,16 +938,17 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <input
               type="tel"
+              required={!whatsappLink.trim()}
               value={contactNumber}
               onChange={(e) => setContactNumber(e.target.value)}
-              placeholder="Phone / WhatsApp (+234...)"
+              placeholder="Required WhatsApp number (+234...)"
               className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
             />
             <input
               type="url"
               value={whatsappLink}
               onChange={(e) => setWhatsappLink(e.target.value)}
-              placeholder="WhatsApp link (optional https://wa.me/...)"
+              placeholder="Or WhatsApp link (https://wa.me/...)"
               className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
             />
           </div>
@@ -956,12 +1009,12 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         </div>
       )}
 
-      {/* 2. Officially Verified (Registered Verified Badge Holders + Admin-Listed Verified Profiles) */}
+      {/* 2. Officially Verified (Registered Blue VERIFIED Badge Holders & Verified Moderators) */}
       {showOfficiallyVerifiedSection && (
         <div className="space-y-3 border-t border-slate-100 pt-5">
           <div className="flex items-center gap-2">
             <ShieldCheck
-              className="h-4 w-4 text-emerald-600"
+              className="h-4 w-4 text-[#1E88E5]"
               aria-hidden="true"
             />
             <h2 className="font-display text-base font-bold text-[#0B1A2E]">
@@ -969,8 +1022,8 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-600">
-            Recognized LASUED contributors with the official green VERIFIED
-            badge and administrator-verified campus figures.
+            Recognized LASUED contributors and moderators holding the official
+            blue VERIFIED badge.
           </p>
 
           {filterCounts.officially_verified === 0 ? (
@@ -979,81 +1032,158 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
                 className="mx-auto mb-2 h-5 w-5 text-slate-400"
                 aria-hidden="true"
               />
-              No Officially Verified entries listed yet.
+              No Officially Verified accounts listed yet.
             </div>
           ) : (
-            <div className="space-y-3">
-              {partitioned.officiallyVerifiedUsers.length > 0 && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {partitioned.officiallyVerifiedUsers.map(
-                    renderRegisteredAccountCard
-                  )}
-                </div>
-              )}
-              {partitioned.officiallyVerifiedContacts.length > 0 && (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {partitioned.officiallyVerifiedContacts.map(
-                    renderDirectoryOnlyCard
-                  )}
-                </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {partitioned.officiallyVerifiedUsers.map(
+                renderRegisteredAccountCard
               )}
             </div>
           )}
         </div>
       )}
 
-      {/* 3. Community Recommended (Admin-Listed Non-Account Directory Profiles) */}
-      {showCommunityRecommendedSection && (
+      {/* 3. Trust Contacts (Unified Directory of Verified Offices, Faculty Reps & Mentors) */}
+      {showTrustContactsSection && (
         <div className="space-y-3 border-t border-slate-100 pt-5">
-          <div className="flex items-center gap-2">
-            <Award className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-              Community Recommended (
-              {partitioned.communityRecommendedContacts.length})
-            </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <RoleBadge badge="trust" size="sm" />
+              <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                Trust Contacts ({rotatedTrustContacts.length})
+              </h2>
+            </div>
           </div>
           <p className="text-xs text-slate-600">
-            Trusted community figures, student mentors, and recommended campus
-            resources curated by LASUED Intel administrators.
+            Curated campus offices, faculty presidents, advisers, and trusted
+            student contacts. Tap any card to view full details and open
+            WhatsApp directly.
           </p>
 
-          {partitioned.communityRecommendedContacts.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-center text-xs text-slate-600">
-              No Community Recommended directory profiles added yet.
+          {rotatedTrustContacts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
+              No Trust Contacts added yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {partitioned.communityRecommendedContacts.map(
-                renderDirectoryOnlyCard
-              )}
+              {rotatedTrustContacts.map(renderDirectoryOnlyCard)}
             </div>
           )}
         </div>
       )}
 
-      {/* 4. Official Campus Contacts (Lecturers, Faculty Presidents, Reps — Directory-Only) */}
-      {showOfficialContactsSection && (
-        <div className="space-y-3 border-t border-slate-100 pt-5">
-          <div>
-            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-              Official Campus Contacts (
-              {partitioned.officialCampusContacts.length})
-            </h2>
-            <p className="text-xs text-slate-600">
-              Admin-curated lecturers, faculty presidents, course advisers, and
-              student representatives (directory entries, not user accounts).
-            </p>
-          </div>
+      {/* Trust Contact Info & WhatsApp Modal */}
+      {selectedTrustContact && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1A2E]/60 p-4 backdrop-blur-xs"
+          onClick={() => setSelectedTrustContact(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`trust-modal-${selectedTrustContact.id}`}
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <AvatarMedia
+                  fullName={selectedTrustContact.fullName}
+                  photoImageId={selectedTrustContact.photoImageId}
+                  photoUrl={selectedTrustContact.photoUrl}
+                  sizeClass="h-12 w-12"
+                  roundedClass="rounded-xl"
+                  textClass="text-sm"
+                />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <RoleBadge badge="trust" size="sm" />
+                    <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+                      {selectedTrustContact.badgeLabel ||
+                        TRUSTED_CONTACT_CATEGORY_LABELS[
+                          selectedTrustContact.category
+                        ] ||
+                        'Trust Contact'}
+                    </span>
+                  </div>
+                  <h3
+                    id={`trust-modal-${selectedTrustContact.id}`}
+                    className="mt-1.5 font-display text-base font-bold text-[#0B1A2E]"
+                  >
+                    {selectedTrustContact.fullName}
+                  </h3>
+                  <p className="text-xs font-medium text-[#1E88E5]">
+                    {selectedTrustContact.roleTitle}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close contact info"
+                onClick={() => setSelectedTrustContact(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
 
-          {partitioned.officialCampusContacts.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
-              No official campus contacts added yet.
+            {(selectedTrustContact.department ||
+              selectedTrustContact.faculty) && (
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-600">
+                <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  {[
+                    selectedTrustContact.department,
+                    selectedTrustContact.faculty,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </p>
+            )}
+
+            {selectedTrustContact.contactNumber && (
+              <p className="mt-2 text-xs font-medium text-slate-700">
+                WhatsApp:{' '}
+                <span className="font-mono">
+                  {selectedTrustContact.contactNumber}
+                </span>
+              </p>
+            )}
+
+            {selectedTrustContact.description && (
+              <p className="mt-2.5 text-xs leading-relaxed text-slate-700">
+                {selectedTrustContact.description}
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+              {resolveTrustedContactWhatsappUrl(selectedTrustContact) && (
+                <a
+                  href={
+                    resolveTrustedContactWhatsappUrl(selectedTrustContact)!
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#132844]"
+                >
+                  <MessageCircle
+                    className="h-4 w-4 text-[#1E88E5]"
+                    aria-hidden="true"
+                  />
+                  Message on WhatsApp
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setSelectedTrustContact(null)}
+                className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {partitioned.officialCampusContacts.map(renderDirectoryOnlyCard)}
-            </div>
-          )}
+          </div>
         </div>
       )}
     </div>

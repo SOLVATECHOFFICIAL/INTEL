@@ -5,11 +5,36 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/((?!api/|assets/|manifest\\.webmanifest|sw\\.js|workbox-.*|offline\\.html|lasued-intel\\.webp|pwa-.*|apple-touch-icon\\.png|robots\\.txt).*)",
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/api/robots"
+    },
+    {
+      "source": "/((?!api/|assets/|manifest\\.webmanifest|sw\\.js|workbox-.*|offline\\.html|lasued-intel\\.webp|pwa-.*|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml|favicon\\.ico).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
+      ]
+    },
     {
       "source": "/sw.js",
       "headers": [
@@ -30,6 +55,15 @@
           "key": "Content-Type",
           "value": "application/manifest+json; charset=utf-8"
         },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
+        }
+      ]
+    },
+    {
+      "source": "/offline.html",
+      "headers": [
         {
           "key": "Cache-Control",
           "value": "public, max-age=3600"

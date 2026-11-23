@@ -39,6 +39,7 @@ import {
   fetchTrustedCircleDirectory,
   type AdminManagedMember,
 } from '../../services/governance';
+import { updateUndergroundBadgeVisibilitySetting } from '../../services/firestoreFoundation';
 import type {
   AnonymousPost,
   AnonymousReport,
@@ -58,11 +59,13 @@ import {
 import {
   canAccessAdminDashboard,
   canAccessFullAdminDashboard,
+  canRevealAnonymousAuthor,
   formatFirestoreOrAppError,
   getAccountTierDisplayLabel,
   isPermanentOwnerUser,
+  isUndergroundSupremeAdminUser,
 } from '../../utils/authValidation';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { AdminAuditLogTab } from '../admin/AdminAuditLogTab';
 import { AdminBadgesTab } from '../admin/AdminBadgesTab';
 import { AdminContentTab } from '../admin/AdminContentTab';
@@ -108,6 +111,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const {
     authReady,
     user,
+    profile,
     roleRecord,
     effectiveTier,
     isSuspended,
@@ -137,8 +141,43 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const [refreshToken, setRefreshToken] = useState(0);
 
   const [bootstrappingOwner, setBootstrappingOwner] = useState(false);
+  const [togglingBadgeVisibility, setTogglingBadgeVisibility] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isUndergroundAdmin = isUndergroundSupremeAdminUser(user);
+  const isSupremeBadgeVisible =
+    isUndergroundAdmin && profile?.badge === 'supreme_admin';
+
+  const handleToggleSelfSupremeBadge = async () => {
+    if (!user || !isUndergroundAdmin || isSuspended || togglingBadgeVisibility) {
+      return;
+    }
+    setTogglingBadgeVisibility(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      const nextShow = !isSupremeBadgeVisible;
+      const savedShow = await updateUndergroundBadgeVisibilitySetting(
+        user.uid,
+        nextShow
+      );
+      await refreshAccountState();
+      setStatusMessage(
+        savedShow
+          ? 'Your Supreme Admin badge is now visible on your profile and posts.'
+          : 'Your Supreme Admin badge is now hidden while your full Supreme Admin permissions remain active.'
+      );
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(
+          error,
+          'Unable to update your Supreme Admin badge visibility.'
+        )
+      );
+    } finally {
+      setTogglingBadgeVisibility(false);
+    }
+  };
 
   // Per-section real Firebase state
   const [overviewBundle, setOverviewBundle] =
@@ -429,10 +468,17 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
                     ? 'LASUED Intel Admin Dashboard'
                     : 'LASUED Intel Moderation Console'}
                 </h1>
-                <RoleBadge
-                  badge={isFullAdmin ? 'supreme_admin' : 'moderator'}
-                  size="sm"
-                />
+                {isFullAdmin ? (
+                  <RoleBadge badge="supreme_admin" size="sm" />
+                ) : (
+                  <ProfileBadgesRow
+                    profile={{
+                      badge: 'moderator',
+                      isVerified: Boolean(profile?.isVerified),
+                    }}
+                    size="sm"
+                  />
+                )}
               </div>
               <p className="mt-0.5 text-xs text-slate-600">
                 Authority: {getAccountTierDisplayLabel(effectiveTier)} ·{' '}
@@ -443,19 +489,43 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={reloadCurrentSection}
-            className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 text-[#1E88E5] ${
-                loadingSection ? 'animate-spin' : ''
-              }`}
-              aria-hidden="true"
-            />
-            Refresh Data
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isUndergroundAdmin && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isSupremeBadgeVisible}
+                onClick={() => void handleToggleSelfSupremeBadge()}
+                disabled={isSuspended || togglingBadgeVisibility}
+                className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
+                  isSupremeBadgeVisible
+                    ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#0B1A2E]'
+                    : 'border-slate-300 bg-slate-50 text-[#0B1A2E] hover:bg-slate-100'
+                }`}
+              >
+                {togglingBadgeVisibility ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Crown className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                )}
+                {isSupremeBadgeVisible ? 'Public Badge: ON' : 'Public Badge: OFF'}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={reloadCurrentSection}
+              className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 text-[#1E88E5] ${
+                  loadingSection ? 'animate-spin' : ''
+                }`}
+                aria-hidden="true"
+              />
+              Refresh Data
+            </button>
+          </div>
         </div>
 
         {needsOwnerBootstrap && (
@@ -646,6 +716,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               actorUid={user.uid}
               actorRole={actorRole}
               isFullAdmin={isFullAdmin}
+              canRevealAnonymous={canRevealAnonymousAuthor(user)}
               onSuccess={(msg) => {
                 setErrorMessage(null);
                 setStatusMessage(msg);

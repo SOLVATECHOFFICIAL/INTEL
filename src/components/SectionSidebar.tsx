@@ -15,6 +15,7 @@ import {
   canAccessFullAdminDashboard,
 } from '../utils/authValidation';
 import { getSectionsByGroup } from '../utils/sectionState';
+import { formatUnreadBadgeCount } from '../utils/pwa';
 import { getSearchScopeFromRoute } from '../utils/urlRouting';
 import {
   ActiveRoute,
@@ -23,6 +24,7 @@ import {
   SearchScopeId,
 } from '../types/platform';
 import { SectionIcon } from './SectionIcon';
+import { PWAInstallControl } from './pwa/PWAInstallControl';
 
 interface SectionSidebarProps {
   activeRoute: ActiveRoute;
@@ -45,6 +47,7 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
 }) => {
   const { user, profile, effectiveTier, isSuspended, unreadNotificationsCount } =
     useFirebase();
+  const unreadBadgeLabel = formatUnreadBadgeCount(unreadNotificationsCount);
   const feeds = getSectionsByGroup('Feeds');
   const hub = getSectionsByGroup('Campus Hub');
   const showAdmin = canAccessAdminDashboard(effectiveTier, isSuspended);
@@ -192,9 +195,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   <Bell className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                   <span>Notifications</span>
                 </span>
-                {user && unreadNotificationsCount > 0 && (
+                {user && unreadBadgeLabel && (
                   <span className="text-xs font-bold text-[#1E88E5] tabular-nums">
-                    {unreadNotificationsCount}
+                    {unreadBadgeLabel}
                   </span>
                 )}
               </button>
@@ -300,6 +303,8 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
             )}
           </ul>
         </div>
+
+        <PWAInstallControl variant="sidebar" />
       </div>
     </aside>
   );

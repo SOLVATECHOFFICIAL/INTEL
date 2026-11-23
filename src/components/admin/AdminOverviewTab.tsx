@@ -70,14 +70,14 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
     {
       label: 'Verified Members',
       value: stats.verifiedMembers,
-      sub: 'Green badge holders',
+      sub: 'Blue badge holders',
       icon: Award,
       section: 'badges' as AdminDashboardSectionId,
     },
     {
       label: 'Moderators',
       value: stats.moderators,
-      sub: 'Red badge team',
+      sub: 'Green badge team',
       icon: Shield,
       section: 'badges' as AdminDashboardSectionId,
     },
@@ -142,17 +142,17 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
     {
       label: 'Verified Members',
       count: stats.verifiedMembers,
-      color: 'bg-emerald-600',
+      color: 'bg-[#1E88E5]',
     },
     {
       label: 'Moderators',
       count: stats.moderators,
-      color: 'bg-red-600',
+      color: 'bg-emerald-600',
     },
     {
       label: 'Supreme Admins',
       count: stats.supremeAdmins,
-      color: 'bg-purple-700',
+      color: 'bg-[#0B1A2E]',
     },
   ];
 

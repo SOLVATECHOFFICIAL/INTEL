@@ -6,6 +6,7 @@ export type UserRole =
   | 'member';
 
 export type BadgeType = 'none' | 'verified' | 'moderator' | 'supreme_admin';
+export type PublicBadgeType = 'verified' | 'moderator' | 'trust';
 
 export type AccountStatus = 'active' | 'suspended';
 
@@ -214,6 +215,8 @@ export const COLLECTION_NAMES = {
   notifications: 'notifications',
   polls: 'polls',
   platformSettings: 'platformSettings',
+  postViews: 'postViews',
+  marketplaceUpdates: 'marketplaceUpdates',
 } as const;
 
 export const SUBCOLLECTION_NAMES = {
@@ -262,6 +265,9 @@ export interface PublicUserProfile {
   publicWhatsapp?: string;
   showWhatsappPublicly: boolean;
   badge: BadgeType;
+  isVerified?: boolean;
+  hasPublicActivity?: boolean;
+  anonymousLikesReceivedCount?: number;
   accountStatus: AccountStatus;
   isHiddenFromDirectory: boolean;
   followersCount: number;
@@ -288,6 +294,8 @@ export interface PublicProfileProjection {
   publicWhatsapp?: string;
   showWhatsappPublicly: boolean;
   badge: BadgeType;
+  isVerified?: boolean;
+  anonymousLikesReceivedCount?: number;
   accountStatus: AccountStatus;
   followersCount: number;
   followingCount: number;
@@ -309,6 +317,7 @@ export interface PrivateUserData {
   ownedUsernames?: string[];
   ownedAnonymousPostIds?: string[];
   ownedAnonymousCommentIds?: string[];
+  showSupremeAdminBadge?: boolean;
   updatedAt: unknown;
 }
 
@@ -329,6 +338,7 @@ export interface UserRoleRecord {
   uid: string;
   role: UserRole;
   badge: BadgeType;
+  isVerified?: boolean;
   isPermanentOwner: boolean;
   isHiddenFromDirectory: boolean;
   grantedBy?: string;
@@ -429,6 +439,7 @@ export interface CommunityPost {
   visibility: 'public';
   likesCount: number;
   commentsCount: number;
+  viewsCount?: number;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -487,6 +498,7 @@ export interface AnonymousPost {
   visibility: 'public';
   likesCount: number;
   commentsCount: number;
+  viewsCount?: number;
   createdAt: unknown;
   updatedAt: unknown;
 }
@@ -709,35 +721,59 @@ export interface PlatformSetting {
   updatedAt: unknown;
 }
 
+export type MarketplaceUpdateCategory =
+  | 'safety'
+  | 'policy'
+  | 'notice'
+  | 'general';
+
+export interface MarketplaceUpdate {
+  id: string;
+  title: string;
+  body: string;
+  category: MarketplaceUpdateCategory;
+  published: boolean;
+  createdByUid: string;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
 export interface BadgeVisualMeta {
-  badge: BadgeType;
+  badge: BadgeType | 'trust';
   label: string;
   colorDescription: string;
   canPublishOrdinaryFeed: boolean;
 }
 
-export function getBadgeVisualMeta(badge: BadgeType): BadgeVisualMeta {
+export function getBadgeVisualMeta(badge: BadgeType | 'trust'): BadgeVisualMeta {
   switch (badge) {
     case 'supreme_admin':
       return {
         badge: 'supreme_admin',
         label: 'Supreme Admin',
-        colorDescription: 'Purple, thick, shiny',
+        colorDescription: 'Navy & Royal Blue',
         canPublishOrdinaryFeed: true,
       };
     case 'moderator':
       return {
         badge: 'moderator',
         label: 'Moderator',
-        colorDescription: 'Red',
+        colorDescription: 'Green',
         canPublishOrdinaryFeed: true,
       };
     case 'verified':
       return {
         badge: 'verified',
         label: 'Verified',
-        colorDescription: 'Green',
+        colorDescription: 'Blue',
         canPublishOrdinaryFeed: true,
+      };
+    case 'trust':
+      return {
+        badge: 'trust',
+        label: 'Trust',
+        colorDescription: 'Purple',
+        canPublishOrdinaryFeed: false,
       };
     case 'none':
     default:
@@ -748,6 +784,39 @@ export function getBadgeVisualMeta(badge: BadgeType): BadgeVisualMeta {
         canPublishOrdinaryFeed: false,
       };
   }
+}
+
+export function resolvePublicBadgesForProfile(
+  profile: Pick<PublicProfileProjection, 'badge' | 'isVerified'> | null | undefined
+): BadgeType[] {
+  if (!profile) return [];
+  if (profile.badge === 'supreme_admin') {
+    return ['supreme_admin'];
+  }
+  if (profile.badge === 'moderator') {
+    return profile.isVerified ? ['verified', 'moderator'] : ['moderator'];
+  }
+  if (profile.badge === 'verified') {
+    return ['verified'];
+  }
+  return profile.isVerified ? ['verified'] : [];
+}
+
+export type BadgeRenderVariant = 'icon' | 'full';
+
+/**
+ * Resolves how a badge renders:
+ * - 'icon': Small circular TikTok-style badge next to a user's name on posts, comments, replies, and cards.
+ * - 'full': Full rectangular badge when opening a profile, contact detail, or administrative summary.
+ */
+export function resolveBadgeRenderVariant(
+  size: 'xs' | 'sm' | 'md' = 'sm',
+  explicitVariant?: BadgeRenderVariant
+): BadgeRenderVariant {
+  if (explicitVariant) {
+    return explicitVariant;
+  }
+  return size === 'xs' ? 'icon' : 'full';
 }
 
 export function isValidFirestoreId(value: string): boolean {
@@ -1184,6 +1253,16 @@ export function validateTrustedContactPayload(contact: TrustedContact): void {
   }
   if (contact.badgeLabel && contact.badgeLabel.trim().length > 48) {
     throw new Error('TrustedContact badgeLabel must be 48 characters or fewer.');
+  }
+  const phone = (contact.contactNumber ?? '').trim();
+  const waLink = (contact.whatsappLink ?? '').trim();
+  const phoneDigits = phone.replace(/\D/g, '');
+  const hasValidPhone = /^[+0-9\s()-]{7,24}$/.test(phone) && phoneDigits.length >= 7 && phoneDigits.length <= 15;
+  const hasValidWaLink = /^https:\/\/(wa\.me|api\.whatsapp\.com)\/[0-9]{7,15}/i.test(waLink);
+  if (!hasValidPhone && !hasValidWaLink) {
+    throw new Error(
+      'A valid WhatsApp number is compulsory before publishing a Trust contact.'
+    );
   }
 }
 

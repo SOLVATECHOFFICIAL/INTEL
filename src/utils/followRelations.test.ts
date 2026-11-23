@@ -148,6 +148,28 @@ test('partitionTrustedCircleDirectory isolates Supreme Admin, Verified, Recommen
     followingCount: 2,
     createdAt: 1,
   };
+  const verifiedModerator: PublicProfileProjection = {
+    fullName: 'Mod Verified',
+    username: 'mod_verified',
+    showWhatsappPublicly: false,
+    badge: 'moderator',
+    isVerified: true,
+    accountStatus: 'active',
+    followersCount: 5,
+    followingCount: 1,
+    createdAt: 1,
+  };
+  const unverifiedModerator: PublicProfileProjection = {
+    fullName: 'Mod Plain',
+    username: 'mod_plain',
+    showWhatsappPublicly: false,
+    badge: 'moderator',
+    isVerified: false,
+    accountStatus: 'active',
+    followersCount: 4,
+    followingCount: 1,
+    createdAt: 1,
+  };
   const recommendedContact: TrustedContact = {
     id: 'c1',
     entryType: 'admin_listed_contact',
@@ -155,6 +177,7 @@ test('partitionTrustedCircleDirectory isolates Supreme Admin, Verified, Recommen
     fullName: 'Dr. Bello',
     category: 'community_recommended',
     roleTitle: 'Student Mentor',
+    contactNumber: '+2348012345678',
     createdByUid: 'admin1',
     createdAt: 1,
     updatedAt: 1,
@@ -166,6 +189,7 @@ test('partitionTrustedCircleDirectory isolates Supreme Admin, Verified, Recommen
     fullName: 'Prof. Okonkwo',
     category: 'lecturer',
     roleTitle: 'HOD Computer Science',
+    contactNumber: '+2348098765432',
     createdByUid: 'admin1',
     createdAt: 1,
     updatedAt: 1,
@@ -173,12 +197,13 @@ test('partitionTrustedCircleDirectory isolates Supreme Admin, Verified, Recommen
 
   const partitioned = partitionTrustedCircleDirectory({
     supremeAdmins: [supremeAdmin],
-    verifiedMembers: [verified],
+    verifiedMembers: [verified, verifiedModerator, unverifiedModerator],
     officialContacts: [recommendedContact, lecturerContact],
   });
 
   assert.equal(partitioned.supremeAdmins.length, 1);
-  assert.equal(partitioned.officiallyVerifiedUsers.length, 1);
+  assert.equal(partitioned.officiallyVerifiedUsers.length, 2);
+  assert.equal(partitioned.trustContacts.length, 2);
   assert.equal(partitioned.communityRecommendedContacts.length, 1);
   assert.equal(partitioned.officialCampusContacts.length, 1);
   assert.equal(canContactHaveFollowControl(recommendedContact), false);

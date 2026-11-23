@@ -1100,6 +1100,28 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         </div>
 
         <div className="mt-5">
+          {selectedPostId &&
+            loadState === 'ready' &&
+            deepLinkedPost?.targetId === selectedPostId &&
+            deepLinkedPost.item === null &&
+            !postItems.some((item) => item.post.id === selectedPostId) && (
+              <div
+                role="status"
+                className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:text-sm"
+              >
+                <span>
+                  This post is unavailable or may have been deleted.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onNavigate(activeFeedTab)}
+                  className="font-semibold text-[#1E88E5] hover:underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
           {activeFeedTab === 'following' && !user ? (
             <GuestPromptCard
               title="Sign in to follow campus accounts"
@@ -1370,7 +1392,6 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                             ownedAnonymousCommentIds={
                               discovery?.ownedAnonCommentIds
                             }
-                            allowAnonymousReport={false}
                             onSaveChanged={(postId, saved) =>
                               setDiscovery((prev) => {
                                 if (!prev) return prev;

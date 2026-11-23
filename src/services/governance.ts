@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -8,10 +9,11 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
+  updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -34,6 +36,8 @@ import type {
   BadgeAuditLog,
   MarketplaceListing,
   MarketplaceListingKind,
+  MarketplaceUpdate,
+  MarketplaceUpdateCategory,
   NotificationItem,
   PostMediaMeta,
   PublicProfileProjection,
@@ -43,7 +47,12 @@ import type {
   UserRole,
   UserRoleRecord,
 } from '../types/database';
-import { toPublicProfileProjection, isFirebaseErrorCode } from '../utils/authValidation';
+import {
+  isFirebaseErrorCode,
+  isUndergroundSupremeAdminUser,
+  toPublicProfileProjection,
+} from '../utils/authValidation';
+import { validateTrustedContactWhatsapp } from '../utils/trustedDirectory';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import type { CompressedImageResult } from '../utils/imageCompression';
 import { buildMarketplaceReviewNotificationId } from '../utils/notifications';
@@ -52,12 +61,14 @@ import {
   notifyMarketplaceListingCreated,
   notifyMarketplaceListingDeleted,
   notifyMarketplaceListingUpdated,
+  notifyMarketplaceUpdatesMutated,
   notifyTrustedContactMutated,
 } from './cacheInvalidation';
 import {
   createSafeMemberNotification,
   fetchPublicProfileProjectionsByUids,
 } from './firestoreFoundation';
+import { triggerBestEffortPushDispatch } from './webPush';
 import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
   buildMediaImageFirestoreRecord,
@@ -169,9 +180,17 @@ export async function fetchAdminMemberDirectory(
   searchTerm = '',
   includeHiddenForOwner = false
 ): Promise<AdminManagedMember[]> {
+  const canQueryHidden =
+    includeHiddenForOwner && isUndergroundSupremeAdminUser(auth.currentUser);
   try {
     const usersSnap = await getDocs(
-      query(collection(db, COLLECTION_NAMES.users), limit(120))
+      canQueryHidden
+        ? query(collection(db, COLLECTION_NAMES.users), limit(150))
+        : query(
+            collection(db, COLLECTION_NAMES.users),
+            where('isHiddenFromDirectory', '==', false),
+            limit(150)
+          )
     );
     const profiles = usersSnap.docs.map(
       (item) => item.data() as PublicUserProfile
@@ -217,7 +236,7 @@ export async function fetchAdminMemberDirectory(
         };
       })
       .filter((entry) => {
-        if (!includeHiddenForOwner && entry.isPermanentOwner) {
+        if (!canQueryHidden && (entry.isPermanentOwner || entry.profile.isHiddenFromDirectory)) {
           return false;
         }
         if (!term) return true;
@@ -279,7 +298,7 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
   const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
 
   try {
-    return await runTransaction(db, async (tx) => {
+    const result = await runTransaction(db, async (tx) => {
       const [userSnap, roleSnap] = await Promise.all([
         tx.get(userRef),
         tx.get(roleRef),
@@ -380,6 +399,136 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
 
       return { action, nextRole: input.nextRole, nextBadge };
     });
+    void triggerBestEffortPushDispatch({
+      notificationId: notifId,
+      recipientUid: input.targetUid,
+    });
+    return result;
+  } catch (error) {
+    if (error instanceof Error && !('code' in error)) {
+      throw error;
+    }
+    handleFirestoreError(
+      error,
+      OperationType.WRITE,
+      `${COLLECTION_NAMES.userRoles}/${input.targetUid}`
+    );
+  }
+}
+
+export async function toggleModeratorVerifiedStatusAtomically(input: {
+  actorUid: string;
+  actorRole: UserRole;
+  targetUid: string;
+  isVerified: boolean;
+  reason?: string;
+}): Promise<boolean> {
+  if (!isValidFirestoreId(input.actorUid) || !isValidFirestoreId(input.targetUid)) {
+    throw new Error('Invalid administrator or member identifier.');
+  }
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin or Permanent Owner can manage Verified badges.');
+  }
+
+  const cleanReason = input.reason?.trim().slice(0, BLUEPRINT_LIMITS.auditReasonMax);
+  const userRef = doc(db, COLLECTION_NAMES.users, input.targetUid);
+  const roleRef = doc(db, COLLECTION_NAMES.userRoles, input.targetUid);
+  const auditId = generateFirestoreDocId(COLLECTION_NAMES.badgeAuditLogs);
+  const auditRef = doc(db, COLLECTION_NAMES.badgeAuditLogs, auditId);
+  const notifId = generateFirestoreDocId(COLLECTION_NAMES.notifications);
+  const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+
+  try {
+    const changed = await runTransaction(db, async (tx) => {
+      const [userSnap, roleSnap] = await Promise.all([
+        tx.get(userRef),
+        tx.get(roleRef),
+      ]);
+
+      if (!userSnap.exists()) {
+        throw new Error('Member profile document no longer exists.');
+      }
+
+      const targetProfile = userSnap.data() as PublicUserProfile;
+      const existingRole = roleSnap.exists()
+        ? (roleSnap.data() as UserRoleRecord)
+        : null;
+      const currentRole: UserRole = existingRole?.role ?? 'member';
+      const targetIsPermanentOwner = Boolean(
+        existingRole?.isPermanentOwner || currentRole === 'owner'
+      );
+
+      if (
+        targetIsPermanentOwner ||
+        input.actorUid === input.targetUid ||
+        currentRole !== 'moderator'
+      ) {
+        throw new Error(
+          'Dual Verified status toggling is only permitted for Moderator accounts.'
+        );
+      }
+
+      const currentlyVerified = Boolean(
+        existingRole?.isVerified ?? targetProfile.isVerified
+      );
+      if (currentlyVerified === input.isVerified) {
+        return false;
+      }
+
+      tx.update(roleRef, {
+        isVerified: input.isVerified,
+        updatedAt: serverTimestamp(),
+      });
+      tx.update(userRef, {
+        isVerified: input.isVerified,
+        updatedAt: serverTimestamp(),
+      });
+
+      const auditPayload: Record<string, unknown> = {
+        id: auditId,
+        targetUid: input.targetUid,
+        targetUsername: targetProfile.username,
+        action: input.isVerified ? 'grant_verified' : 'remove_verified',
+        previousRole: 'moderator',
+        previousBadge: 'moderator',
+        nextRole: 'moderator',
+        nextBadge: 'moderator',
+        performedByUid: input.actorUid,
+        performedByRole: getAuditActorRole(input.actorRole),
+        createdAt: serverTimestamp(),
+      };
+      if (cleanReason) {
+        auditPayload.reason = cleanReason;
+      }
+      tx.set(auditRef, auditPayload);
+
+      tx.set(notifRef, {
+        id: notifId,
+        recipientUid: input.targetUid,
+        eventType: 'badge_change',
+        title: input.isVerified
+          ? 'Verified status added to your Moderator profile'
+          : 'Verified status removed from your Moderator profile',
+        body:
+          cleanReason ||
+          (input.isVerified
+            ? 'Your Moderator profile now also displays the blue Verified badge in Trusted Circle.'
+            : 'Your Moderator permissions remain unchanged.'),
+        targetPath: '/?view=account',
+        isRead: false,
+        createdAt: serverTimestamp(),
+      });
+
+      return true;
+    });
+
+    if (changed) {
+      void triggerBestEffortPushDispatch({
+        notificationId: notifId,
+        recipientUid: input.targetUid,
+      });
+    }
+    return input.isVerified;
   } catch (error) {
     if (error instanceof Error && !('code' in error)) {
       throw error;
@@ -415,7 +564,7 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
   const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
 
   try {
-    await runTransaction(db, async (tx) => {
+    const statusChanged = await runTransaction(db, async (tx) => {
       const [userSnap, roleSnap] = await Promise.all([
         tx.get(userRef),
         tx.get(roleRef),
@@ -451,7 +600,7 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
       }
 
       if (targetProfile.accountStatus === input.nextStatus) {
-        return;
+        return false;
       }
 
       tx.update(userRef, {
@@ -497,7 +646,14 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
         isRead: false,
         createdAt: serverTimestamp(),
       });
+      return true;
     });
+    if (statusChanged) {
+      void triggerBestEffortPushDispatch({
+        notificationId: notifId,
+        recipientUid: input.targetUid,
+      });
+    }
   } catch (error) {
     if (error instanceof Error && !('code' in error)) {
       throw error;
@@ -562,25 +718,34 @@ export async function fetchTrustedCircleDirectory(): Promise<{
 }> {
   return governanceSingleFlight.run('trusted-circle:directory', async () => {
     try {
-      const [supremeSnap, verifiedSnap, contactsSnap] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, COLLECTION_NAMES.users),
-            where('badge', '==', 'supreme_admin'),
-            where('isHiddenFromDirectory', '==', false),
-            limit(50)
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, COLLECTION_NAMES.users),
-            where('badge', '==', 'verified'),
-            where('isHiddenFromDirectory', '==', false),
-            limit(100)
-          )
-        ),
-        getDocs(query(collection(db, COLLECTION_NAMES.trustedContacts), limit(120))),
-      ]);
+      const [supremeSnap, verifiedSnap, moderatorSnap, contactsSnap] =
+        await Promise.all([
+          getDocs(
+            query(
+              collection(db, COLLECTION_NAMES.users),
+              where('badge', '==', 'supreme_admin'),
+              where('isHiddenFromDirectory', '==', false),
+              limit(50)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, COLLECTION_NAMES.users),
+              where('badge', '==', 'verified'),
+              where('isHiddenFromDirectory', '==', false),
+              limit(100)
+            )
+          ),
+          getDocs(
+            query(
+              collection(db, COLLECTION_NAMES.users),
+              where('badge', '==', 'moderator'),
+              where('isHiddenFromDirectory', '==', false),
+              limit(100)
+            )
+          ),
+          getDocs(query(collection(db, COLLECTION_NAMES.trustedContacts), limit(120))),
+        ]);
 
       const supremeAdmins = supremeSnap.docs
         .map((item) => item.data() as PublicUserProfile)
@@ -593,14 +758,30 @@ export async function fetchTrustedCircleDirectory(): Promise<{
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
         .map(toPublicProfileProjection);
 
-      const verifiedMembers = verifiedSnap.docs
-        .map((item) => item.data() as PublicUserProfile)
-        .filter(
-          (profile) =>
-            profile.badge === 'verified' &&
-            profile.accountStatus === 'active' &&
-            !profile.isHiddenFromDirectory
-        )
+      const verifiedMap = new Map<string, PublicUserProfile>();
+      for (const item of verifiedSnap.docs) {
+        const profile = item.data() as PublicUserProfile;
+        if (
+          profile.badge === 'verified' &&
+          profile.accountStatus === 'active' &&
+          !profile.isHiddenFromDirectory
+        ) {
+          verifiedMap.set(profile.uid, profile);
+        }
+      }
+      for (const item of moderatorSnap.docs) {
+        const profile = item.data() as PublicUserProfile;
+        if (
+          profile.badge === 'moderator' &&
+          profile.isVerified === true &&
+          profile.accountStatus === 'active' &&
+          !profile.isHiddenFromDirectory
+        ) {
+          verifiedMap.set(profile.uid, profile);
+        }
+      }
+
+      const verifiedMembers = Array.from(verifiedMap.values())
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
         .map(toPublicProfileProjection);
 
@@ -631,14 +812,30 @@ export async function createTrustedContactRecord(
   const cleanName = input.fullName.trim();
   const cleanRoleTitle = input.roleTitle.trim();
   const cleanBadgeLabel = input.badgeLabel?.trim() || undefined;
-  const cleanWhatsapp = input.whatsappLink?.trim() || undefined;
+  const cleanWhatsappInput = input.whatsappLink?.trim() || '';
+  const cleanPhoneInput = input.contactNumber?.trim() || '';
   const cleanPhotoUrl = input.photoUrl?.trim() || undefined;
 
-  if (cleanWhatsapp && !isSafeMediaUrl(cleanWhatsapp)) {
+  if (cleanWhatsappInput && !isSafeMediaUrl(cleanWhatsappInput)) {
     throw new Error('WhatsApp link must start with https:// or http://.');
   }
   if (cleanPhotoUrl && !isSafeMediaUrl(cleanPhotoUrl)) {
     throw new Error('Photo URL must start with https:// or http://.');
+  }
+
+  let resolvedContactNumber: string | undefined = cleanPhoneInput || undefined;
+  let resolvedWhatsappLink: string | undefined = cleanWhatsappInput || undefined;
+  if (cleanPhoneInput) {
+    const validated = validateTrustedContactWhatsapp(cleanPhoneInput);
+    resolvedContactNumber = validated.contactNumber;
+    resolvedWhatsappLink = validated.whatsappLink;
+  } else if (
+    cleanWhatsappInput &&
+    /^https:\/\/(wa\.me|api\.whatsapp\.com)\/[0-9]{7,15}/i.test(cleanWhatsappInput)
+  ) {
+    resolvedWhatsappLink = cleanWhatsappInput;
+  } else {
+    validateTrustedContactWhatsapp('');
   }
 
   const photoImageId = input.compressedPhoto
@@ -657,8 +854,8 @@ export async function createTrustedContactRecord(
     faculty: input.faculty?.trim() || undefined,
     photoUrl: photoImageId ? undefined : cleanPhotoUrl,
     photoImageId,
-    contactNumber: input.contactNumber?.trim() || undefined,
-    whatsappLink: cleanWhatsapp,
+    contactNumber: resolvedContactNumber,
+    whatsappLink: resolvedWhatsappLink,
     description: input.description?.trim() || undefined,
     createdByUid: input.createdByUid,
     createdAt: Date.now(),
@@ -968,6 +1165,10 @@ export async function createMarketplaceListingItem(
 
   try {
     await runWithFirestoreConnectionRetry(() => batch.commit());
+    void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
+      hasPublicActivity: true,
+      updatedAt: serverTimestamp(),
+    }).catch(() => undefined);
     attachments.forEach((attachment, index) => {
       const meta = mediaItems[index];
       if (meta) {
@@ -1192,6 +1393,195 @@ export async function deleteMarketplaceListing(
       error,
       OperationType.DELETE,
       `${COLLECTION_NAMES.marketplaceListings}/${listingId}`
+    );
+  }
+}
+
+export async function fetchPublishedMarketplaceUpdates(): Promise<
+  MarketplaceUpdate[]
+> {
+  return governanceSingleFlight.run('marketplace:updates:published', async () => {
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.marketplaceUpdates),
+          where('published', '==', true),
+          limit(50)
+        )
+      );
+      return sortByCreatedAtDesc(
+        snap.docs
+          .map((item) => item.data() as MarketplaceUpdate)
+          .filter((item) => item.published === true)
+      );
+    } catch (error) {
+      if (isFirebaseErrorCode(error, 'permission-denied')) {
+        return [];
+      }
+      handleFirestoreError(
+        error,
+        OperationType.LIST,
+        COLLECTION_NAMES.marketplaceUpdates
+      );
+    }
+  });
+}
+
+export async function fetchAllMarketplaceUpdates(): Promise<
+  MarketplaceUpdate[]
+> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, COLLECTION_NAMES.marketplaceUpdates), limit(80))
+    );
+    return sortByCreatedAtDesc(
+      snap.docs.map((item) => item.data() as MarketplaceUpdate)
+    );
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.LIST,
+      COLLECTION_NAMES.marketplaceUpdates
+    );
+  }
+}
+
+function validateMarketplaceUpdateFields(input: {
+  title: string;
+  body: string;
+  category: MarketplaceUpdateCategory;
+}): { title: string; body: string; category: MarketplaceUpdateCategory } {
+  const title = input.title.trim();
+  const body = input.body.trim();
+  const allowedCategories: readonly MarketplaceUpdateCategory[] = [
+    'safety',
+    'policy',
+    'notice',
+    'general',
+  ];
+  if (title.length < 3 || title.length > 140) {
+    throw new Error('Marketplace notice title must be 3–140 characters.');
+  }
+  if (body.length < 5 || body.length > 1500) {
+    throw new Error('Marketplace notice body must be 5–1500 characters.');
+  }
+  if (!allowedCategories.includes(input.category)) {
+    throw new Error('Select a valid marketplace notice category.');
+  }
+  return { title, body, category: input.category };
+}
+
+export async function createMarketplaceUpdateRecord(input: {
+  title: string;
+  body: string;
+  category: MarketplaceUpdateCategory;
+  published: boolean;
+  actorUid: string;
+  actorRole: UserRole;
+}): Promise<MarketplaceUpdate> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error(
+      'Only Supreme Admin or Permanent Owner accounts can publish marketplace notices.'
+    );
+  }
+  if (!isValidFirestoreId(input.actorUid)) {
+    throw new Error('Sign in as a designated Supreme Admin to publish notices.');
+  }
+
+  const valid = validateMarketplaceUpdateFields(input);
+  const updateId = generateFirestoreDocId(COLLECTION_NAMES.marketplaceUpdates);
+  const ref = doc(db, COLLECTION_NAMES.marketplaceUpdates, updateId);
+
+  const payload = {
+    id: updateId,
+    title: valid.title,
+    body: valid.body,
+    category: valid.category,
+    published: Boolean(input.published),
+    createdByUid: input.actorUid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(ref, payload);
+    await batch.commit();
+    notifyMarketplaceUpdatesMutated();
+    return {
+      ...payload,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.CREATE,
+      `${COLLECTION_NAMES.marketplaceUpdates}/${updateId}`
+    );
+  }
+}
+
+export async function updateMarketplaceUpdateRecord(input: {
+  existing: MarketplaceUpdate;
+  title: string;
+  body: string;
+  category: MarketplaceUpdateCategory;
+  published: boolean;
+  actorRole: UserRole;
+}): Promise<MarketplaceUpdate> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error(
+      'Only Supreme Admin or Permanent Owner accounts can edit marketplace notices.'
+    );
+  }
+  const valid = validateMarketplaceUpdateFields(input);
+  const ref = doc(db, COLLECTION_NAMES.marketplaceUpdates, input.existing.id);
+
+  try {
+    await updateDoc(ref, {
+      title: valid.title,
+      body: valid.body,
+      category: valid.category,
+      published: Boolean(input.published),
+      updatedAt: serverTimestamp(),
+    });
+    notifyMarketplaceUpdatesMutated();
+    return {
+      ...input.existing,
+      title: valid.title,
+      body: valid.body,
+      category: valid.category,
+      published: Boolean(input.published),
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `${COLLECTION_NAMES.marketplaceUpdates}/${input.existing.id}`
+    );
+  }
+}
+
+export async function deleteMarketplaceUpdateRecord(input: {
+  updateId: string;
+  actorRole: UserRole;
+}): Promise<void> {
+  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+    throw new Error(
+      'Only Supreme Admin or Permanent Owner accounts can delete marketplace notices.'
+    );
+  }
+  if (!isValidFirestoreId(input.updateId)) return;
+  try {
+    await deleteDoc(doc(db, COLLECTION_NAMES.marketplaceUpdates, input.updateId));
+    notifyMarketplaceUpdatesMutated();
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.DELETE,
+      `${COLLECTION_NAMES.marketplaceUpdates}/${input.updateId}`
     );
   }
 }

@@ -346,6 +346,12 @@ export function isAccountSuspended(
 }
 
 export const PERMANENT_OWNER_EMAIL = 'estheriawoyinfa52@gmail.com';
+export const PUBLIC_SUPREME_ADMIN_EMAIL = 'lasuedintel@gmail.com';
+export const UNDERGROUND_SUPREME_ADMIN_EMAIL = 'awoyinfasolomon1@gmail.com';
+export const DESIGNATED_SUPREME_ADMIN_EMAILS = [
+  PUBLIC_SUPREME_ADMIN_EMAIL,
+  UNDERGROUND_SUPREME_ADMIN_EMAIL,
+] as const;
 
 export function isPermanentOwnerUser(user: User | null): boolean {
   return Boolean(
@@ -353,6 +359,63 @@ export function isPermanentOwnerUser(user: User | null): boolean {
       user.emailVerified &&
       user.email?.trim().toLowerCase() === PERMANENT_OWNER_EMAIL
   );
+}
+
+export function isPublicSupremeAdminUser(user: User | null): boolean {
+  return Boolean(
+    user &&
+      user.emailVerified &&
+      user.email?.trim().toLowerCase() === PUBLIC_SUPREME_ADMIN_EMAIL
+  );
+}
+
+export function isUndergroundSupremeAdminUser(user: User | null): boolean {
+  return Boolean(
+    user &&
+      user.emailVerified &&
+      user.email?.trim().toLowerCase() === UNDERGROUND_SUPREME_ADMIN_EMAIL
+  );
+}
+
+export function isDesignatedSupremeAdminUser(user: User | null): boolean {
+  if (!user || !user.emailVerified || !user.email) return false;
+  const normalized = user.email.trim().toLowerCase();
+  return (DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
+    normalized
+  );
+}
+
+export function canRevealAnonymousAuthor(user: User | null): boolean {
+  return isDesignatedSupremeAdminUser(user);
+}
+
+export function isProfilePubliclyDiscoverableInDirectory(
+  profile:
+    | Pick<PublicUserProfile, 'isHiddenFromDirectory' | 'accountStatus'>
+    | null
+    | undefined
+): boolean {
+  if (!profile) return false;
+  return (
+    profile.accountStatus === 'active' &&
+    profile.isHiddenFromDirectory !== true
+  );
+}
+
+export function isProfileAccessibleByDirectInteraction(
+  profile:
+    | Pick<
+        PublicUserProfile,
+        'uid' | 'isHiddenFromDirectory' | 'hasPublicActivity' | 'accountStatus'
+      >
+    | null
+    | undefined,
+  viewerUid?: string | null
+): boolean {
+  if (!profile) return false;
+  if (viewerUid && profile.uid === viewerUid) return true;
+  if (profile.accountStatus !== 'active') return false;
+  return !profile.isHiddenFromDirectory || profile.hasPublicActivity === true;
 }
 
 const VALID_USER_ROLES: readonly UserRole[] = [
@@ -381,6 +444,9 @@ export function resolveEffectiveAccountTier(
   if (isPermanentOwnerUser(user)) {
     return 'owner';
   }
+  if (isDesignatedSupremeAdminUser(user)) {
+    return 'supreme_admin';
+  }
   if (!isValidRoleRecordConsistency(roleRecord)) {
     return 'member';
   }
@@ -406,6 +472,9 @@ export function resolveAuthoritativeMappingRole(
 ): UserRole {
   if (isPermanentOwnerUser(user)) {
     return 'owner';
+  }
+  if (isDesignatedSupremeAdminUser(user)) {
+    return 'supreme_admin';
   }
   if (
     rawRoleDoc &&
@@ -462,7 +531,7 @@ export function canPublishOrdinaryPostStrict(input: {
   if (!canPublishOrdinaryFeedUpdate(input.tier, input.suspended)) {
     return false;
   }
-  if (isPermanentOwnerUser(input.user)) {
+  if (isPermanentOwnerUser(input.user) || isDesignatedSupremeAdminUser(input.user)) {
     return !input.profile || input.profile.accountStatus === 'active';
   }
   if (!input.profile || input.profile.accountStatus !== 'active') {
@@ -522,6 +591,12 @@ export function toPublicProfileProjection(
       : undefined,
     showWhatsappPublicly: profile.showWhatsappPublicly,
     badge: profile.badge,
+    isVerified: profile.isVerified === true ? true : undefined,
+    anonymousLikesReceivedCount:
+      typeof profile.anonymousLikesReceivedCount === 'number' &&
+      Number.isFinite(profile.anonymousLikesReceivedCount)
+        ? Math.max(0, Math.floor(profile.anonymousLikesReceivedCount))
+        : undefined,
     accountStatus: profile.accountStatus,
     followersCount: profile.followersCount,
     followingCount: profile.followingCount,

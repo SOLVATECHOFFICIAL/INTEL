@@ -22,6 +22,9 @@
         "publicWhatsapp": { "type": "string", "maxLength": 24 },
         "showWhatsappPublicly": { "type": "boolean" },
         "badge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
+        "isVerified": { "type": "boolean" },
+        "hasPublicActivity": { "type": "boolean" },
+        "anonymousLikesReceivedCount": { "type": "integer" },
         "accountStatus": { "type": "string", "enum": ["active", "suspended"] },
         "isHiddenFromDirectory": { "type": "boolean" },
         "followersCount": { "type": "integer" },
@@ -45,6 +48,7 @@
         "ownedUsernames": { "type": "array" },
         "ownedAnonymousPostIds": { "type": "array" },
         "ownedAnonymousCommentIds": { "type": "array" },
+        "showSupremeAdminBadge": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "authEmail", "updatedAt"]
@@ -85,6 +89,7 @@
         "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "role": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
         "badge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
+        "isVerified": { "type": "boolean" },
         "isPermanentOwner": { "type": "boolean" },
         "isHiddenFromDirectory": { "type": "boolean" },
         "grantedBy": { "type": "string", "maxLength": 128 },
@@ -139,6 +144,7 @@
         "visibility": { "type": "string", "enum": ["public"] },
         "likesCount": { "type": "integer" },
         "commentsCount": { "type": "integer" },
+        "viewsCount": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -201,6 +207,7 @@
         "visibility": { "type": "string", "enum": ["public"] },
         "likesCount": { "type": "integer" },
         "commentsCount": { "type": "integer" },
+        "viewsCount": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -551,6 +558,34 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "action", "targetCollection", "targetId", "performedByUid", "performedByRole", "createdAt"]
+    },
+    "PostViewRecord": {
+      "title": "PostViewRecord",
+      "description": "Deduplicated per-user view record preventing inflation while never exposing viewer identity on Anonymous posts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts"] },
+        "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "targetCollection", "targetId", "createdAt"]
+    },
+    "MarketplaceUpdate": {
+      "title": "MarketplaceUpdate",
+      "description": "Genuine Supreme Admin published campus Marketplace policy, safety, and operational notice.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 3, "maxLength": 140 },
+        "body": { "type": "string", "minLength": 5, "maxLength": 1500 },
+        "category": { "type": "string", "enum": ["safety", "policy", "notice", "general"] },
+        "published": { "type": "boolean" },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "body", "category", "published", "createdByUid", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -657,6 +692,14 @@
     "/adminAuditLogs/{logId}": {
       "schema": { "$ref": "#/entities/AdminAuditLog" },
       "description": "Immutable administrative and moderation audit trail readable only by Supreme Admin or Permanent Owner."
+    },
+    "/postViews/{viewId}": {
+      "schema": { "$ref": "#/entities/PostViewRecord" },
+      "description": "Deduplicated post view markers preventing repeated count inflation without exposing anonymous viewers."
+    },
+    "/marketplaceUpdates/{updateId}": {
+      "schema": { "$ref": "#/entities/MarketplaceUpdate" },
+      "description": "Authoritative campus Marketplace notices and safety guidance published by Supreme Admins."
     }
   }
 }

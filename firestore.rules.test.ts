@@ -16,7 +16,7 @@ test('firestore.rules enforces default deny and verified email identity checks',
   assert.match(rulesText, /request\.auth\.token\.email_verified == true/);
 });
 
-test('all 24 blueprint collections have explicit rules in firestore.rules', () => {
+test('all 26 blueprint collections have explicit rules in firestore.rules', () => {
   const expectedCollections = [
     'users',
     'privateUserData',
@@ -28,6 +28,7 @@ test('all 24 blueprint collections have explicit rules in firestore.rules', () =
     'postComments',
     'follows',
     'postReactions',
+    'postViews',
     'anonymousPosts',
     'anonymousComments',
     'anonymousIdentityMappings',
@@ -36,6 +37,7 @@ test('all 24 blueprint collections have explicit rules in firestore.rules', () =
     'mediaImages',
     'savedPosts',
     'marketplaceListings',
+    'marketplaceUpdates',
     'trustedContacts',
     'opportunities',
     'events',
@@ -69,13 +71,13 @@ test('anonymous identity protection and moderator conflict rules are enforced in
     /ownerUID|authorUid/
   );
 
-  // Anonymous identity mappings forbid Moderator reads (only Supreme Admin or Owner)
+  // Anonymous identity mappings forbid Moderator and ordinary Admin reads (only designated Supreme Admins)
   const mappingBlock = rulesText.slice(
     rulesText.indexOf('match /anonymousIdentityMappings/{entryId}'),
     rulesText.indexOf('match /anonymousAuditLogs/{auditId}')
   );
-  assert.match(mappingBlock, /allow get: if isValidId\(entryId\) && isSupremeAdminOrOwner\(\);/);
-  assert.match(mappingBlock, /allow list: if isSupremeAdminOrOwner\(\);/);
+  assert.match(mappingBlock, /allow get: if isValidId\(entryId\) && isAuthorizedAnonymousRevealAdmin\(\);/);
+  assert.match(mappingBlock, /allow list: if isAuthorizedAnonymousRevealAdmin\(\);/);
 
   // Moderator deletion on anonymousPosts, anonymousComments, and ordinary posts enforces authorRole/role == 'member'
   assert.match(
@@ -240,7 +242,7 @@ test('isActiveAccount and currentRoleString guard missing fields safely without 
   );
   assert.match(
     rulesText,
-    /function currentRoleString\(\) \{\s*return isPermanentOwner\(\)\s*\? 'owner'\s*: \(hasRoleDoc\(request\.auth\.uid\) &&\s*'role' in roleDoc\(request\.auth\.uid\) &&/
+    /function currentRoleString\(\) \{\s*return isPermanentOwner\(\)\s*\? 'owner'\s*: \(isDesignatedSupremeAdminEmail\(\)\s*\? 'supreme_admin'\s*: \(hasRoleDoc\(request\.auth\.uid\) &&\s*'role' in roleDoc\(request\.auth\.uid\) &&/
   );
   assert.match(
     rulesText,
@@ -422,5 +424,39 @@ test('Task 13 notification rules enforce actor isolation, zero-actor anonymous r
     /incoming\(\)\.targetCollection == 'marketplaceListings'/
   );
   assert.match(rulesText, /'announcement_broadcast'/);
+});
+
+test('Prompt 20 designated Supreme Admins, underground privacy, compulsory Trust WhatsApp, postViews, and marketplaceUpdates rules are enforced', () => {
+  assert.match(rulesText, /lasuedintel@gmail\.com/);
+  assert.match(rulesText, /awoyinfasolomon1@gmail\.com/);
+  assert.match(rulesText, /function isAuthorizedAnonymousRevealAdmin\(\)/);
+
+  const privateBlock = rulesText.slice(
+    rulesText.indexOf('match /privateUserData/{userId}'),
+    rulesText.indexOf('match /anonymousHistory/{postId}')
+  );
+  assert.match(privateBlock, /allow get: if isValidId\(userId\) && isOwnerOf\(userId\);/);
+  assert.doesNotMatch(privateBlock, /isPermanentOwner\(\)/);
+
+  const trustFn = rulesText.slice(
+    rulesText.indexOf('function isValidTrustedContact'),
+    rulesText.indexOf('function isValidOpportunity')
+  );
+  assert.match(trustFn, /contactNumber/);
+  assert.match(trustFn, /whatsappLink/);
+  assert.match(trustFn, /wa\\\\\.me\|api\\\\\.whatsapp\\\\\.com/);
+
+  const postViewsBlock = rulesText.slice(
+    rulesText.indexOf('match /postViews/{viewId}'),
+    rulesText.indexOf('// 4. Anonymous Community')
+  );
+  assert.match(postViewsBlock, /allow get, list: if false;/);
+  assert.match(postViewsBlock, /allow update, delete: if false;/);
+  assert.match(postViewsBlock, /viewId == incoming\(\)\.targetCollection \+ '_' \+ incoming\(\)\.targetId \+ '_' \+ request\.auth\.uid/);
+
+  const mktUpdatesStart = rulesText.indexOf('match /marketplaceUpdates/{updateId}');
+  const mktUpdatesBlock = rulesText.slice(mktUpdatesStart);
+  assert.match(mktUpdatesBlock, /allow create, update: if isValidId\(updateId\) &&[\s\S]*isSupremeAdminOrOwner\(\)/);
+  assert.match(mktUpdatesBlock, /allow delete: if isValidId\(updateId\) && isSupremeAdminOrOwner\(\);/);
 });
 

@@ -32,7 +32,7 @@ import {
   formatFirestoreOrAppError,
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow } from '../RoleBadge';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
 interface AdminMarketplaceTabProps {
@@ -369,7 +369,9 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
                             ? `${seller.fullName} (@${seller.username})`
                             : listing.ownerUID}
                         </strong>
-                        {seller && <RoleBadge badge={seller.badge} size="xs" />}
+                        {seller && (
+                          <ProfileBadgesRow profile={seller} size="xs" />
+                        )}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <Clock className="h-3.5 w-3.5" aria-hidden="true" />

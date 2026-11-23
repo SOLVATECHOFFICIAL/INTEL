@@ -4,6 +4,11 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import {
+  buildRobotsTxt,
+  buildSitemapXml,
+  resolveServerPublicOrigin,
+} from './api/_lib/siteOrigin.ts';
 
 /**
  * Ensures the root-level ./lasued-intel.webp logo is copied into the
@@ -24,11 +29,59 @@ function copyRootLogoPlugin(): Plugin {
   };
 }
 
+function seoDevEndpointsPlugin(): Plugin {
+  const attachMiddleware = (
+    middlewares: {
+      use: (
+        handler: (
+          req: { url?: string; headers?: Record<string, string | string[] | undefined> },
+          res: {
+            statusCode: number;
+            setHeader: (name: string, val: string) => void;
+            end: (body: string) => void;
+          },
+          next: () => void
+        ) => void
+      ) => void;
+    }
+  ) => {
+    middlewares.use((req, res, next) => {
+      const pathname = req.url?.split('?')[0];
+      if (pathname === '/sitemap.xml') {
+        const origin = resolveServerPublicOrigin(req.headers);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+        res.end(buildSitemapXml(origin));
+        return;
+      }
+      if (pathname === '/robots.txt') {
+        const origin = resolveServerPublicOrigin(req.headers);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.end(buildRobotsTxt(origin));
+        return;
+      }
+      next();
+    });
+  };
+
+  return {
+    name: 'seo-dev-endpoints',
+    configureServer(server) {
+      attachMiddleware(server.middlewares);
+    },
+    configurePreviewServer(server) {
+      attachMiddleware(server.middlewares);
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
     copyRootLogoPlugin(),
+    seoDevEndpointsPlugin(),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
@@ -83,9 +136,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: {
-        enabled: true,
-        type: 'module',
-        navigateFallback: 'index.html',
+        enabled: false,
       },
     }),
   ],

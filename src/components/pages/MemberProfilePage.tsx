@@ -7,6 +7,7 @@ import {
   Camera,
   Check,
   Edit3,
+  Eye,
   GraduationCap,
   Heart,
   Layers,
@@ -93,7 +94,8 @@ import {
   getEventCategoryShortLabel,
   resolveEventLifecycle,
 } from '../../utils/events';
-import { RoleBadge } from '../RoleBadge';
+import { formatCompactViewCount } from '../../utils/postViews';
+import { ProfileBadgesRow } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
@@ -1149,6 +1151,14 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     const communityUpdated = updated as CommunityPost;
     setBundle((prev) => {
       if (!prev) return prev;
+      const prevOrdinaryLikes = prev.posts.reduce(
+        (acc, p) => acc + (p.status === 'published' ? Math.max(0, p.likesCount) : 0),
+        0
+      );
+      const anonLikesBaseline = Math.max(
+        0,
+        prev.totalLikesReceived - prevOrdinaryLikes
+      );
       const nextPosts = prev.posts.map((item) =>
         item.id === communityUpdated.id ? communityUpdated : item
       );
@@ -1157,7 +1167,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           ? { ...entry, post: communityUpdated }
           : entry
       );
-      const nextTotalLikes = nextPosts.reduce(
+      const nextOrdinaryLikes = nextPosts.reduce(
         (acc, p) => acc + (p.status === 'published' ? Math.max(0, p.likesCount) : 0),
         0
       );
@@ -1165,7 +1175,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         ...prev,
         posts: nextPosts,
         likedPosts: nextLikedPosts,
-        totalLikesReceived: nextTotalLikes,
+        totalLikesReceived: nextOrdinaryLikes + anonLikesBaseline,
       };
     });
     setDetailTarget((prev) =>
@@ -1178,8 +1188,16 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   const handleOrdinaryPostDeleted = (deletedId: string) => {
     setBundle((prev) => {
       if (!prev) return prev;
+      const prevOrdinaryLikes = prev.posts.reduce(
+        (acc, p) => acc + (p.status === 'published' ? Math.max(0, p.likesCount) : 0),
+        0
+      );
+      const anonLikesBaseline = Math.max(
+        0,
+        prev.totalLikesReceived - prevOrdinaryLikes
+      );
       const nextPosts = prev.posts.filter((item) => item.id !== deletedId);
-      const nextTotalLikes = nextPosts.reduce(
+      const nextOrdinaryLikes = nextPosts.reduce(
         (acc, p) => acc + (p.status === 'published' ? Math.max(0, p.likesCount) : 0),
         0
       );
@@ -1187,7 +1205,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         ...prev,
         posts: nextPosts,
         likedPosts: prev.likedPosts.filter((e) => e.post.id !== deletedId),
-        totalLikesReceived: nextTotalLikes,
+        totalLikesReceived: nextOrdinaryLikes + anonLikesBaseline,
       };
     });
     setSavedBundle((prev) =>
@@ -1221,7 +1239,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
     return (
       <div
-        className="grid grid-cols-3 gap-1.5 sm:gap-2.5"
+        className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2"
         data-testid="profile-visual-grid"
       >
         {items.map(({ post, author: tileAuthor }) => {
@@ -1241,7 +1259,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 })
               }
               aria-label={`Open post: ${post.title || post.body.slice(0, 48) || post.category}`}
-              className="group relative aspect-square w-full overflow-hidden rounded-xl bg-[#0B1A2E] text-left focus-visible:outline-2 focus-visible:outline-[#1E88E5]"
+              className="group relative aspect-square w-[46%] shrink-0 snap-start overflow-hidden rounded-xl bg-[#0B1A2E] text-left focus-visible:outline-2 focus-visible:outline-[#1E88E5] sm:w-[31%] lg:w-[calc(25%-8px)]"
             >
               {hasPhoto ? (
                 <FirestoreImage
@@ -1305,8 +1323,8 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 </span>
               )}
 
-              {/* Likes & Comments overlay metrics */}
-              <div className="absolute right-2 bottom-1.5 left-2 flex items-center gap-2.5 text-[11px] font-semibold text-white">
+              {/* Likes, Comments & Views overlay metrics */}
+              <div className="absolute right-2 bottom-1.5 left-2 flex items-center gap-2 text-[11px] font-semibold text-white">
                 <span className="inline-flex items-center gap-1 tabular-nums">
                   <Heart className="h-3 w-3 fill-white/90" aria-hidden="true" />
                   {post.likesCount}
@@ -1314,6 +1332,10 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 <span className="inline-flex items-center gap-1 tabular-nums">
                   <MessageCircle className="h-3 w-3" aria-hidden="true" />
                   {post.commentsCount}
+                </span>
+                <span className="ml-auto inline-flex items-center gap-1 tabular-nums opacity-90">
+                  <Eye className="h-3 w-3" aria-hidden="true" />
+                  {formatCompactViewCount(post.viewsCount)}
                 </span>
               </div>
             </button>
@@ -1701,8 +1723,8 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               >
                 {profile.fullName}
               </h1>
-              {profile.badge !== 'none' && (
-                <RoleBadge badge={profile.badge} size="md" />
+              {(profile.badge !== 'none' || profile.isVerified) && (
+                <ProfileBadgesRow profile={profile} size="md" />
               )}
               {bundle.isSuspended && (
                 <span className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
@@ -1962,7 +1984,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                       <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
                         Saved Anonymous Posts ({savedBundle.anonymousPosts.length})
                       </h2>
-                      <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5">
+                      <div className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2">
                         {savedBundle.anonymousPosts.map((anonPost) => {
                           const firstPhoto = anonPost.mediaItems?.[0];
                           const theme = getAnonymousBackgroundTheme(
@@ -1978,7 +2000,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                                   post: anonPost,
                                 })
                               }
-                              className="group relative aspect-square w-full overflow-hidden rounded-xl bg-[#0B1A2E] text-left"
+                              className="group relative aspect-square w-[46%] shrink-0 snap-start overflow-hidden rounded-xl bg-[#0B1A2E] text-left sm:w-[31%] lg:w-[calc(25%-8px)]"
                             >
                               {firstPhoto ? (
                                 <FirestoreImage
@@ -2036,30 +2058,32 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                       <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
                         Saved Marketplace Listings ({savedBundle.listings.length})
                       </h2>
-                      {savedBundle.listings.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
-                              {item.title}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {item.category} · ₦{item.price.toLocaleString()}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onNavigate('marketplace', { listingId: item.id })
-                            }
-                            className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
+                        {savedBundle.listings.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex w-[78%] shrink-0 snap-start flex-col justify-between gap-2.5 rounded-xl border border-slate-200 bg-white p-3.5 sm:w-[46%] lg:w-[32%]"
                           >
-                            View
-                          </button>
-                        </div>
-                      ))}
+                            <div className="min-w-0">
+                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                                {item.title}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                {item.category} · ₦{item.price.toLocaleString()}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onNavigate('marketplace', { listingId: item.id })
+                              }
+                              className="self-start text-xs font-semibold text-[#1E88E5] hover:underline"
+                            >
+                              View Listing
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -2378,43 +2402,45 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   No active marketplace listings for @{profile.username}.
                 </div>
               ) : (
-                bundle.listings.map((item) => (
-                  <article
-                    key={item.id}
-                    className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center"
-                  >
-                    <div>
-                      <p className="text-xs font-medium text-slate-500">
-                        {item.listingKind} · {item.category}
-                      </p>
-                      <h2 className="mt-0.5 font-display text-base font-bold text-[#0B1A2E]">
-                        {item.title}
-                      </h2>
-                      <p className="mt-1 line-clamp-2 text-sm text-slate-600">
-                        {item.description}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-left sm:text-right">
-                      <p className="font-display text-lg font-bold text-[#0B1A2E] tabular-nums">
-                        ₦{item.price.toLocaleString()}
-                      </p>
-                      {buildWhatsAppChatUrl(item.whatsappNumber) && (
-                        <a
-                          href={buildWhatsAppChatUrl(item.whatsappNumber)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="mt-2 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844]"
-                        >
-                          <MessageCircle
-                            className="h-3.5 w-3.5 text-[#1E88E5]"
-                            aria-hidden="true"
-                          />
-                          Contact Seller
-                        </a>
-                      )}
-                    </div>
-                  </article>
-                ))
+                <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
+                  {bundle.listings.map((item) => (
+                    <article
+                      key={item.id}
+                      className="flex w-[78%] shrink-0 snap-start flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:w-[46%] lg:w-[32%]"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-500">
+                          {item.listingKind} · {item.category}
+                        </p>
+                        <h2 className="mt-0.5 line-clamp-1 font-display text-base font-bold text-[#0B1A2E]">
+                          {item.title}
+                        </h2>
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                          {item.description}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                        <p className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                          ₦{item.price.toLocaleString()}
+                        </p>
+                        {buildWhatsAppChatUrl(item.whatsappNumber) && (
+                          <a
+                            href={buildWhatsAppChatUrl(item.whatsappNumber)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844]"
+                          >
+                            <MessageCircle
+                              className="h-3.5 w-3.5 text-[#1E88E5]"
+                              aria-hidden="true"
+                            />
+                            Contact
+                          </a>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -2530,7 +2556,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                             <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
                               {member.fullName}
                             </p>
-                            <RoleBadge badge={member.badge} size="xs" />
+                            <ProfileBadgesRow profile={member} size="xs" />
                           </div>
                           <p className="truncate text-xs text-slate-600">
                             @{member.username}

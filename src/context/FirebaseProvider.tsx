@@ -13,8 +13,10 @@ import { clearViewerScopedMediaCache } from '../services/mediaStorage';
 import { notifyViewerSessionReset } from '../services/cacheInvalidation';
 import { clearSearchBundleCache } from '../services/searchDiscovery';
 import { subscribeToAuthChanges } from '../services/auth';
+import { syncAppBadgeWithServiceWorker } from '../services/webPush';
 import {
   deleteUserNotification,
+  ensureDesignatedSupremeAdminAccountState,
   fetchOlderUserNotificationsPage,
   fetchPrivateUserData,
   fetchPublicMemberProfile,
@@ -32,6 +34,7 @@ import {
   updateNotificationPreferences,
   updatePrivateUserInterests,
 } from '../services/firestoreFoundation';
+import { syncOwnAnonymousLikesReceivedCount } from '../services/socialPosts';
 import type {
   NotificationItem,
   PublicUserProfile,
@@ -40,6 +43,7 @@ import type {
 import {
   formatFirestoreOrAppError,
   isAccountSuspended,
+  isDesignatedSupremeAdminUser,
   resolveEffectiveAccountTier,
 } from '../utils/authValidation';
 import {
@@ -119,6 +123,11 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   );
 
   useEffect(() => {
+    if (!authReady) return;
+    void syncAppBadgeWithServiceWorker(user ? unreadNotificationsCount : 0);
+  }, [authReady, user, unreadNotificationsCount]);
+
+  useEffect(() => {
     let active = true;
     void testConnection().then((result) => {
       if (active) {
@@ -158,6 +167,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         setFollowerUsernames(new Set());
         setPendingFollowUsernames(new Set());
       } else {
+        if (isDesignatedSupremeAdminUser(nextUser)) {
+          void ensureDesignatedSupremeAdminAccountState(nextUser);
+        }
         setNotificationsStatus('loading');
         setOlderNotifications([]);
         oldestNotificationCursorRef.current = null;
@@ -267,6 +279,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     const existingIds = new Set(liveNotifications.map((item) => item.id));
     void syncOwnAnonymousReplyNotifications(user.uid, existingIds);
     void syncOwnExpiredMarketplaceNotifications(user.uid, existingIds);
+    void syncOwnAnonymousLikesReceivedCount(user.uid);
   }, [authReady, user, profile, notificationsStatus, liveNotifications]);
 
   const refreshAccountState = useCallback(async () => {

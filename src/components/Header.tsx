@@ -2,6 +2,7 @@ import React from 'react';
 import { Bell, Menu, Search } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
+import { formatUnreadBadgeCount } from '../utils/pwa';
 import { getSearchScopeFromRoute, isFeedRoute } from '../utils/urlRouting';
 import { BrandLogo } from './BrandLogo';
 import { AvatarMedia } from './media/FirestoreImage';
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   onRequireAuth,
 }) => {
   const { user, profile, unreadNotificationsCount } = useFirebase();
+  const unreadBadgeLabel = formatUnreadBadgeCount(unreadNotificationsCount);
   const currentSearchScope = getSearchScopeFromRoute(activeRoute);
 
   const isNavItemActive = (itemRoute: ActiveRoute) => {
@@ -132,8 +134,8 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={() => onNavigate('notifications')}
             aria-label={
-              unreadNotificationsCount > 0
-                ? `Notifications (${unreadNotificationsCount} unread)`
+              user && unreadBadgeLabel
+                ? `Notifications (${unreadBadgeLabel} unread)`
                 : 'Notifications'
             }
             className={`relative hidden min-h-[42px] min-w-[42px] items-center justify-center rounded-lg border transition-colors md:inline-flex ${
@@ -143,9 +145,9 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Bell className="h-4 w-4" aria-hidden="true" />
-            {user && unreadNotificationsCount > 0 && (
+            {user && unreadBadgeLabel && (
               <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#1E88E5] px-1 text-[10px] font-bold text-white tabular-nums">
-                {unreadNotificationsCount}
+                {unreadBadgeLabel}
               </span>
             )}
           </button>

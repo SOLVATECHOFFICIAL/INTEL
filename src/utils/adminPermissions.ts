@@ -221,6 +221,9 @@ export function computePlatformOverviewStats(input: {
     if (profile.accountStatus === 'suspended') {
       suspendedMembers += 1;
     }
+    if (profile.badge !== 'verified' && profile.isVerified === true) {
+      verifiedMembers += 1;
+    }
     switch (profile.badge) {
       case 'verified':
         verifiedMembers += 1;

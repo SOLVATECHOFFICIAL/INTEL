@@ -51,18 +51,20 @@ export function buildPublicAppUrl(
   return `${base}${cleanRel}`;
 }
 
+export function buildPublicImageUrl(
+  relativeAssetPath = '/pwa-512x512.png',
+  originOverride?: string
+): string {
+  return buildPublicAppUrl(relativeAssetPath, originOverride);
+}
+
 export function buildProfileShareUrl(
   username: string,
   originOverride?: string
 ): string {
   const cleanUsername = username.trim().toLowerCase();
-  const pathname =
-    typeof window !== 'undefined' && window.location?.pathname
-      ? window.location.pathname
-      : '/';
-  const basePath = pathname.endsWith('/') ? pathname : `${pathname}`;
   return buildPublicAppUrl(
-    `${basePath}?view=profile&username=${encodeURIComponent(cleanUsername)}`,
+    `/?view=profile&username=${encodeURIComponent(cleanUsername)}`,
     originOverride
   );
 }
@@ -76,3 +78,16 @@ export function buildMarketplaceListingShareUrl(
     originOverride
   );
 }
+
+export function buildPostShareUrl(
+  kind: 'ordinary' | 'anonymous',
+  postId: string,
+  originOverride?: string
+): string {
+  const view = kind === 'anonymous' ? 'anonymous' : 'for-you';
+  return buildPublicAppUrl(
+    `/?view=${view}&postId=${encodeURIComponent(postId.trim())}`,
+    originOverride
+  );
+}
+

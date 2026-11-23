@@ -56,6 +56,7 @@ import {
   type PlatformOverviewStats,
 } from '../utils/adminPermissions';
 import { toPublicProfileProjection } from '../utils/authValidation';
+import { validateTrustedContactWhatsapp } from '../utils/trustedDirectory';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
   buildEventNotificationDocId,
@@ -96,6 +97,10 @@ import {
   notifyTrustedContactMutated,
 } from './cacheInvalidation';
 import { deletePostComment, deletePostCascading } from './socialPosts';
+import {
+  triggerBestEffortPushBroadcast,
+  triggerBestEffortPushDispatch,
+} from './webPush';
 
 function sortByCreatedAtDesc<T extends { createdAt: unknown }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
@@ -200,13 +205,11 @@ export async function fetchPlatformOverviewData(input: {
     input.actorRole === 'owner' || input.actorRole === 'supreme_admin';
 
   try {
-    const usersQuery = isFullAdmin
-      ? query(collection(db, COLLECTION_NAMES.users), limit(500))
-      : query(
-          collection(db, COLLECTION_NAMES.users),
-          where('isHiddenFromDirectory', '==', false),
-          limit(500)
-        );
+    const usersQuery = query(
+      collection(db, COLLECTION_NAMES.users),
+      where('isHiddenFromDirectory', '==', false),
+      limit(500)
+    );
 
     const [
       usersSnap,
@@ -514,6 +517,10 @@ export async function reviewMarketplaceListingWithAudit(input: {
 
   try {
     await batch.commit();
+    void triggerBestEffortPushDispatch({
+      notificationId: notifId,
+      recipientUid: input.listing.ownerUID,
+    });
   } catch {
     // Primary transaction already persisted cleanly; avoid losing UI refresh if notification fails.
   }
@@ -1455,14 +1462,19 @@ export async function broadcastOpportunityNotification(input: {
   const usersSnap = await getDocs(
     query(
       collection(db, COLLECTION_NAMES.users),
-      where('accountStatus', '==', 'active'),
+      where('isHiddenFromDirectory', '==', false),
       limit(400)
     )
   );
 
   const recipientUids = usersSnap.docs
     .map((item) => item.data() as PublicUserProfile)
-    .filter((p) => !p.isHiddenFromDirectory && isValidFirestoreId(p.uid))
+    .filter(
+      (p) =>
+        p.accountStatus === 'active' &&
+        !p.isHiddenFromDirectory &&
+        isValidFirestoreId(p.uid)
+    )
     .map((p) => p.uid);
 
   const categoryLabel = getOpportunityCategoryLabel(input.opportunity.category);
@@ -1492,6 +1504,7 @@ export async function broadcastOpportunityNotification(input: {
   // Write notifications in chunks under the 500-op Firestore batch limit
   const CHUNK_SIZE = 380;
   let sentCount = 0;
+  const createdNotificationIds: string[] = [];
 
   if (recipientUids.length === 0) {
     const batch = writeBatch(db);
@@ -1524,6 +1537,7 @@ export async function broadcastOpportunityNotification(input: {
           isRead: false,
           createdAt: serverTimestamp(),
         });
+        createdNotificationIds.push(notifId);
         sentCount += 1;
       }
 
@@ -1550,6 +1564,17 @@ export async function broadcastOpportunityNotification(input: {
 
       await batch.commit();
     }
+  }
+
+  if (sentCount > 0) {
+    void triggerBestEffortPushBroadcast({
+      eventType: 'new_opportunity',
+      title: notifTitle,
+      body: notifBody,
+      targetPath,
+      recipientUids,
+      notificationIds: createdNotificationIds,
+    });
   }
 
   return {
@@ -2063,14 +2088,19 @@ export async function broadcastCampusEventNotification(input: {
   const usersSnap = await getDocs(
     query(
       collection(db, COLLECTION_NAMES.users),
-      where('accountStatus', '==', 'active'),
+      where('isHiddenFromDirectory', '==', false),
       limit(400)
     )
   );
 
   const recipientUids = usersSnap.docs
     .map((item) => item.data() as PublicUserProfile)
-    .filter((p) => !p.isHiddenFromDirectory && isValidFirestoreId(p.uid))
+    .filter(
+      (p) =>
+        p.accountStatus === 'active' &&
+        !p.isHiddenFromDirectory &&
+        isValidFirestoreId(p.uid)
+    )
     .map((p) => p.uid);
 
   const categoryLabel = getEventCategoryLabel(input.event.category);
@@ -2100,6 +2130,7 @@ export async function broadcastCampusEventNotification(input: {
   const versionBucket = Math.floor(nowMs / (60 * 1000));
   const CHUNK_SIZE = 380;
   let sentCount = 0;
+  const createdNotificationIds: string[] = [];
 
   if (recipientUids.length === 0) {
     const batch = writeBatch(db);
@@ -2150,6 +2181,7 @@ export async function broadcastCampusEventNotification(input: {
           payload.targetImageUrl = validEventBannerUrl;
         }
         batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), payload);
+        createdNotificationIds.push(notifId);
         sentCount += 1;
       }
 
@@ -2174,6 +2206,17 @@ export async function broadcastCampusEventNotification(input: {
 
       await batch.commit();
     }
+  }
+
+  if (sentCount > 0) {
+    void triggerBestEffortPushBroadcast({
+      eventType: 'new_event',
+      title: notifTitle,
+      body: notifBody,
+      targetPath,
+      recipientUids,
+      notificationIds: createdNotificationIds,
+    });
   }
 
   return {
@@ -2287,13 +2330,29 @@ export async function updateTrustedContactWithAudit(input: {
   const cleanName = input.fullName.trim();
   const cleanRoleTitle = input.roleTitle.trim();
   const cleanBadgeLabel = input.badgeLabel?.trim() || undefined;
-  const cleanWhatsapp = input.whatsappLink?.trim() || undefined;
+  const cleanWhatsappInput = input.whatsappLink?.trim() || '';
+  const cleanPhoneInput = input.contactNumber?.trim() || '';
   const cleanPhotoUrl = input.photoUrl?.trim() || undefined;
-  if (cleanWhatsapp && !isSafeMediaUrl(cleanWhatsapp)) {
+  if (cleanWhatsappInput && !isSafeMediaUrl(cleanWhatsappInput)) {
     throw new Error('WhatsApp link must start with https:// or http://.');
   }
   if (cleanPhotoUrl && !isSafeMediaUrl(cleanPhotoUrl)) {
     throw new Error('Photo URL must start with https:// or http://.');
+  }
+
+  let resolvedContactNumber: string | undefined = cleanPhoneInput || undefined;
+  let resolvedWhatsappLink: string | undefined = cleanWhatsappInput || undefined;
+  if (cleanPhoneInput) {
+    const validated = validateTrustedContactWhatsapp(cleanPhoneInput);
+    resolvedContactNumber = validated.contactNumber;
+    resolvedWhatsappLink = validated.whatsappLink;
+  } else if (
+    cleanWhatsappInput &&
+    /^https:\/\/(wa\.me|api\.whatsapp\.com)\/[0-9]{7,15}/i.test(cleanWhatsappInput)
+  ) {
+    resolvedWhatsappLink = cleanWhatsappInput;
+  } else {
+    validateTrustedContactWhatsapp('');
   }
 
   let nextPhotoImageId: string | undefined = input.existing.photoImageId;
@@ -2323,8 +2382,8 @@ export async function updateTrustedContactWithAudit(input: {
     faculty: input.faculty?.trim() || undefined,
     photoUrl: nextPhotoUrl,
     photoImageId: nextPhotoImageId,
-    contactNumber: input.contactNumber?.trim() || undefined,
-    whatsappLink: cleanWhatsapp,
+    contactNumber: resolvedContactNumber,
+    whatsappLink: resolvedWhatsappLink,
     description: input.description?.trim() || undefined,
     updatedAt: Date.now(),
   };
@@ -2416,13 +2475,29 @@ export async function createTrustedContactWithAudit(input: {
   const cleanName = input.fullName.trim();
   const cleanRoleTitle = input.roleTitle.trim();
   const cleanBadgeLabel = input.badgeLabel?.trim() || undefined;
-  const cleanWhatsapp = input.whatsappLink?.trim() || undefined;
+  const cleanWhatsappInput = input.whatsappLink?.trim() || '';
+  const cleanPhoneInput = input.contactNumber?.trim() || '';
   const cleanPhotoUrl = input.photoUrl?.trim() || undefined;
-  if (cleanWhatsapp && !isSafeMediaUrl(cleanWhatsapp)) {
+  if (cleanWhatsappInput && !isSafeMediaUrl(cleanWhatsappInput)) {
     throw new Error('WhatsApp link must start with https:// or http://.');
   }
   if (cleanPhotoUrl && !isSafeMediaUrl(cleanPhotoUrl)) {
     throw new Error('Photo URL must start with https:// or http://.');
+  }
+
+  let resolvedContactNumber: string | undefined = cleanPhoneInput || undefined;
+  let resolvedWhatsappLink: string | undefined = cleanWhatsappInput || undefined;
+  if (cleanPhoneInput) {
+    const validated = validateTrustedContactWhatsapp(cleanPhoneInput);
+    resolvedContactNumber = validated.contactNumber;
+    resolvedWhatsappLink = validated.whatsappLink;
+  } else if (
+    cleanWhatsappInput &&
+    /^https:\/\/(wa\.me|api\.whatsapp\.com)\/[0-9]{7,15}/i.test(cleanWhatsappInput)
+  ) {
+    resolvedWhatsappLink = cleanWhatsappInput;
+  } else {
+    validateTrustedContactWhatsapp('');
   }
 
   const photoImageId = input.compressedPhoto
@@ -2441,8 +2516,8 @@ export async function createTrustedContactWithAudit(input: {
     faculty: input.faculty?.trim() || undefined,
     photoUrl: photoImageId ? undefined : cleanPhotoUrl,
     photoImageId,
-    contactNumber: input.contactNumber?.trim() || undefined,
-    whatsappLink: cleanWhatsapp,
+    contactNumber: resolvedContactNumber,
+    whatsappLink: resolvedWhatsappLink,
     description: input.description?.trim() || undefined,
     createdByUid: input.actorUid,
     createdAt: Date.now(),
@@ -2770,20 +2845,26 @@ export async function broadcastOfficialAnnouncementNotification(input: {
   const usersSnap = await getDocs(
     query(
       collection(db, COLLECTION_NAMES.users),
-      where('accountStatus', '==', 'active'),
+      where('isHiddenFromDirectory', '==', false),
       limit(400)
     )
   );
 
   const recipientUids = usersSnap.docs
     .map((item) => item.data() as PublicUserProfile)
-    .filter((p) => !p.isHiddenFromDirectory && isValidFirestoreId(p.uid))
+    .filter(
+      (p) =>
+        p.accountStatus === 'active' &&
+        !p.isHiddenFromDirectory &&
+        isValidFirestoreId(p.uid)
+    )
     .map((p) => p.uid);
 
   const announcementId = generateFirestoreDocId(COLLECTION_NAMES.notifications);
   const targetPath = resolveAnnouncementTargetPath(input.targetRoute);
   const CHUNK_SIZE = 380;
   let sentCount = 0;
+  const createdNotificationIds: string[] = [];
 
   if (recipientUids.length === 0) {
     await recordAdminAuditLog({
@@ -2814,6 +2895,7 @@ export async function broadcastOfficialAnnouncementNotification(input: {
         isRead: false,
         createdAt: serverTimestamp(),
       });
+      createdNotificationIds.push(notifId);
       sentCount += 1;
     }
 
@@ -2830,6 +2912,17 @@ export async function broadcastOfficialAnnouncementNotification(input: {
     }
 
     await batch.commit();
+  }
+
+  if (sentCount > 0) {
+    void triggerBestEffortPushBroadcast({
+      eventType: 'announcement',
+      title: cleanTitle,
+      body: cleanBody,
+      targetPath,
+      recipientUids,
+      notificationIds: createdNotificationIds,
+    });
   }
 
   return { announcementId, sentCount };

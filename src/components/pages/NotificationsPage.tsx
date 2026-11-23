@@ -25,7 +25,7 @@ import {
   saveNotificationsFilterSnapshot,
 } from '../../services/navigationStateCache';
 import type { NotificationEventType, NotificationItem } from '../../types/database';
-import { ActiveRoute } from '../../types/platform';
+import { AccountSettingsSection, ActiveRoute } from '../../types/platform';
 import { extractActorUsernameFromNotification } from '../../utils/followRelations';
 import {
   filterNotifications,
@@ -37,9 +37,11 @@ import {
   type NotificationCategoryFilter,
   type NotificationReadFilter,
 } from '../../utils/notifications';
+import { formatUnreadBadgeCount } from '../../utils/pwa';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 interface NotificationsPageProps {
   onNavigate: (
@@ -51,6 +53,7 @@ interface NotificationsPageProps {
       postId?: string | null;
       commentId?: string | null;
       listingId?: string | null;
+      accountSection?: AccountSettingsSection;
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
@@ -270,14 +273,16 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           </h1>
           <span className="text-xs font-medium text-slate-400">·</span>
           <p className="text-xs font-semibold text-slate-600 tabular-nums">
-            {unreadNotificationsCount} unread
+            {formatUnreadBadgeCount(unreadNotificationsCount) ?? '0'} unread
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <WebPushNotificationButton variant="inline" showIosHint />
+
           <button
             type="button"
-            onClick={() => onNavigate('account')}
+            onClick={() => onNavigate('account', { accountSection: 'privacy' })}
             className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50"
           >
             <Settings className="h-3.5 w-3.5 text-slate-600" aria-hidden="true" />

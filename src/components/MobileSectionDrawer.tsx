@@ -27,8 +27,11 @@ import {
   canAccessAdminDashboard,
   canAccessFullAdminDashboard,
 } from '../utils/authValidation';
+import { formatUnreadBadgeCount } from '../utils/pwa';
 import { getSearchScopeFromRoute } from '../utils/urlRouting';
 import { SectionIcon } from './SectionIcon';
+import { PWAInstallControl } from './pwa/PWAInstallControl';
+import { WebPushNotificationButton } from './pwa/WebPushNotificationButton';
 
 interface MobileSectionDrawerProps {
   isOpen: boolean;
@@ -55,7 +58,14 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
   onRequireAuth,
   onClose,
 }) => {
-  const { user, profile, effectiveTier, isSuspended } = useFirebase();
+  const {
+    user,
+    profile,
+    effectiveTier,
+    isSuspended,
+    unreadNotificationsCount,
+  } = useFirebase();
+  const unreadBadgeLabel = formatUnreadBadgeCount(unreadNotificationsCount);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -265,6 +275,12 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
           )}
         </div>
 
+        {/* App Installation & Device Push Quick Controls */}
+        <div className="mt-3 space-y-2 border-b border-slate-100 pb-3 empty:hidden">
+          <PWAInstallControl variant="drawer" onActionComplete={onClose} />
+          <WebPushNotificationButton variant="compact" />
+        </div>
+
         {/* Discovery & Secondary Sections */}
         <div className="mt-3 space-y-1">
           <button
@@ -299,7 +315,14 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
               />
               Notifications
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <span className="flex items-center gap-2">
+              {user && unreadBadgeLabel && (
+                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#1E88E5] px-1.5 text-[11px] font-bold text-white tabular-nums">
+                  {unreadBadgeLabel}
+                </span>
+              )}
+              <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            </span>
           </button>
 
           <button

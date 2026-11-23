@@ -45,6 +45,8 @@ export type CacheMutationEvent =
   | { type: 'anonymous_post_deleted'; postId: string }
   | { type: 'anonymous_post_reaction'; postId: string; liked: boolean; likesCount: number }
   | { type: 'anonymous_post_saved'; postId: string; saved: boolean }
+  | { type: 'post_view_updated'; kind: 'ordinary' | 'anonymous'; postId: string; viewsCount: number }
+  | { type: 'marketplace_updates_mutated' }
   | { type: 'marketplace_mutated' }
   | { type: 'event_mutated' }
   | { type: 'opportunity_mutated' }
@@ -477,6 +479,82 @@ export function notifyAnonymousPostSavedChanged(
   });
 
   emitMutation({ type: 'anonymous_post_saved', postId, saved });
+}
+
+export function notifyPostViewCountUpdated(
+  kind: 'ordinary' | 'anonymous',
+  postId: string,
+  viewsCount: number
+): void {
+  const safeCount = Math.max(0, Math.floor(viewsCount));
+  if (kind === 'ordinary') {
+    updateAllCachedHomeFeedSnapshots((snap) => ({
+      ...snap,
+      postItems: snap.postItems.map((entry) =>
+        entry.post.id === postId
+          ? { ...entry, post: { ...entry.post, viewsCount: safeCount } }
+          : entry
+      ),
+    }));
+    updateAllCachedProfileSnapshots((snap) => ({
+      ...snap,
+      bundle: {
+        ...snap.bundle,
+        posts: snap.bundle.posts.map((p) =>
+          p.id === postId ? { ...p, viewsCount: safeCount } : p
+        ),
+        likedPosts: snap.bundle.likedPosts.map((e) =>
+          e.post.id === postId
+            ? { ...e, post: { ...e.post, viewsCount: safeCount } }
+            : e
+        ),
+      },
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            posts: snap.savedBundle.posts.map((e) =>
+              e.post.id === postId
+                ? { ...e, post: { ...e.post, viewsCount: safeCount } }
+                : e
+            ),
+          }
+        : null,
+    }));
+  } else {
+    updateCachedAnonymousFeedSnapshot((snap) => ({
+      ...snap,
+      anonymousPosts: snap.anonymousPosts.map((p) =>
+        p.id === postId ? { ...p, viewsCount: safeCount } : p
+      ),
+    }));
+    updateAllCachedProfileSnapshots((snap) => ({
+      ...snap,
+      anonHistory: snap.anonHistory
+        ? snap.anonHistory.map((p) =>
+            p.id === postId ? { ...p, viewsCount: safeCount } : p
+          )
+        : null,
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            anonymousPosts: snap.savedBundle.anonymousPosts.map((p) =>
+              p.id === postId ? { ...p, viewsCount: safeCount } : p
+            ),
+          }
+        : null,
+    }));
+  }
+  emitMutation({
+    type: 'post_view_updated',
+    kind,
+    postId,
+    viewsCount: safeCount,
+  });
+}
+
+export function notifyMarketplaceUpdatesMutated(): void {
+  void deletePersistentContent('mkt:updates:v1');
+  emitMutation({ type: 'marketplace_updates_mutated' });
 }
 
 // ---------------------------------------------------------------------------

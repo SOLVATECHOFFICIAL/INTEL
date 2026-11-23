@@ -1,0 +1,1386 @@
+
+PROMPT 20: COMPLETE LASUED INTEL WEBSITE AUDIT, SECURITY HARDENING, FUNCTIONALITY REPAIR, PERFORMANCE OPTIMISATION AND QUALITY ASSURANCE
+
+You are now working on Prompt 20 of the LASUED Intel website development project.
+
+This is a complete, website-wide technical audit and repair assignment. Do not treat it as a simple checklist or cosmetic redesign. You must inspect the actual existing project, understand its architecture, identify the root causes of problems, implement the necessary corrections, and thoroughly test the results.
+
+The website has already gone through previous development stages. Your responsibility is to improve and complete the existing project, not destroy it and start again.
+
+IMPORTANT GENERAL RULES
+
+1. Inspect the complete existing project before editing anything.
+2. Understand the existing frontend, backend, database, authentication, storage, routing, components, styles, APIs, notification system and deployment configuration.
+3. Identify which features already work, which partially work, which are broken and which are missing.
+4. Preserve existing users, accounts, posts, comments, likes, messages, marketplace listings, events, uploaded images, database records and other legitimate existing data.
+5. Do not reset the database, delete existing users, replace real data with demonstration data or introduce unnecessary migrations.
+6. Do not rebuild the entire website just because one component is broken.
+7. Do not introduce duplicate pages, duplicate components, duplicate backend services or competing implementations.
+8. Do not remove existing features simply because they are difficult to repair.
+9. Do not create fake functionality. A button must perform its actual intended action.
+10. Do not create buttons that lead nowhere, empty pages, fake counters, fabricated notifications or sample content presented as real user activity.
+11. Do not hide broken features to make the website appear functional.
+12. Do not introduce paid services, subscriptions, paid Firebase upgrades or external providers without explaining the requirement and obtaining approval first.
+13. Preserve the existing technology stack unless a genuine technical problem makes a change necessary.
+14. Maintain the established LASUED Intel visual identity and existing design direction.
+15. All changes must fit naturally into the current website. No oversized buttons, overflowing elements, disconnected sections or components that look as if they belong to another website.
+16. Ensure every new feature works with the existing authentication and database architecture.
+17. Test actual user interactions, not just whether the page looks correct.
+18. Do not claim that something has been tested if you have not actually tested it.
+
+The goal is to make LASUED Intel reliable, secure, consistent, responsive and ready for real users.
+
+==================================================
+SECTION 1: COMPLETE WEBSITE INSPECTION
+==================================================
+
+Inspect every page, route, component and major functionality.
+
+Review:
+
+- Homepage and Updates feed.
+- Anonymous feed.
+- Post creation and editing.
+- Image uploading and preview.
+- User profiles.
+- Profile editing.
+- User search.
+- Following and unfollowing.
+- Followers and following lists.
+- Likes and unlikes.
+- Comments and replies.
+- Sharing.
+- Saved posts.
+- Notifications.
+- Verified users.
+- Moderator accounts.
+- Supreme Admin accounts.
+- Trust contact directory.
+- Marketplace.
+- Marketplace Updates.
+- Product details.
+- Events.
+- Opportunities.
+- Search and filtering.
+- Navigation menus.
+- User settings.
+- Authentication and account sessions.
+- PWA installation.
+- Push notifications.
+- Offline behaviour and caching.
+- Administrative dashboards and controls.
+- Backend APIs.
+- Database security rules.
+- File and image storage.
+- Vercel compatibility.
+
+Check every visible button, icon, link, form, dropdown, modal, menu and navigation control.
+
+If a feature is present but incomplete, repair it.
+
+If a required feature is missing, implement it in a way that fits the existing architecture.
+
+==================================================
+SECTION 2: COMPLETE FUNCTIONALITY AUDIT
+==================================================
+
+Every interactive feature must work correctly.
+
+Test:
+
+- Create a post.
+- Edit an eligible post.
+- Delete an eligible post.
+- Like a post.
+- Unlike a post.
+- Comment on a post.
+- Reply to a comment.
+- Follow a user.
+- Unfollow a user.
+- Open a profile.
+- Open a post.
+- Save a post.
+- Unsave a post.
+- Share a post.
+- Search for users and content.
+- Open notifications.
+- Mark notifications as read.
+- Navigate between pages.
+- Return to previously opened content.
+- Upload images.
+- View uploaded images.
+- Open Marketplace listings.
+- Contact Marketplace sellers through WhatsApp.
+- Create and manage authorised contact entries.
+- Use administrative controls according to permissions.
+
+All buttons must have a clear purpose and perform the correct action.
+
+Prevent duplicate submissions caused by repeated taps.
+
+If an action fails, show a useful error and restore the correct interface state.
+
+Never show a successful action when the backend operation failed.
+
+==================================================
+SECTION 3: POST CREATION AND FEED EXPERIENCE
+==================================================
+
+Inspect the Updates and Anonymous posting systems.
+
+The two post types must remain consistent with their intended designs.
+
+A. TEXT-ONLY POSTS
+
+Text-only posts must support selectable background colours or gradients.
+
+The user should be able to enter text and preview the result before publishing.
+
+The background should belong to the text post itself.
+
+B. PHOTO POSTS
+
+Photo posts must support an accompanying caption.
+
+The caption must be displayed naturally above the uploaded images.
+
+Do not combine the coloured-background text-post composer with the photo-post composer.
+
+A photo post should have one caption for its photo collection.
+
+Support the existing intended photo layouts:
+
+- One image: single-image layout.
+- Two images: balanced two-image layout.
+- Three images: appropriate three-image layout.
+- Four images: balanced four-image grid.
+
+Images must maintain appropriate proportions without stretching.
+
+Tapping an image should open a proper image viewer.
+
+The viewer should support closing and moving between images where appropriate.
+
+C. IMAGE UPLOADS
+
+Inspect the image upload system carefully.
+
+Ensure:
+
+- Images upload successfully.
+- Upload progress is communicated.
+- Images are compressed appropriately without unnecessarily destroying quality.
+- Large images are handled safely.
+- Image previews appear before publishing.
+- The preview accurately represents the final post layout.
+- Captions and image arrangements are preserved.
+- Failed uploads do not create broken posts.
+- Temporary uploads are cleaned up safely.
+- Existing uploaded images remain accessible.
+- Image URLs and storage permissions are handled correctly.
+
+Do not publish a photo post while its required images are still missing or uploading unsuccessfully.
+
+D. FEED LAYOUT
+
+Make all post cards visually consistent.
+
+No overflowing buttons, broken spacing, clipped captions, misplaced icons or unnecessarily large controls.
+
+The feed must remain easy to use on mobile screens.
+
+==================================================
+SECTION 4: LIKES, COMMENTS, REPLIES AND FOLLOWING
+==================================================
+
+A. LIKES
+
+Users must be able to like and unlike posts.
+
+This applies to:
+
+- Normal Updates posts.
+- Anonymous posts.
+- Other eligible public content.
+
+When a user likes a post, the button must immediately reflect the new state.
+
+When they unlike it, the state must return correctly.
+
+Prevent duplicate likes from the same user on the same post.
+
+The backend must enforce the correct relationship between users and likes.
+
+Do not allow the displayed like count to become inaccurate because of repeated taps, refreshes or simultaneous requests.
+
+B. COMMENTS AND REPLIES
+
+Users must be able to comment and reply where permitted.
+
+Ensure:
+
+- Comments appear under the correct post.
+- Replies remain attached to the correct comment.
+- Comment counts update correctly.
+- Empty comments cannot be submitted.
+- Duplicate submissions are prevented.
+- Loading and failure states work.
+- Long comments display properly.
+- Comment navigation preserves the parent post context.
+
+C. FOLLOWING AND UNFOLLOWING
+
+Users must be able to follow and unfollow other users.
+
+Follow state must be reflected consistently throughout the website.
+
+Follower and following counts must remain accurate.
+
+Prevent users from following themselves.
+
+Prevent duplicate follow relationships.
+
+Following must not accidentally reveal the identity behind Anonymous posts.
+
+==================================================
+SECTION 5: PROFILE SYSTEM AND PROFILE CONTENT
+==================================================
+
+Inspect every user profile.
+
+A profile should display the appropriate public information, profile picture, username, biography, badges, posts and other existing profile features.
+
+Ensure users can edit only the profile information they are authorised to edit.
+
+A. PROFILE POSTS
+
+The profile's posts section should use a horizontal scrolling card layout.
+
+The design should feel natural and familiar, similar to a modern social media profile.
+
+Where screen width allows, display up to four post cards across.
+
+On smaller mobile screens, show fewer cards while maintaining a smooth horizontal scrolling experience.
+
+Do not force four cards onto a narrow screen.
+
+B. MARKETPLACE PROFILE LISTINGS
+
+Apply a similar horizontal scrolling arrangement to a user's Marketplace listings where appropriate.
+
+C. PROFILE NAVIGATION
+
+When someone opens a post from a profile and later returns, preserve:
+
+- The profile they were viewing.
+- Their previous scroll position.
+- The selected profile section.
+- The relevant loading state where possible.
+
+Do not unnecessarily reload the entire profile.
+
+D. TOTAL LIKES RECEIVED
+
+Display the total number of likes a user has received across all posts they created.
+
+This includes:
+
+- Normal Updates posts.
+- Anonymous posts created by that account.
+
+Count likes received from all eligible users, including Admin and both Supreme Admin accounts.
+
+Important distinctions:
+
+- Count likes received on the user's posts.
+- Do not count likes the user has given to other people's posts.
+- Do not expose the ownership of Anonymous posts through the calculation or API response.
+
+The calculation must be accurate and securely implemented.
+
+==================================================
+SECTION 6: POST VIEW COUNTS
+==================================================
+
+Implement or repair genuine post view counting.
+
+Every eligible post must display its view count.
+
+This applies to:
+
+- Updates posts.
+- Anonymous posts.
+
+A. DISPLAY
+
+Display the view count discreetly near the bottom-left area of the post while users scroll through the feed.
+
+Use a readable compact format such as:
+
+2.1M views
+
+The number should also be available when opening the post detail view.
+
+B. PROFILE VIEW COUNTS
+
+When viewing a user's profile, show view counts only for posts created by that profile owner.
+
+Do not display view counts as though the profile owner created content belonging to other users.
+
+C. ANONYMOUS PRIVACY
+
+Anonymous posts must also display view counts.
+
+However:
+
+- Never display the anonymous author's name.
+- Never link the anonymous post to the author's public profile.
+- Never reveal the author through view-count records.
+- Never expose the author's identity through public APIs, search results, notifications, caches or profile calculations.
+
+D. ACCURATE COUNTING
+
+Views must represent genuine, validated viewing activity.
+
+Do not increase views because of:
+
+- Automatic page refreshes.
+- Component rerendering.
+- Background synchronisation.
+- Repeated API requests for the same displayed post.
+- Opening a feed that never actually displays the post.
+- Repeatedly refreshing the same content.
+
+Design a sensible view-counting policy.
+
+Deduplicate repeated views within a defined user, device or viewing-session window where technically appropriate.
+
+Explain the selected counting policy in your final report.
+
+Do not artificially inflate view counts.
+
+E. LIVE COUNT UPDATES
+
+View counts should update through the website's existing background update system without forcing a page reload.
+
+Ensure that background updates never create additional views.
+
+==================================================
+SECTION 7: ANONYMOUS POST PRIVACY AND SECURITY
+==================================================
+
+This is one of the most important sections of the entire audit.
+
+Anonymous posting must be genuinely anonymous to ordinary users.
+
+The website must never accidentally expose the account behind an Anonymous post.
+
+A. PUBLIC DISPLAY
+
+Public users should only see the Anonymous identity and the content.
+
+Never display:
+
+- The author's registered username.
+- The author's profile picture.
+- The author's email.
+- A direct profile link.
+- Internal account identifiers.
+- Private author metadata.
+
+B. PRIVACY ACROSS THE ENTIRE WEBSITE
+
+Check every possible exposure point:
+
+- Updates feed.
+- Anonymous feed.
+- Comments.
+- Replies.
+- Search.
+- Recommendations.
+- Notifications.
+- User profiles.
+- Likes and interaction displays.
+- Shared links.
+- Image metadata.
+- Image storage.
+- API responses.
+- Database queries.
+- Cached data.
+- PWA offline storage.
+- Browser developer-facing public data.
+
+Anonymous authorship must not leak through indirect relationships or frontend code.
+
+C. AUTHORISED IDENTITY REVELATION
+
+Only the following two specifically designated Supreme Admin accounts may access the protected anonymous-author identity revelation capability:
+
+1. lasuedintel@gmail.com
+2. Awoyinfasolomon1@gmail.com
+
+Both accounts must be verified against the existing authentication system and assigned the appropriate backend permissions.
+
+Do not rely on a frontend-only check.
+
+The backend must enforce this restriction.
+
+Every other account, including ordinary Admin and Moderator accounts, must be denied access to anonymous author identities.
+
+D. PROTECTED ACCESS
+
+Do not expose anonymous identities through public database queries.
+
+Do not return private author information to the browser and merely hide it with CSS.
+
+The information must only be returned to an authorised backend operation after permission verification.
+
+Keep the existing legitimate anonymous-post data intact.
+
+==================================================
+SECTION 8: TWO SUPREME ADMIN ACCOUNTS
+==================================================
+
+There are exactly two designated Supreme Admin accounts for the requirements below.
+
+Do not confuse them with ordinary Admin or Moderator accounts.
+
+ACCOUNT 1: PUBLIC-FACING SUPREME ADMIN
+
+Login email:
+
+lasuedintel@gmail.com
+
+This account is the public-facing Supreme Admin account.
+
+It should:
+
+- Have the full authorised Supreme Admin permissions.
+- Be eligible to appear in the public Verified section.
+- Have a normal public-facing profile.
+- Create posts.
+- Reply to posts and comments.
+- Like and unlike content.
+- Follow and unfollow users.
+- Share content.
+- Participate in normal public interactions.
+- Use all other authorised Supreme Admin functionality.
+
+Do not expose the account's private login information publicly unless that information is explicitly intended to be public.
+
+ACCOUNT 2: UNDERGROUND SUPREME ADMIN
+
+Login email:
+
+Awoyinfasolomon1@gmail.com
+
+This is the underground Supreme Admin account.
+
+IMPORTANT: This account has the SAME full Supreme Admin authority as the other Supreme Admin account.
+
+It is not a restricted administrator.
+
+It must have all authorised Supreme Admin capabilities, including:
+
+- Managing users.
+- Managing authorised administrative operations.
+- Creating and managing Trust contact entries.
+- Editing and managing existing Trust contact entries.
+- Performing authorised moderation operations.
+- Accessing anonymous identity revelation.
+- Creating posts.
+- Editing and managing its own eligible content.
+- Liking and unliking posts.
+- Commenting and replying.
+- Following and unfollowing.
+- Sharing.
+- Performing every other operation available to an authorised Supreme Admin.
+
+A. PUBLIC DISCOVERABILITY RULE
+
+The underground Supreme Admin account must not automatically appear in public discovery.
+
+When it has no public activity, it must not appear in:
+
+- Public user search.
+- Verified users listings.
+- Public contact directory.
+- Recommendations.
+- Suggested accounts.
+- Random user discovery.
+- Other public discovery sections.
+
+The website's public users must not be able to discover that this underground account exists simply by browsing the website.
+
+B. DISCOVERABILITY THROUGH PUBLIC ACTIVITY
+
+The account may become discoverable through its own public actions.
+
+Examples include:
+
+- Publishing a public post.
+- Publishing a Marketplace listing.
+- Replying publicly.
+- Participating in visible public interactions.
+- Other legitimate public activities that normally make an account visible.
+
+If someone reaches this account through a notification, direct interaction or legitimate direct link arising from its public activity, its profile must behave like an ordinary user's profile.
+
+Do not force it to remain inaccessible after it has legitimately participated publicly.
+
+C. PRIVATE ACCOUNT INFORMATION
+
+Never expose publicly:
+
+- Its actual login email.
+- Its underground designation.
+- Its internal Supreme Admin permissions.
+- Its private account configuration.
+- Its badge visibility setting.
+- Any internal identifier that reveals its protected administrative status.
+
+The backend must still recognise this account and enforce its full permissions.
+
+The distinction is between private backend authority and public discoverability.
+
+D. SUPREME ADMIN BADGE VISIBILITY
+
+The underground Supreme Admin account has its own Supreme Admin badge visibility setting.
+
+Default setting: OFF.
+
+Only this account itself may change this setting.
+
+The other Supreme Admin account, ordinary Admin accounts and Moderators must not be able to change it.
+
+The behaviour must be:
+
+- ON: Display the Supreme Admin badge beside eligible public activities and on the appropriate public profile areas.
+- OFF: Hide the Supreme Admin badge from public display.
+
+Hiding the badge must NEVER remove or reduce the account's actual Supreme Admin permissions.
+
+The account must remain a fully authorised Supreme Admin regardless of badge visibility.
+
+Do not expose the setting itself publicly.
+
+Other users should only see the visible badge when it is ON. They must not be given a separate indication that the hidden badge setting exists.
+
+E. PUBLIC INTERACTIONS
+
+The underground account's likes, replies and other legitimate interactions should work normally.
+
+Do not automatically add it to unrelated public discovery lists just because it interacted with content.
+
+Its visibility must follow its actual public activity and the existing website's normal discovery rules.
+
+F. SECURITY
+
+Verify both accounts through the existing authentication system.
+
+Do not invent account IDs.
+
+Do not create duplicate accounts if the accounts already exist.
+
+Do not use email addresses as the only security check in frontend code.
+
+Use secure backend role assignment and authorisation.
+
+Do not allow ordinary users to modify their own role, badge visibility or privileged permissions.
+
+==================================================
+SECTION 9: ADMIN, SUPREME ADMIN AND MODERATOR PERMISSIONS
+==================================================
+
+These roles must remain separate.
+
+ADMIN:
+- Retain existing authorised Admin functionality.
+- Must not automatically receive Supreme Admin-only capabilities.
+- Must not reveal anonymous authorship unless explicitly one of the two designated Supreme Admin accounts.
+
+SUPREME ADMIN:
+- Full privileged access according to the existing system and requirements in this prompt.
+- Both designated accounts must receive the same Supreme Admin authority.
+- Both can access anonymous identity revelation.
+
+MODERATOR:
+- Retain the authorised moderation functionality.
+- Must not be treated as Supreme Admin.
+- Must not receive Supreme Admin-only permissions.
+
+Never rename Admin or Supreme Admin to HOD.
+
+Never merge different roles into one permission category.
+
+All role checks must be enforced by the backend and database security rules.
+
+A user must not gain permissions by changing browser data, local storage, URL parameters or frontend JavaScript.
+
+==================================================
+SECTION 10: PUBLIC BADGE SYSTEM
+==================================================
+
+There must be exactly three public badge types:
+
+1. VERIFIED
+   Colour: Blue.
+
+2. MODERATOR
+   Colour: Green.
+
+3. TRUST
+   Colour: Purple or another clearly distinct colour that fits the existing design.
+
+Do not introduce unnecessary extra public badge categories.
+
+A verified Moderator may display both:
+
+- Verified badge.
+- Moderator badge.
+
+The badge system must be consistent across eligible profiles, posts, comments, replies and other appropriate public activity.
+
+Do not display private administrative information inside a badge.
+
+Do not confuse a Trust contact entry with a real registered user.
+
+The underground Supreme Admin badge visibility setting must follow Section 8.
+
+Do not alter a user's real role or permissions merely to change the badge shown publicly.
+
+==================================================
+SECTION 11: TRUST CONTACT DIRECTORY
+==================================================
+
+The website must support one combined public contact directory.
+
+Trust contacts are admin-created managed contact entries.
+
+They are NOT necessarily registered LASUED Intel user accounts.
+
+Do not create fake registered accounts for external contacts.
+
+A. DIRECTORY DESIGN
+
+Display contacts in one combined scrolling directory.
+
+Do not divide the public interface into separate category headings such as:
+
+- School Admin Contacts.
+- Community People.
+- Other Contacts.
+- Similar role-based sections.
+
+Keep the interface simple and unified.
+
+Each contact should display the appropriate name and assigned public badge.
+
+Trust contacts should use the Trust badge.
+
+B. CONTACT ENTRY CREATION
+
+Only authorised Supreme Admin accounts may create and manage these Trust contact entries according to the existing permissions.
+
+Both designated Supreme Admin accounts must have this capability.
+
+A WhatsApp number is compulsory before a contact entry can be published.
+
+Do not publish a Trust contact entry with:
+
+- No WhatsApp number.
+- An empty WhatsApp number.
+- An unusable contact number.
+
+Validate and format WhatsApp contact links correctly.
+
+C. CONTACT INTERACTION
+
+When a user taps a Trust contact, open a contact information or contact suggestion view.
+
+Do not open a registered user's actual profile for a non-user Trust contact.
+
+Display the relevant contact information and a clear WhatsApp contact action.
+
+The WhatsApp action should open the correct WhatsApp conversation or contact link.
+
+D. DIRECTORY ORDER
+
+The contact directory should periodically rotate its display arrangement every two hours.
+
+The purpose is to refresh the ordering or featured arrangement.
+
+Important:
+
+- Do not randomly change a contact's real badge.
+- Do not randomly change administrative permissions.
+- Do not delete contacts during rotation.
+- Do not make contacts inaccessible.
+- Do not create duplicate entries.
+- Preserve all actual contact information.
+
+Use a consistent, reliable rotation method.
+
+==================================================
+SECTION 12: REPORTING AND MODERATION CONTROLS
+==================================================
+
+Do not introduce public-facing Report or Report Post buttons.
+
+The public interface should not display reporting controls that have not been authorised for this project.
+
+However, preserve legitimate private moderation and content-removal capabilities for authorised administrators.
+
+Do not remove the ability of authorised administrators to manage inappropriate content.
+
+Ensure private administrative controls are not accidentally displayed to ordinary users.
+
+==================================================
+SECTION 13: POST SHARING AND POST ACTION LAYOUT
+==================================================
+
+Review the post action layout.
+
+The Share icon should be small and positioned at the top-right area of the post where appropriate.
+
+Below the post, the main action row should contain:
+
+- Save.
+- Like.
+- Comment.
+
+Keep the design clean and consistent.
+
+The Share icon must actually share the exact post.
+
+It should not share the wrong post, a generic homepage or an unrelated link.
+
+Where supported, use the native device sharing interface.
+
+Otherwise, provide an appropriate copy-link fallback.
+
+Shared post links should open the exact relevant post.
+
+Respect Anonymous privacy when sharing Anonymous content.
+
+Do not include private author identifiers in shared links.
+
+==================================================
+SECTION 14: MARKETPLACE COMPLETE AUDIT
+==================================================
+
+Inspect the Marketplace and repair its complete functionality.
+
+A. MARKETPLACE DISPLAY
+
+Use a clean three-column product grid where screen width permits.
+
+Adapt the number of columns on smaller screens to avoid cramped content.
+
+Marketplace Updates must remain separate from the main Marketplace product listings.
+
+B. LISTING DETAILS
+
+A product listing should support the appropriate information:
+
+- Product images.
+- Product name.
+- Price.
+- Description.
+- Seller information.
+- WhatsApp contact option.
+
+Allow up to four product images where the existing design supports it.
+
+C. PRODUCT VIEW
+
+When someone opens a product, display its complete details properly.
+
+Images must be viewable.
+
+The seller's WhatsApp contact action must open the correct number.
+
+D. MARKETPLACE LIMITATIONS
+
+Do not introduce:
+
+- An in-app wallet.
+- In-app payment processing.
+- An internal buyer-seller messaging system.
+- Fake payment confirmation.
+- Fake order processing.
+
+The intended method of obtaining products or services is through the seller's WhatsApp contact.
+
+E. NAVIGATION
+
+When a user opens a product and returns to Marketplace, restore the previous Marketplace state.
+
+Preserve:
+
+- Scroll position.
+- Search query.
+- Selected filter.
+- Relevant listing position.
+
+Do not force users to start browsing from the beginning every time they return.
+
+==================================================
+SECTION 15: FIVE-SECOND BACKGROUND CONTENT UPDATES
+==================================================
+
+The website should keep relevant content and counters reasonably up to date while users are actively using it.
+
+Use an approximately five-second background refresh interval where technically appropriate.
+
+This must be implemented intelligently.
+
+A. WHAT SHOULD UPDATE
+
+Depending on the currently active page, relevant information may include:
+
+- New feed posts.
+- Updated post counts.
+- Likes.
+- Comments.
+- Replies.
+- Follower counts.
+- Notifications.
+- View counts.
+- Marketplace updates.
+- Other relevant content changes.
+
+B. NO FULL PAGE RELOAD
+
+Never reload the entire website every five seconds.
+
+Never force the user back to the top of a feed.
+
+Never interrupt:
+
+- Scrolling.
+- Reading a post.
+- Writing a comment.
+- Typing a search query.
+- Opening a profile.
+- Viewing an image.
+- Reading replies.
+- Using filters.
+- Navigating between sections.
+
+C. INCREMENTAL UPDATES
+
+Use incremental data updates or an appropriate existing real-time mechanism.
+
+Only update information that has actually changed.
+
+Avoid unnecessarily downloading the entire feed repeatedly.
+
+Do not replace a user's active interface with stale server data.
+
+D. REQUEST CONTROL
+
+Prevent duplicate requests.
+
+Avoid unnecessary requests when the browser tab is inactive.
+
+Pause or reduce nonessential background activity when appropriate.
+
+Handle network interruptions safely.
+
+E. VIEW COUNT PROTECTION
+
+Background refresh must never count as a new post view.
+
+A counter refresh is not a viewing event.
+
+F. PUSH NOTIFICATION DISTINCTION
+
+Do not use five-second polling as a replacement for real push notifications.
+
+Use the PWA notification architecture implemented in Prompt 19.
+
+Do not introduce unnecessary paid services.
+
+==================================================
+SECTION 16: NOTIFICATIONS AUDIT
+==================================================
+
+Inspect the existing notification system and the PWA push notification implementation.
+
+Ensure notifications are generated only for genuine events.
+
+Examples include:
+
+- New followers.
+- Likes.
+- Comments.
+- Replies.
+- Relevant interactions.
+- Other existing supported notification events.
+
+Prevent duplicate notifications from repeated backend requests.
+
+Ensure notifications link to the correct content.
+
+Respect Anonymous privacy.
+
+Never reveal an Anonymous author's identity in a notification.
+
+Ensure notification read/unread states remain accurate.
+
+Unread counts should remain consistent across the notification interface and supported app badge functionality.
+
+Test notification permission handling and service-worker behaviour.
+
+Do not claim push notifications work when only an in-page notification has been implemented.
+
+If a technical limitation exists, explain it clearly.
+
+==================================================
+SECTION 17: NAVIGATION AND STATE PRESERVATION
+==================================================
+
+Navigation must feel reliable.
+
+Test:
+
+- Website navigation.
+- Browser Back.
+- Browser Forward.
+- Android device Back.
+- Profile-to-post navigation.
+- Post-to-comment navigation.
+- Marketplace-to-product navigation.
+- Notification-to-post navigation.
+- Search-to-profile navigation.
+- Returning from opened images.
+
+Preserve relevant state when users return to a previous page.
+
+Do not unnecessarily reload pages or erase search and filter selections.
+
+Do not allow the browser Back button to create confusing navigation loops.
+
+Ensure the navigation system works with the existing router.
+
+==================================================
+SECTION 18: RESPONSIVE DESIGN
+==================================================
+
+Test the website across:
+
+- Small Android phones.
+- Larger Android phones.
+- iPhones.
+- Tablets.
+- iPads.
+- Windows desktop browsers.
+- Mac desktop browsers.
+
+Prioritise the mobile experience because many LASUED Intel users will access the website through phones.
+
+Check:
+
+- Horizontal overflow.
+- Button sizes.
+- Text wrapping.
+- Image proportions.
+- Navigation menus.
+- Post cards.
+- Profile layouts.
+- Marketplace grids.
+- Modal positioning.
+- Form controls.
+- Contact directory.
+- Notification interface.
+
+No button should exceed its container.
+
+No content should disappear behind another component.
+
+No layout should require awkward horizontal scrolling unless that section is intentionally horizontally scrollable.
+
+Keep all controls touch-friendly without making them unnecessarily large.
+
+==================================================
+SECTION 19: DATABASE AND BACKEND SECURITY
+==================================================
+
+Conduct a serious backend security audit.
+
+Inspect:
+
+- Authentication checks.
+- Role verification.
+- Database security rules.
+- API endpoint permissions.
+- Storage permissions.
+- User ownership checks.
+- Input validation.
+- File upload validation.
+- Session handling.
+- Access control.
+- Anonymous privacy.
+- Administrative operations.
+- Notification permissions.
+- User data isolation.
+
+A. AUTHORISATION
+
+Never trust frontend role information.
+
+A user must not be able to grant themselves Admin or Supreme Admin permissions by changing browser data.
+
+All privileged actions must be checked on the backend.
+
+B. DATA ISOLATION
+
+Users must not access private information belonging to other users unless explicitly authorised.
+
+C. INPUT VALIDATION
+
+Validate all user-submitted content on the backend.
+
+Handle malicious or malformed input safely.
+
+D. FILE SECURITY
+
+Validate uploaded file types and sizes.
+
+Prevent unauthorised access to private files.
+
+Do not trust file extensions alone.
+
+E. DATABASE RULES
+
+Review the actual database rules and ensure they match the website's intended permissions.
+
+Do not leave broad public read/write permissions simply to make features work.
+
+F. ANONYMOUS SECURITY
+
+Apply the strict anonymous privacy rules in Section 7.
+
+G. SUPREME ADMIN SECURITY
+
+Apply the strict two-account permissions in Section 8.
+
+H. DATA PRESERVATION
+
+If a database migration is necessary, make it safe, backward-compatible where possible and non-destructive.
+
+Explain the migration before applying any operation that could affect existing data.
+
+==================================================
+SECTION 20: CACHING, STORAGE AND OFFLINE SAFETY
+==================================================
+
+Review the website's caching and offline systems.
+
+Ensure:
+
+- Users do not see another user's private cached information.
+- Account switching does not expose previous account data.
+- Logout clears or invalidates private cached data appropriately.
+- Public content caches are updated when content changes.
+- Deleted content does not remain accessible through stale caches longer than appropriate.
+- Updated profile information is reflected correctly.
+- Images load reliably.
+- Broken image references are handled gracefully.
+- Service-worker cache versions are managed correctly.
+- Old cached application files do not prevent new deployments from loading.
+
+Be especially careful with Anonymous posts.
+
+Never cache private anonymous-author information in public caches or offline content.
+
+Offline functionality must not bypass authentication or backend permission checks.
+
+==================================================
+SECTION 21: PERFORMANCE AND LOW-END DEVICE OPTIMISATION
+==================================================
+
+Optimise the website for real-world mobile devices, including phones with limited RAM and storage.
+
+Inspect:
+
+- Large JavaScript bundles.
+- Unnecessary dependencies.
+- Repeated component rendering.
+- Large image downloads.
+- Excessive API requests.
+- Memory leaks.
+- Unnecessary background processes.
+- Slow navigation.
+- Long loading times.
+- Expensive database queries.
+
+Use suitable image sizes and lazy loading.
+
+Avoid loading every image at full resolution when it is not necessary.
+
+Avoid unnecessary animations that affect performance.
+
+Do not sacrifice essential functionality just to make the site appear faster.
+
+Keep the website smooth on average Android devices and mobile networks.
+
+==================================================
+SECTION 22: ACCESSIBILITY AND USABILITY
+==================================================
+
+Ensure the interface is usable by different users.
+
+Review:
+
+- Text contrast.
+- Readable font sizes.
+- Button labels.
+- Icon meanings.
+- Keyboard navigation.
+- Focus states.
+- Image alternative text where appropriate.
+- Form validation messages.
+- Screen reader accessibility.
+- Modal focus behaviour.
+
+Do not rely on colour alone to communicate important information.
+
+Keep the interface understandable and consistent.
+
+==================================================
+SECTION 23: ERROR HANDLING AND RECOVERY
+==================================================
+
+Every major operation must have proper loading, success and failure states.
+
+Test failures involving:
+
+- Network interruption.
+- Authentication expiration.
+- Database errors.
+- Image upload failures.
+- Invalid form submissions.
+- Permission denial.
+- Missing content.
+- Deleted content.
+- Push notification permission denial.
+- API timeouts.
+- Duplicate requests.
+
+Display understandable error messages.
+
+Do not expose private backend errors, database credentials or sensitive technical information to ordinary users.
+
+Allow users to retry failed operations where appropriate.
+
+Do not leave the interface stuck in an endless loading state.
+
+==================================================
+SECTION 24: VERCEL COMPATIBILITY AND FUTURE DOMAIN READINESS
+==================================================
+
+The project is intended to be hosted on Vercel.
+
+Inspect the application for deployment compatibility.
+
+Ensure:
+
+- Routes work correctly on Vercel.
+- Backend functions use supported execution patterns.
+- Environment variables are not exposed to the browser.
+- Production configuration is separate from development configuration.
+- No secrets are committed to public source files.
+- API routes use appropriate authentication.
+- The PWA works with HTTPS.
+- Service-worker paths and scopes are correct.
+- Caching works after deployment.
+- The application does not depend on a local development server.
+
+The website will initially use its Vercel-provided subdomain.
+
+A custom domain will be supplied later.
+
+Do not purchase or configure a custom domain now.
+
+Prepare a central configuration for the application's canonical base URL.
+
+Do not scatter hardcoded domain names throughout the source code.
+
+The future domain should be changeable through the appropriate central configuration or environment variable without manually editing many unrelated files.
+
+Do not introduce paid hosting or third-party services without approval.
+
+==================================================
+SECTION 25: AUTOMATED AND MANUAL TESTING
+==================================================
+
+Do not finish this task after merely editing the code.
+
+Perform a complete test of the actual website.
+
+A. FUNCTIONAL TESTS
+
+Test the important user journeys from beginning to end.
+
+B. ROLE TESTS
+
+Test the permissions of:
+
+- Ordinary users.
+- Admin.
+- Moderator.
+- Public-facing Supreme Admin.
+- Underground Supreme Admin.
+
+Verify that each role can access only the operations it is authorised to use.
+
+C. ANONYMOUS PRIVACY TESTS
+
+Verify that ordinary users cannot discover the author of Anonymous posts through any public interface or backend response.
+
+Verify that only the two designated Supreme Admin accounts can access the protected identity revelation function.
+
+D. BADGE TESTS
+
+Verify the three public badge types.
+
+Verify that the underground Supreme Admin badge defaults to OFF.
+
+Verify that only the underground account can change its badge visibility.
+
+Verify that hiding its badge does not remove its permissions.
+
+E. VIEW COUNT TESTS
+
+Verify that views increase only through legitimate viewing events.
+
+Verify that background refreshes, rerenders and duplicate requests do not inflate counts.
+
+F. CONTACT DIRECTORY TESTS
+
+Verify that Trust contacts are not treated as registered users.
+
+Verify that a WhatsApp number is compulsory before publication.
+
+Verify the directory rotation without changing actual badges or permissions.
+
+G. RESPONSIVE TESTS
+
+Test the actual interface at different screen sizes.
+
+H. REGRESSION TESTS
+
+After fixing a feature, check that the changes have not broken other features.
+
+I. SECURITY TESTS
+
+Attempt to access protected operations using an ordinary account and verify that access is denied.
+
+Never perform destructive tests on real user data.
+
+==================================================
+SECTION 26: FINAL VISUAL CONSISTENCY
+==================================================
+
+Review the entire website visually after the technical repairs.
+
+Maintain a consistent design system.
+
+Check:
+
+- Colours.
+- Typography.
+- Spacing.
+- Border radii.
+- Card layouts.
+- Icons.
+- Button styles.
+- Navigation.
+- Feed appearance.
+- Profile appearance.
+- Marketplace appearance.
+- Contact directory.
+- Notification interface.
+- Mobile responsiveness.
+
+All features must look as though they belong to the same website.
+
+Do not randomly redesign existing pages.
+
+Do not introduce oversized buttons or unnecessary decorative elements.
+
+Do not allow any component to overlap, overflow or break the layout.
+
+==================================================
+SECTION 27: FINAL REPORT
+==================================================
+
+When the audit and repair work is complete, provide a detailed report.
+
+The report must include:
+
+1. What parts of the project you inspected.
+2. What problems you discovered.
+3. The root causes of the problems.
+4. What you actually fixed.
+5. What new functionality you implemented.
+6. What existing functionality you preserved.
+7. What security improvements were made.
+8. How Anonymous privacy was enforced.
+9. How the two Supreme Admin accounts were verified and configured.
+10. How the three public badge types work.
+11. How the Trust contact directory works.
+12. How post view counting works and how duplicate views are prevented.
+13. How background updates work.
+14. What performance improvements were made.
+15. Which tests were successfully completed.
+16. Which tests failed or could not be completed.
+17. Any remaining known bugs.
+18. Any required environment variables or manual configuration.
+19. Any external service or payment requirement, if one genuinely exists.
+20. Any database migration that was performed or is still required.
+
+Clearly distinguish between:
+
+- COMPLETED AND TESTED.
+- IMPLEMENTED BUT NOT FULLY TESTED.
+- NOT IMPLEMENTED.
+- BLOCKED BY A TECHNICAL OR EXTERNAL REQUIREMENT.
+
+Do not mark an item as completed merely because code was written.
+
+If something requires my manual action, explain exactly what I need to do.
+
+If a feature cannot be implemented with the existing free infrastructure, explain the limitation and present the available alternatives before introducing a paid service.
+
+==================================================
+FINAL INSTRUCTION
+==================================================
+
+Treat this as a complete technical quality-control stage for LASUED Intel.
+
+Your priority is to make the existing website work properly, securely and consistently.
+
+Do not rush.
+
+Do not make blind changes.
+
+Do not destroy working features.
+
+Do not delete real data.
+
+Do not weaken security to make implementation easier.
+
+Do not expose Anonymous identities.
+
+Do not reduce either Supreme Admin account's authorised privileges.
+
+Do not expose the underground Supreme Admin account's private identity or configuration.
+
+Do not introduce fake features or fake test results.
+
+Inspect, understand, repair, test and report.
+
+Complete the work systematically, preserve the existing project architecture wherever possible, and ensure every modification fits naturally into the actual LASUED Intel website.

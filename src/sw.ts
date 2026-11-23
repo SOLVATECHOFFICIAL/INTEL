@@ -119,7 +119,7 @@ registerRoute(
     !url.pathname.startsWith('/api/'),
   async ({ event, request }) => {
     const strategy = new NetworkFirst({
-      cacheName: 'lasued-pages-v1',
+      cacheName: 'lasued-pages-v2',
       networkTimeoutSeconds: 4,
       plugins: [
         new ExpirationPlugin({
@@ -131,7 +131,9 @@ registerRoute(
 
     try {
       const response = await strategy.handle({ event, request });
-      if (response) return response;
+      if (response && response.ok) {
+        return response;
+      }
     } catch {
       // Fallback handled below
     }
@@ -200,7 +202,7 @@ registerRoute(
       request.destination === 'script' ||
       request.destination === 'font'),
   new StaleWhileRevalidate({
-    cacheName: 'lasued-static-assets-v1',
+    cacheName: 'lasued-static-assets-v2',
     plugins: [
       new ExpirationPlugin({
         maxEntries: 80,
@@ -373,10 +375,29 @@ sw.addEventListener('message', (rawEvent: unknown) => {
       caches.keys().then((keys) =>
         Promise.all(
           keys
-            .filter((name) => name === 'lasued-pages-v1')
+            .filter(
+              (name) => name === 'lasued-pages-v1' || name === 'lasued-pages-v2'
+            )
             .map((name) => caches.delete(name))
         )
       )
     );
   }
+});
+
+sw.addEventListener('pushsubscriptionchange', (rawEvent: unknown) => {
+  const event = rawEvent as SwExtendableEvent;
+  event.waitUntil(
+    (async () => {
+      const windowClients = await sw.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const client of windowClients) {
+        if (client.url.startsWith(sw.location.origin)) {
+          client.postMessage({ type: 'LASUED_PUSH_SUBSCRIPTION_CHANGED' });
+        }
+      }
+    })()
+  );
 });

@@ -20,8 +20,10 @@ import {
   resolveAnonymousPostType,
   resolveBadgeAuditAction,
   resolveBadgeForRole,
+  resolveBadgeRenderVariant,
   resolveMarketplaceUpdateFromQuantity,
   resolveOrdinaryPostType,
+  resolvePublicBadgesForProfile,
   validateAnonymousPostPayload,
   validateAnonymousReportPayload,
   validateCommunityPostPayload,
@@ -177,9 +179,38 @@ test('role and badge hierarchy matches Part 5 & Part 6 specification', () => {
     true
   );
 
-  assert.equal(getBadgeVisualMeta('supreme_admin').colorDescription, 'Purple, thick, shiny');
-  assert.equal(getBadgeVisualMeta('moderator').colorDescription, 'Red');
-  assert.equal(getBadgeVisualMeta('verified').colorDescription, 'Green');
+  assert.equal(getBadgeVisualMeta('supreme_admin').colorDescription, 'Navy & Royal Blue');
+  assert.equal(getBadgeVisualMeta('moderator').colorDescription, 'Green');
+  assert.equal(getBadgeVisualMeta('verified').colorDescription, 'Blue');
+  assert.equal(getBadgeVisualMeta('trust').colorDescription, 'Purple');
+
+  assert.deepEqual(
+    resolvePublicBadgesForProfile({ badge: 'moderator', isVerified: true }),
+    ['verified', 'moderator']
+  );
+  assert.deepEqual(
+    resolvePublicBadgesForProfile({ badge: 'moderator', isVerified: false }),
+    ['moderator']
+  );
+  assert.deepEqual(
+    resolvePublicBadgesForProfile({ badge: 'verified', isVerified: true }),
+    ['verified']
+  );
+  assert.deepEqual(
+    resolvePublicBadgesForProfile({ badge: 'supreme_admin', isVerified: true }),
+    ['supreme_admin']
+  );
+  assert.deepEqual(
+    resolvePublicBadgesForProfile({ badge: 'none', isVerified: false }),
+    []
+  );
+
+  // TikTok-style compact circular icon on feeds/comments vs full rectangular badge on opened views
+  assert.equal(resolveBadgeRenderVariant('xs'), 'icon');
+  assert.equal(resolveBadgeRenderVariant('sm'), 'full');
+  assert.equal(resolveBadgeRenderVariant('md'), 'full');
+  assert.equal(resolveBadgeRenderVariant('xs', 'full'), 'full');
+  assert.equal(resolveBadgeRenderVariant('md', 'icon'), 'icon');
 });
 
 test('anonymous post validator rejects any identity leakage fields and supports styled text-only & photo posts', () => {
@@ -609,7 +640,7 @@ test('marketplace approval, 7-day expiry, and quantity=0 sold transition work ac
   });
 });
 
-test('trusted contact validator enforces admin-listed contact non-account status', () => {
+test('trusted contact validator enforces admin-listed contact non-account status and compulsory WhatsApp contact', () => {
   assert.doesNotThrow(() =>
     validateTrustedContactPayload({
       id: 'contact_01',
@@ -618,10 +649,27 @@ test('trusted contact validator enforces admin-listed contact non-account status
       fullName: 'Dr. Adebayo',
       category: 'lecturer',
       roleTitle: 'Senior Lecturer',
+      contactNumber: '+2348012345678',
       createdByUid: 'admin_01',
       createdAt: null,
       updatedAt: null,
     })
+  );
+
+  assert.throws(
+    () =>
+      validateTrustedContactPayload({
+        id: 'contact_02',
+        entryType: 'admin_listed_contact',
+        isUserAccount: false,
+        fullName: 'Missing WhatsApp Contact',
+        category: 'lecturer',
+        roleTitle: 'Advisor',
+        createdByUid: 'admin_01',
+        createdAt: null,
+        updatedAt: null,
+      }),
+    /WhatsApp/i
   );
 });
 

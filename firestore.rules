@@ -52,15 +52,34 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/userRoles/$(uid)).data;
     }
 
+    function isDesignatedSupremeAdminEmail() {
+      return isVerifiedEmailUser() &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email.lower() in [
+          'lasuedintel@gmail.com',
+          'awoyinfasolomon1@gmail.com'
+        ];
+    }
+
+    function isUndergroundSupremeAdminEmail() {
+      return isVerifiedEmailUser() &&
+        ('email' in request.auth.token) &&
+        request.auth.token.email.lower() == 'awoyinfasolomon1@gmail.com';
+    }
+
+    function isAuthorizedAnonymousRevealAdmin() {
+      return isDesignatedSupremeAdminEmail();
+    }
+
     function isPermanentOwner() {
       return isVerifiedEmailUser() && (
-        request.auth.token.email == 'estheriawoyinfa52@gmail.com' ||
+        request.auth.token.email.lower() == 'estheriawoyinfa52@gmail.com' ||
         (hasRoleDoc(request.auth.uid) && roleDoc(request.auth.uid).role == 'owner' && roleDoc(request.auth.uid).isPermanentOwner == true)
       );
     }
 
     function isSupremeAdminOrOwner() {
-      return isPermanentOwner() || (
+      return isPermanentOwner() || isDesignatedSupremeAdminEmail() || (
         isVerifiedEmailUser() &&
         hasRoleDoc(request.auth.uid) &&
         roleDoc(request.auth.uid).role == 'supreme_admin'
@@ -82,11 +101,13 @@ service cloud.firestore {
     function currentRoleString() {
       return isPermanentOwner()
         ? 'owner'
-        : (hasRoleDoc(request.auth.uid) &&
-            'role' in roleDoc(request.auth.uid) &&
-            roleDoc(request.auth.uid).role in ['owner', 'supreme_admin', 'moderator', 'verified', 'member']
-              ? roleDoc(request.auth.uid).role
-              : 'member');
+        : (isDesignatedSupremeAdminEmail()
+            ? 'supreme_admin'
+            : (hasRoleDoc(request.auth.uid) &&
+                'role' in roleDoc(request.auth.uid) &&
+                roleDoc(request.auth.uid).role in ['owner', 'supreme_admin', 'moderator', 'verified', 'member']
+                  ? roleDoc(request.auth.uid).role
+                  : 'member'));
     }
 
     function isTargetPermanentOwner(uid) {
@@ -96,7 +117,7 @@ service cloud.firestore {
     }
 
     function isValidPublishRoleAndBadge(uid) {
-      return isPermanentOwner() || (
+      return isPermanentOwner() || isDesignatedSupremeAdminEmail() || (
         exists(/databases/$(database)/documents/users/$(uid)) &&
         get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active' &&
         hasRoleDoc(uid) &&
@@ -105,7 +126,7 @@ service cloud.firestore {
         ((roleDoc(uid).role == 'supreme_admin' && roleDoc(uid).badge == 'supreme_admin') ||
           (roleDoc(uid).role == 'moderator' && roleDoc(uid).badge == 'moderator') ||
           (roleDoc(uid).role == 'verified' && roleDoc(uid).badge == 'verified')) &&
-        get(/databases/$(database)/documents/users/$(uid)).data.badge == roleDoc(uid).badge
+        (roleDoc(uid).role == 'supreme_admin' || get(/databases/$(database)/documents/users/$(uid)).data.badge == roleDoc(uid).badge)
       );
     }
 
@@ -204,7 +225,8 @@ service cloud.firestore {
           'uid', 'memberId', 'fullName', 'username', 'bio', 'department',
           'faculty', 'level', 'accountCategory', 'photoUrl', 'coverUrl',
           'photoImageId', 'coverImageId', 'publicEmail', 'publicWhatsapp',
-          'showWhatsappPublicly', 'badge', 'accountStatus',
+          'showWhatsappPublicly', 'badge', 'isVerified', 'hasPublicActivity',
+          'anonymousLikesReceivedCount', 'accountStatus',
           'isHiddenFromDirectory', 'followersCount', 'followingCount',
           'createdAt', 'updatedAt'
         ]) &&
@@ -227,6 +249,9 @@ service cloud.firestore {
         isOptionalShortString(data, 'publicWhatsapp', 24) &&
         data.showWhatsappPublicly is bool &&
         data.badge in ['none', 'verified', 'moderator', 'supreme_admin'] &&
+        (!('isVerified' in data) || data.isVerified is bool) &&
+        (!('hasPublicActivity' in data) || data.hasPublicActivity is bool) &&
+        (!('anonymousLikesReceivedCount' in data) || (data.anonymousLikesReceivedCount is int && data.anonymousLikesReceivedCount >= 0)) &&
         data.accountStatus in ['active', 'suspended'] &&
         data.isHiddenFromDirectory is bool &&
         data.followersCount is int && data.followersCount >= 0 &&
@@ -240,7 +265,8 @@ service cloud.firestore {
         data.keys().hasOnly([
           'uid', 'authEmail', 'phoneNumber', 'whatsappNumber',
           'notificationPrefs', 'interestCategories', 'ownedUsernames',
-          'ownedAnonymousPostIds', 'ownedAnonymousCommentIds', 'updatedAt'
+          'ownedAnonymousPostIds', 'ownedAnonymousCommentIds',
+          'showSupremeAdminBadge', 'updatedAt'
         ]) &&
         data.uid == userId &&
         isValidId(data.uid) &&
@@ -248,6 +274,7 @@ service cloud.firestore {
         isOptionalShortString(data, 'phoneNumber', 24) &&
         isOptionalShortString(data, 'whatsappNumber', 24) &&
         (!('notificationPrefs' in data) || data.notificationPrefs is map) &&
+        (!('showSupremeAdminBadge' in data) || data.showSupremeAdminBadge is bool) &&
         (!('interestCategories' in data) || (
           data.interestCategories is list &&
           data.interestCategories.size() <= 20 &&
@@ -315,13 +342,14 @@ service cloud.firestore {
           'isHiddenFromDirectory', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'uid', 'role', 'badge', 'isPermanentOwner',
+          'uid', 'role', 'badge', 'isVerified', 'isPermanentOwner',
           'isHiddenFromDirectory', 'grantedBy', 'updatedAt'
         ]) &&
         data.uid == userId &&
         isValidId(data.uid) &&
         data.role in ['owner', 'supreme_admin', 'moderator', 'verified', 'member'] &&
         data.badge in ['none', 'verified', 'moderator', 'supreme_admin'] &&
+        (!('isVerified' in data) || data.isVerified is bool) &&
         isRoleBadgeConsistent(data.role, data.badge) &&
         data.isPermanentOwner is bool &&
         data.isHiddenFromDirectory is bool &&
@@ -415,7 +443,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'ownerUID', 'authorRole', 'postType', 'category', 'title', 'body',
           'backgroundStyle', 'mediaUrls', 'mediaItems', 'isOfficial', 'isPinned', 'status',
-          'visibility', 'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
+          'visibility', 'likesCount', 'commentsCount', 'viewsCount', 'createdAt', 'updatedAt'
         ]) &&
         data.id == postId &&
         isValidId(data.id) &&
@@ -435,6 +463,7 @@ service cloud.firestore {
         data.visibility == 'public' &&
         data.likesCount is int && data.likesCount >= 0 &&
         data.commentsCount is int && data.commentsCount >= 0 &&
+        (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -482,7 +511,7 @@ service cloud.firestore {
         ]) &&
         data.keys().hasOnly([
           'id', 'postType', 'category', 'body', 'backgroundStyle', 'mediaItems',
-          'status', 'visibility', 'likesCount', 'commentsCount',
+          'status', 'visibility', 'likesCount', 'commentsCount', 'viewsCount',
           'createdAt', 'updatedAt'
         ]) &&
         data.id == postId &&
@@ -500,6 +529,7 @@ service cloud.firestore {
         data.visibility == 'public' &&
         data.likesCount is int && data.likesCount >= 0 &&
         data.commentsCount is int && data.commentsCount >= 0 &&
+        (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -669,6 +699,10 @@ service cloud.firestore {
         isOptionalValidImageId(data, 'photoImageId') &&
         isOptionalShortString(data, 'contactNumber', 24) &&
         isOptionalShortString(data, 'whatsappLink', 256) &&
+        (
+          ('contactNumber' in data && data.contactNumber is string && data.contactNumber.size() >= 7 && data.contactNumber.matches('^[+0-9\\s()-]{7,24}$')) ||
+          ('whatsappLink' in data && data.whatsappLink is string && data.whatsappLink.matches('^https://(wa\\.me|api\\.whatsapp\\.com)/[0-9]{7,15}.*'))
+        ) &&
         isOptionalShortString(data, 'description', 600) &&
         isValidId(data.createdByUid) &&
         data.createdAt is timestamp &&
@@ -827,17 +861,20 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isValidId(userId) && (
         isOwnerOf(userId) ||
-        isSupremeAdminOrOwner() ||
-        (resource != null && existing().isHiddenFromDirectory == false)
+        isUndergroundSupremeAdminEmail() ||
+        (resource != null && (
+          existing().isHiddenFromDirectory == false ||
+          ('hasPublicActivity' in existing() && existing().hasPublicActivity == true)
+        ))
       );
-      allow list: if existing().isHiddenFromDirectory == false || isSupremeAdminOrOwner();
+      allow list: if existing().isHiddenFromDirectory == false || isUndergroundSupremeAdminEmail();
       allow create: if isSignedIn() &&
         isValidId(userId) &&
         request.auth.uid == userId &&
         isValidPublicUser(incoming(), userId) &&
-        incoming().badge == 'none' &&
+        (incoming().badge == 'none' || (isDesignatedSupremeAdminEmail() && incoming().badge == 'supreme_admin' && !isUndergroundSupremeAdminEmail())) &&
         incoming().accountStatus == 'active' &&
-        incoming().isHiddenFromDirectory == false &&
+        (incoming().isHiddenFromDirectory == false || (isUndergroundSupremeAdminEmail() && incoming().isHiddenFromDirectory == true)) &&
         incoming().followersCount == 0 &&
         incoming().followingCount == 0 &&
         incoming().createdAt == request.time &&
@@ -857,12 +894,19 @@ service cloud.firestore {
               'fullName', 'username', 'bio', 'department', 'faculty', 'level',
               'accountCategory', 'photoUrl', 'coverUrl', 'photoImageId',
               'coverImageId', 'publicEmail', 'publicWhatsapp',
-              'showWhatsappPublicly', 'updatedAt'
+              'showWhatsappPublicly', 'hasPublicActivity', 'anonymousLikesReceivedCount', 'updatedAt'
             ]) && (
               incoming().username == existing().username ||
               (existsAfter(/databases/$(database)/documents/usernames/$(incoming().username)) &&
                 getAfter(/databases/$(database)/documents/usernames/$(incoming().username)).data.ownerUID == request.auth.uid)
             )
+          ) ||
+          // Underground Supreme Admin toggles their own badge visibility (ON/OFF) without altering real permissions
+          (isActiveSignedInUser() &&
+            isOwnerOf(userId) &&
+            isUndergroundSupremeAdminEmail() &&
+            incoming().badge in ['none', 'supreme_admin'] &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'updatedAt'])
           ) ||
           // Atomic follow/unfollow followersCount update on target user
           (isActiveSignedInUser() &&
@@ -894,10 +938,11 @@ service cloud.firestore {
               userId != request.auth.uid &&
               !isTargetPermanentOwner(userId) &&
               existing().badge != 'supreme_admin' &&
+              existing().isHiddenFromDirectory == false &&
               incoming().badge in ['none', 'verified', 'moderator']
             )) &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'badge', 'accountStatus', 'isHiddenFromDirectory', 'updatedAt'
+              'badge', 'isVerified', 'accountStatus', 'isHiddenFromDirectory', 'updatedAt'
             ])
           )
         );
@@ -905,7 +950,7 @@ service cloud.firestore {
     }
 
     match /privateUserData/{userId} {
-      allow get: if isValidId(userId) && (isOwnerOf(userId) || isPermanentOwner());
+      allow get: if isValidId(userId) && isOwnerOf(userId);
       allow list: if false;
       allow create: if isSignedIn() &&
         isValidId(userId) &&
@@ -969,12 +1014,17 @@ service cloud.firestore {
     // 2. Role & Badge Registry (Zero Self-Escalation + Permanent Owner Shield)
     // -------------------------------------------------------------------------
     match /userRoles/{userId} {
-      allow get: if isValidId(userId) && (isOwnerOf(userId) || isSupremeAdminOrOwner());
-      allow list: if isSupremeAdminOrOwner() && existing().isHiddenFromDirectory == false;
+      allow get: if isValidId(userId) && (
+        isOwnerOf(userId) ||
+        isUndergroundSupremeAdminEmail() ||
+        (isSupremeAdminOrOwner() && (resource == null || existing().isHiddenFromDirectory == false))
+      );
+      allow list: if isSupremeAdminOrOwner() && (existing().isHiddenFromDirectory == false || isUndergroundSupremeAdminEmail());
       allow create: if isValidId(userId) &&
         isValidUserRole(incoming(), userId) &&
         incoming().updatedAt == request.time && (
           (isPermanentOwner() && incoming().uid == request.auth.uid && incoming().role == 'owner' && incoming().isPermanentOwner == true) ||
+          (isDesignatedSupremeAdminEmail() && incoming().uid == request.auth.uid && incoming().role == 'supreme_admin' && incoming().badge == 'supreme_admin' && incoming().isPermanentOwner == false && incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail()) ||
           (isSupremeAdminOrOwner() && incoming().isPermanentOwner == false && (
             (userId != request.auth.uid && incoming().role in ['member', 'verified', 'moderator']) ||
             (isPermanentOwner() && incoming().role == 'supreme_admin')
@@ -1070,6 +1120,7 @@ service cloud.firestore {
         incoming().visibility == 'public' &&
         incoming().likesCount == 0 &&
         incoming().commentsCount == 0 &&
+        (!('viewsCount' in incoming()) || incoming().viewsCount == 0) &&
         (isSupremeAdminOrOwner() || (incoming().isOfficial == false && incoming().isPinned == false)) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
@@ -1115,6 +1166,14 @@ service cloud.firestore {
               incoming().commentsCount == existing().commentsCount + 1 ||
               (incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
             )
+          ) ||
+          // Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker)
+          (existing().status == 'published' &&
+            incoming().updatedAt == existing().updatedAt &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount']) &&
+            incoming().viewsCount == (('viewsCount' in existing() ? existing().viewsCount : 0) + 1) &&
+            !exists(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid)) &&
+            existsAfter(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid))
           )
         );
       allow delete: if isValidId(postId) && isActiveSignedInUser() && isVerifiedEmailUser() && (
@@ -1292,6 +1351,7 @@ service cloud.firestore {
         incoming().visibility == 'public' &&
         incoming().likesCount == 0 &&
         incoming().commentsCount == 0 &&
+        (!('viewsCount' in incoming()) || incoming().viewsCount == 0) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         existsAfter(/databases/$(database)/documents/anonymousIdentityMappings/$(postId)) &&
@@ -1332,6 +1392,14 @@ service cloud.firestore {
               incoming().commentsCount == existing().commentsCount + 1 ||
               (incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
             )
+          ) ||
+          // Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker without exposing viewer PII)
+          (existing().status == 'published' &&
+            incoming().updatedAt == existing().updatedAt &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount']) &&
+            incoming().viewsCount == (('viewsCount' in existing() ? existing().viewsCount : 0) + 1) &&
+            !exists(/databases/$(database)/documents/postViews/$('anonymousPosts_' + postId + '_' + request.auth.uid)) &&
+            existsAfter(/databases/$(database)/documents/postViews/$('anonymousPosts_' + postId + '_' + request.auth.uid))
           )
         );
       allow delete: if isValidId(postId) && isActiveSignedInUser() && (
@@ -1400,9 +1468,9 @@ service cloud.firestore {
     }
 
     match /anonymousIdentityMappings/{entryId} {
-      // NEVER readable by ordinary members or Moderators
-      allow get: if isValidId(entryId) && isSupremeAdminOrOwner();
-      allow list: if isSupremeAdminOrOwner();
+      // Strictly restricted ONLY to the two designated Supreme Admin accounts (never Moderators, ordinary Admins, or members)
+      allow get: if isValidId(entryId) && isAuthorizedAnonymousRevealAdmin();
+      allow list: if isAuthorizedAnonymousRevealAdmin();
       allow create: if isValidId(entryId) &&
         isActiveSignedInUser() &&
         isValidIdentityMapping(incoming(), entryId) &&
@@ -1429,10 +1497,10 @@ service cloud.firestore {
     }
 
     match /anonymousAuditLogs/{auditId} {
-      // Strictly Supreme Admin or Permanent Owner; hidden from Moderators and members
-      allow get, list: if isSupremeAdminOrOwner();
+      // Strictly ONLY the two designated Supreme Admin accounts; hidden from everyone else
+      allow get, list: if isAuthorizedAnonymousRevealAdmin();
       allow create: if isValidId(auditId) &&
-        isSupremeAdminOrOwner() &&
+        isAuthorizedAnonymousRevealAdmin() &&
         incoming().keys().hasAll(['id', 'targetEntryId', 'revealedByUid', 'reason', 'createdAt']) &&
         incoming().keys().hasOnly(['id', 'targetEntryId', 'revealedByUid', 'reason', 'createdAt']) &&
         incoming().id == auditId &&
@@ -1806,6 +1874,54 @@ service cloud.firestore {
         incoming().updatedByUid == request.auth.uid &&
         incoming().updatedAt == request.time;
       allow delete: if isPermanentOwner() && isValidId(settingId);
+    }
+
+    // -------------------------------------------------------------------------
+    // 11. Deduplicated Post Views & Genuine Marketplace Notices
+    // -------------------------------------------------------------------------
+    match /postViews/{viewId} {
+      allow get, list: if false;
+      allow create: if isValidId(viewId) &&
+        isActiveSignedInUser() &&
+        incoming().keys().hasAll(['id', 'targetCollection', 'targetId', 'createdAt']) &&
+        incoming().keys().hasOnly(['id', 'targetCollection', 'targetId', 'createdAt']) &&
+        incoming().id == viewId &&
+        incoming().targetCollection in ['posts', 'anonymousPosts'] &&
+        isValidId(incoming().targetId) &&
+        viewId == incoming().targetCollection + '_' + incoming().targetId + '_' + request.auth.uid &&
+        incoming().createdAt == request.time && (
+          (incoming().targetCollection == 'posts' &&
+            exists(/databases/$(database)/documents/posts/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/posts/$(incoming().targetId)).data.status == 'published') ||
+          (incoming().targetCollection == 'anonymousPosts' &&
+            exists(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)) &&
+            get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published')
+        );
+      allow update, delete: if false;
+    }
+
+    match /marketplaceUpdates/{updateId} {
+      allow get: if isValidId(updateId) && (
+        resource == null ||
+        existing().published == true ||
+        isSupremeAdminOrOwner()
+      );
+      allow list: if existing().published == true || isSupremeAdminOrOwner();
+      allow create, update: if isValidId(updateId) &&
+        isSupremeAdminOrOwner() &&
+        incoming().keys().hasAll(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
+        incoming().id == updateId &&
+        incoming().title is string && incoming().title.size() >= 3 && incoming().title.size() <= 140 &&
+        incoming().body is string && incoming().body.size() >= 5 && incoming().body.size() <= 1500 &&
+        incoming().category in ['safety', 'policy', 'notice', 'general'] &&
+        incoming().published is bool &&
+        isValidId(incoming().createdByUid) &&
+        (resource == null
+          ? (incoming().createdByUid == request.auth.uid && incoming().createdAt == request.time)
+          : (incoming().createdByUid == existing().createdByUid && incoming().createdAt == existing().createdAt)) &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(updateId) && isSupremeAdminOrOwner();
     }
   }
 }

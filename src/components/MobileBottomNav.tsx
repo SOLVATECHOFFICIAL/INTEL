@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import { ActiveRoute } from '../types/platform';
+import { formatUnreadBadgeCount } from '../utils/pwa';
 import { isFeedRoute } from '../utils/urlRouting';
 
 interface MobileBottomNavProps {
@@ -20,6 +21,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   onNavigate,
 }) => {
   const { user, unreadNotificationsCount } = useFirebase();
+  const unreadBadgeLabel = formatUnreadBadgeCount(unreadNotificationsCount);
 
   const homeActive = isFeedRoute(activeRoute);
 
@@ -90,8 +92,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           onClick={() => onNavigate('notifications')}
           aria-current={activeRoute === 'notifications' ? 'page' : undefined}
           aria-label={
-            user && unreadNotificationsCount > 0
-              ? `Notifications (${unreadNotificationsCount} unread)`
+            user && unreadBadgeLabel
+              ? `Notifications (${unreadBadgeLabel} unread)`
               : 'Notifications'
           }
           className={`relative flex min-h-[48px] flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
@@ -102,9 +104,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         >
           <span className="relative inline-flex">
             <Bell className="h-5 w-5" aria-hidden="true" />
-            {user && unreadNotificationsCount > 0 && (
+            {user && unreadBadgeLabel && (
               <span className="absolute -top-1 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#1E88E5] px-1 text-[9px] font-bold text-white tabular-nums">
-                {unreadNotificationsCount}
+                {unreadBadgeLabel}
               </span>
             )}
           </span>

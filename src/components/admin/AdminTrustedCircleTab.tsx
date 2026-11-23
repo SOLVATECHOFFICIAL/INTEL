@@ -22,7 +22,6 @@ import type {
   UserRole,
 } from '../../types/database';
 import {
-  buildWhatsAppChatUrl,
   formatFirestoreOrAppError,
 } from '../../utils/authValidation';
 import { TRUSTED_CONTACT_CATEGORY_LABELS } from '../../utils/followRelations';
@@ -30,7 +29,11 @@ import {
   compressImageFile,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
-import { RoleBadge } from '../RoleBadge';
+import {
+  resolveTrustedContactWhatsappUrl,
+  validateTrustedContactWhatsapp,
+} from '../../utils/trustedDirectory';
+import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
@@ -145,6 +148,9 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
     if (submitting) return;
     setSubmitting(true);
     try {
+      const validatedWhatsapp = validateTrustedContactWhatsapp(
+        contactNumber.trim() || whatsappLink.trim()
+      );
       if (editing) {
         await updateTrustedContactWithAudit({
           existing: editing,
@@ -157,8 +163,8 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
           photoUrl,
           compressedPhoto,
           removePhoto: removeExistingPhoto,
-          contactNumber,
-          whatsappLink,
+          contactNumber: validatedWhatsapp.contactNumber,
+          whatsappLink: validatedWhatsapp.whatsappLink,
           description,
           actorUid,
           actorRole,
@@ -174,8 +180,8 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
           faculty,
           photoUrl,
           compressedPhoto,
-          contactNumber,
-          whatsappLink,
+          contactNumber: validatedWhatsapp.contactNumber,
+          whatsappLink: validatedWhatsapp.whatsappLink,
           description,
           actorUid,
           actorRole,
@@ -415,9 +421,10 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input
                 type="tel"
+                required
                 value={contactNumber}
                 onChange={(e) => setContactNumber(e.target.value)}
-                placeholder="Phone / WhatsApp (+234...)"
+                placeholder="WhatsApp number (required, e.g. +2348012345678)"
                 className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
               />
               <input
@@ -467,9 +474,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {officialContacts.map((contact) => {
-              const waUrl = contact.contactNumber
-                ? buildWhatsAppChatUrl(contact.contactNumber)
-                : contact.whatsappLink || null;
+              const waUrl = resolveTrustedContactWhatsappUrl(contact);
 
               return (
                 <article
@@ -488,12 +493,10 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                       />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
+                          <RoleBadge badge="trust" size="xs" />
                           <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                             {contact.badgeLabel ||
                               TRUSTED_CONTACT_CATEGORY_LABELS[contact.category]}
-                          </span>
-                          <span className="rounded-md border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-                            Directory Only · No Account
                           </span>
                         </div>
                         <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E]">
@@ -607,7 +610,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                     <span className="truncate text-xs font-bold text-[#0B1A2E]">
                       {member.fullName}
                     </span>
-                    <RoleBadge badge={member.badge} size="xs" />
+                    <ProfileBadgesRow profile={member} size="xs" />
                   </div>
                   <p className="truncate text-[11px] text-slate-500">
                     @{member.username}

@@ -19,6 +19,7 @@ import {
   type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
+import type { User } from 'firebase/auth';
 import {
   auth,
   db,
@@ -55,8 +56,12 @@ import {
   type UsernameReservation,
 } from '../types/database';
 import {
+  isDesignatedSupremeAdminUser,
   isFirebaseErrorCode,
   isPermanentOwnerUser,
+  isProfileAccessibleByDirectInteraction,
+  isPublicSupremeAdminUser,
+  isUndergroundSupremeAdminUser,
   normalizeUsername,
   resolveAuthoritativeMappingRole,
   toPublicProfileProjection,
@@ -98,6 +103,7 @@ import {
   type NotificationPreferences,
 } from '../utils/notifications';
 import type { FeedTabId } from '../types/platform';
+import { triggerBestEffortPushDispatch } from './webPush';
 
 export interface InitializeMemberProfileInput {
   uid: string;
@@ -326,6 +332,13 @@ export async function createInitialMemberAccountDocs(
     createdAt: serverTimestamp(),
   });
 
+  const currentUser =
+    auth.currentUser?.uid === input.uid ? auth.currentUser : null;
+  const isUndergroundAdmin = isUndergroundSupremeAdminUser(currentUser);
+  const isPublicSupremeAdmin = isPublicSupremeAdminUser(currentUser);
+
+  const initialBadge: BadgeType = isPublicSupremeAdmin ? 'supreme_admin' : 'none';
+
   const publicProfilePayload: Record<string, unknown> = {
     uid: input.uid,
     memberId,
@@ -335,9 +348,9 @@ export async function createInitialMemberAccountDocs(
     level: cleanLevel,
     publicWhatsapp: cleanWhatsapp,
     showWhatsappPublicly: true,
-    badge: 'none' satisfies BadgeType,
+    badge: initialBadge,
     accountStatus: 'active',
-    isHiddenFromDirectory: false,
+    isHiddenFromDirectory: isUndergroundAdmin,
     followersCount: 0,
     followingCount: 0,
     createdAt: serverTimestamp(),
@@ -353,12 +366,25 @@ export async function createInitialMemberAccountDocs(
     publicProfilePayload
   );
 
+  if (isUndergroundAdmin || isPublicSupremeAdmin) {
+    batch.set(doc(db, COLLECTION_NAMES.userRoles, input.uid), {
+      uid: input.uid,
+      role: 'supreme_admin',
+      badge: 'supreme_admin',
+      isPermanentOwner: false,
+      isHiddenFromDirectory: isUndergroundAdmin,
+      grantedBy: input.uid,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
   const privatePayload: Record<string, unknown> = {
     uid: input.uid,
     authEmail: input.authEmail.trim().slice(0, BLUEPRINT_LIMITS.emailMax),
     whatsappNumber: cleanWhatsapp,
     ownedUsernames: [normalizedUsername],
     notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
+    ...(isUndergroundAdmin ? { showSupremeAdminBadge: false } : {}),
     updatedAt: serverTimestamp(),
   };
 
@@ -372,6 +398,89 @@ export async function createInitialMemberAccountDocs(
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, writePath);
+  }
+}
+
+export async function ensureDesignatedSupremeAdminAccountState(
+  user: User | null
+): Promise<void> {
+  if (!user || !isDesignatedSupremeAdminUser(user) || !isValidFirestoreId(user.uid)) {
+    return;
+  }
+  const isUnderground = isUndergroundSupremeAdminUser(user);
+  const roleRef = doc(db, COLLECTION_NAMES.userRoles, user.uid);
+  try {
+    const roleSnap = await getDoc(roleRef);
+    if (!roleSnap.exists()) {
+      await setDoc(roleRef, {
+        uid: user.uid,
+        role: 'supreme_admin',
+        badge: 'supreme_admin',
+        isPermanentOwner: false,
+        isHiddenFromDirectory: isUnderground,
+        grantedBy: user.uid,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch {
+    // Non-blocking role initialization
+  }
+}
+
+export async function updateUndergroundBadgeVisibilitySetting(
+  uid: string,
+  showBadge: boolean
+): Promise<boolean> {
+  if (!isValidFirestoreId(uid)) {
+    throw new Error('Invalid user UID.');
+  }
+  const currentUser = auth.currentUser?.uid === uid ? auth.currentUser : null;
+  if (!isUndergroundSupremeAdminUser(currentUser)) {
+    throw new Error('This privacy control is restricted to the designated underground Supreme Admin account.');
+  }
+
+  const nextBadge: BadgeType = showBadge ? 'supreme_admin' : 'none';
+  const privRef = doc(db, COLLECTION_NAMES.privateUserData, uid);
+  let privExists: boolean;
+  try {
+    const privSnap = await getDoc(privRef);
+    privExists = privSnap.exists();
+  } catch {
+    privExists = true;
+  }
+
+  const batch = writeBatch(db);
+  batch.update(doc(db, COLLECTION_NAMES.users, uid), {
+    badge: nextBadge,
+    updatedAt: serverTimestamp(),
+  });
+  if (privExists) {
+    batch.update(privRef, {
+      showSupremeAdminBadge: showBadge,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.set(privRef, {
+      uid,
+      authEmail: currentUser?.email ?? '',
+      showSupremeAdminBadge: showBadge,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  try {
+    await batch.commit();
+    notifyProfileUpdated({
+      uid,
+      patch: { badge: nextBadge },
+    });
+    return showBadge;
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `${COLLECTION_NAMES.users}/${uid}`
+    );
   }
 }
 
@@ -732,22 +841,25 @@ export async function fetchMemberProfileBundleByUsername(
     return null;
   }
 
-  if (profileDoc.isHiddenFromDirectory && viewerUid !== profileDoc.uid) {
+  if (!isProfileAccessibleByDirectInteraction(profileDoc, viewerUid)) {
     return null;
   }
 
   const profileProjection = toPublicProfileProjection(profileDoc);
-  if (!profileDoc.isHiddenFromDirectory && profileDoc.accountStatus === 'active') {
+  if (isProfileAccessibleByDirectInteraction(profileDoc)) {
     publicProjectionCache.set(profileDoc.uid, {
       projection: profileProjection,
       fetchedAt: Date.now(),
     });
   }
 
-  const canPublishOrdinaryPosts =
+  const baseCanPublishOrdinaryPosts =
     profileDoc.badge === 'verified' ||
     profileDoc.badge === 'moderator' ||
-    profileDoc.badge === 'supreme_admin';
+    profileDoc.badge === 'supreme_admin' ||
+    Boolean(profileDoc.isHiddenFromDirectory && profileDoc.hasPublicActivity) ||
+    (viewerUid === profileDoc.uid &&
+      isDesignatedSupremeAdminUser(auth.currentUser));
 
   const checkIsFollowing = async (): Promise<boolean> => {
     if (!viewerUid || viewerUid === profileDoc.uid) return false;
@@ -762,7 +874,7 @@ export async function fetchMemberProfileBundleByUsername(
   };
 
   const fetchMemberPosts = async (): Promise<CommunityPost[]> => {
-    if (!canPublishOrdinaryPosts) return [];
+    if (!baseCanPublishOrdinaryPosts) return [];
     const postsPath = COLLECTION_NAMES.posts;
     try {
       const q = query(
@@ -814,7 +926,12 @@ export async function fetchMemberProfileBundleByUsername(
     ),
   ]);
 
-  const totalLikesReceived = computeTotalOrdinaryPostLikes(posts);
+  const anonymousLikesReceived = Math.max(
+    0,
+    Math.floor(profileDoc.anonymousLikesReceivedCount ?? 0)
+  );
+  const totalLikesReceived =
+    computeTotalOrdinaryPostLikes(posts) + anonymousLikesReceived;
 
   return {
     profile: profileProjection,
@@ -827,12 +944,12 @@ export async function fetchMemberProfileBundleByUsername(
     isOwnProfile: viewerUid === profileDoc.uid,
     isFollowing,
     isSuspended: profileDoc.accountStatus === 'suspended',
-    canPublishOrdinaryPosts,
+    canPublishOrdinaryPosts: baseCanPublishOrdinaryPosts || posts.length > 0,
     totalLikesReceived,
-      posts,
-      likedPosts,
-      listings,
-    };
+    posts,
+    likedPosts,
+    listings,
+  };
   });
 }
 
@@ -920,9 +1037,11 @@ export async function followMemberByUsername(
   const targetRef = doc(db, COLLECTION_NAMES.users, targetUid);
   const actorRef = doc(db, COLLECTION_NAMES.users, actorUid);
 
+  let createdFollowNotifId: string | null = null;
   try {
     await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
+        createdFollowNotifId = null;
         const [followSnap, targetSnap, actorSnap] = await Promise.all([
         tx.get(followRef),
         tx.get(targetRef),
@@ -988,9 +1107,16 @@ export async function followMemberByUsername(
         notifPayload.actorPhotoUrl = actorData.photoUrl;
       }
         tx.set(notifRef, notifPayload);
+        createdFollowNotifId = notifId;
       })
     );
     notifyFollowToggled({ targetUsername, following: true });
+    if (createdFollowNotifId) {
+      void triggerBestEffortPushDispatch({
+        notificationId: createdFollowNotifId,
+        recipientUid: targetUid,
+      });
+    }
   } catch (error) {
     if (error instanceof DomainValidationError || (error instanceof Error && !('code' in error))) {
       throw error;
@@ -1107,7 +1233,7 @@ export async function fetchPublicProfileProjectionsByUids(
           return null;
         }
         const profile = snap.data() as PublicUserProfile;
-        if (profile.isHiddenFromDirectory || profile.accountStatus !== 'active') {
+        if (!isProfileAccessibleByDirectInteraction(profile)) {
           publicProjectionCache.set(uid, {
             projection: null,
             fetchedAt: Date.now(),
@@ -2311,6 +2437,10 @@ export async function createSafeMemberNotification(input: {
     }
 
     await setDoc(notifRef, payload);
+    void triggerBestEffortPushDispatch({
+      notificationId: input.id,
+      recipientUid: input.recipientUid,
+    });
   } catch (error) {
     if (
       !isFirebaseErrorCode(error, 'permission-denied') &&
@@ -2413,6 +2543,10 @@ export async function syncOwnAnonymousReplyNotifications(
           createdAt: serverTimestamp(),
         });
         syncedCache.add(notifId);
+        void triggerBestEffortPushDispatch({
+          notificationId: notifId,
+          recipientUid: uid,
+        });
       } catch {
         // Ignore individual duplicate/rule races
       }
@@ -2480,6 +2614,10 @@ export async function syncOwnExpiredMarketplaceNotifications(
         }
         await setDoc(notifRef, payload);
         syncedCache.add(notifId);
+        void triggerBestEffortPushDispatch({
+          notificationId: notifId,
+          recipientUid: uid,
+        });
       } catch {
         // Non-blocking
       }

@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Edit3,
   Flame,
   ImagePlus,
   Loader2,
@@ -25,16 +26,22 @@ import {
 } from 'lucide-react';
 import { buildMarketplaceListingShareUrl } from '../../config/site';
 import { useFirebase } from '../../context/firebaseContext';
+import { subscribeCacheMutations } from '../../services/cacheInvalidation';
 import {
   createMarketplaceListingItem,
+  createMarketplaceUpdateRecord,
   deleteMarketplaceListing,
+  deleteMarketplaceUpdateRecord,
+  fetchAllMarketplaceUpdates,
   fetchMarketplaceListingById,
   fetchMarketplaceSellersMap,
   fetchMyMarketplaceListings,
   fetchPendingMarketplaceApprovals,
   fetchPublicMarketplaceListings,
+  fetchPublishedMarketplaceUpdates,
   renewMarketplaceListing,
   reviewPendingMarketplaceListing,
+  updateMarketplaceUpdateRecord,
   updateOwnMarketplaceListingQuantity,
 } from '../../services/governance';
 import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
@@ -57,6 +64,8 @@ import {
   canRolePublishCommunityFeed,
   type MarketplaceListing,
   type MarketplaceListingKind,
+  type MarketplaceUpdate,
+  type MarketplaceUpdateCategory,
   type PublicProfileProjection,
   type UserRole,
 } from '../../types/database';
@@ -65,6 +74,7 @@ import {
   buildWhatsAppChatUrl,
   formatFirestoreOrAppError,
 } from '../../utils/authValidation';
+import { extractTimestampMs } from '../../utils/contextualSearch';
 import {
   compressImageFile,
   formatByteSize,
@@ -78,7 +88,7 @@ import {
 } from '../../utils/mediaCache';
 import { mergeOrderedRecords } from '../../utils/cacheSync';
 import type { GridPhotoItem } from '../../utils/mediaGrid';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
@@ -157,6 +167,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     (effectiveTier === 'moderator' ||
       effectiveTier === 'supreme_admin' ||
       effectiveTier === 'owner');
+  const isSupremeAdminOrOwner =
+    !isSuspended &&
+    (effectiveTier === 'supreme_admin' || effectiveTier === 'owner');
   const actorRole: UserRole = (
     effectiveTier === 'guest' ? 'member' : effectiveTier
   ) as UserRole;
@@ -208,9 +221,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   const [confirmDeleteListingId, setConfirmDeleteListingId] = useState<
     string | null
   >(null);
-  const [reportedListingIds, setReportedListingIds] = useState<Set<string>>(
-    new Set()
-  );
+  const savedScrollYRef = useRef<number | null>(null);
 
   // Create form state
   const [listingKind, setListingKind] =
@@ -252,30 +263,43 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         : null
   );
 
-  const [updatesList] = useState<
-    Array<{
-      id: string;
-      title: string;
-      body: string;
-      date: string;
-      author: string;
-    }>
-  >([
-    {
-      id: 'up-1',
-      title: 'Verified Campus Delivery Safety Notice',
-      body: 'Always meet buyers and sellers in well-lit public locations on campus such as the Main Quad, Epe Campus Gate, or Departmental Foyers. Never make advance bank transfers before inspecting goods.',
-      date: '2 days ago',
-      author: 'LASUED Intel Security & Welfare',
-    },
-    {
-      id: 'up-2',
-      title: 'Hostel Booking Scam Alert',
-      body: 'Beware of unofficial agents demanding deposit fees via WhatsApp without physical hostel inspection. Verify accommodation listings with the Student Union or Faculty Presidents.',
-      date: '5 days ago',
-      author: 'LASUED Intel Moderation Team',
-    },
-  ]);
+  const [updatesList, setUpdatesList] = useState<MarketplaceUpdate[]>([]);
+  const [updatesLoading, setUpdatesLoading] = useState<boolean>(true);
+  const [showUpdateForm, setShowUpdateForm] = useState(false);
+  const [editingUpdate, setEditingUpdate] =
+    useState<MarketplaceUpdate | null>(null);
+  const [updateTitle, setUpdateTitle] = useState('');
+  const [updateBody, setUpdateBody] = useState('');
+  const [updateCategory, setUpdateCategory] =
+    useState<MarketplaceUpdateCategory>('safety');
+  const [updatePublished, setUpdatePublished] = useState(true);
+  const [savingUpdate, setSavingUpdate] = useState(false);
+  const [confirmDeleteUpdateId, setConfirmDeleteUpdateId] = useState<
+    string | null
+  >(null);
+  const [deletingUpdateId, setDeletingUpdateId] = useState<string | null>(null);
+
+  const loadMarketplaceUpdates = useCallback(async () => {
+    try {
+      const items = isSupremeAdminOrOwner
+        ? await fetchAllMarketplaceUpdates()
+        : await fetchPublishedMarketplaceUpdates();
+      setUpdatesList(items);
+    } catch {
+      // Preserve last known updates silently if offline
+    } finally {
+      setUpdatesLoading(false);
+    }
+  }, [isSupremeAdminOrOwner]);
+
+  useEffect(() => {
+    void loadMarketplaceUpdates();
+    return subscribeCacheMutations((event) => {
+      if (event.type === 'marketplace_updates_mutated') {
+        void loadMarketplaceUpdates();
+      }
+    });
+  }, [loadMarketplaceUpdates]);
 
   const lastInitialTabRef = useRef(initialTab);
   useEffect(() => {
@@ -652,10 +676,24 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   const openListingModal = (listingId: string | null) => {
     setDetailLightboxIndex(null);
     setListingLinkCopied(false);
+    if (listingId !== null && typeof window !== 'undefined') {
+      savedScrollYRef.current = window.scrollY;
+    }
     if (onSelectListing) {
       onSelectListing(listingId);
     } else {
       setLocalSelectedListingId(listingId);
+    }
+    if (
+      listingId === null &&
+      savedScrollYRef.current !== null &&
+      typeof window !== 'undefined'
+    ) {
+      const targetY = savedScrollYRef.current;
+      savedScrollYRef.current = null;
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: targetY });
+      });
     }
   };
 
@@ -1072,6 +1110,81 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
       );
     } finally {
       setBusyListingId(null);
+    }
+  };
+
+  const resetUpdateForm = () => {
+    setEditingUpdate(null);
+    setUpdateTitle('');
+    setUpdateBody('');
+    setUpdateCategory('safety');
+    setUpdatePublished(true);
+    setShowUpdateForm(false);
+  };
+
+  const handleSaveMarketplaceUpdate = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+    if (!user || !isSupremeAdminOrOwner || savingUpdate) return;
+    setSavingUpdate(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      if (editingUpdate) {
+        const updated = await updateMarketplaceUpdateRecord({
+          existing: editingUpdate,
+          title: updateTitle,
+          body: updateBody,
+          category: updateCategory,
+          published: updatePublished,
+          actorRole,
+        });
+        setUpdatesList((prev) =>
+          prev.map((item) => (item.id === updated.id ? updated : item))
+        );
+        setStatusMessage(`Updated marketplace notice "${updated.title}".`);
+      } else {
+        const created = await createMarketplaceUpdateRecord({
+          title: updateTitle,
+          body: updateBody,
+          category: updateCategory,
+          published: updatePublished,
+          actorUid: user.uid,
+          actorRole,
+        });
+        setUpdatesList((prev) => [created, ...prev]);
+        setStatusMessage(`Published marketplace update "${created.title}".`);
+      }
+      resetUpdateForm();
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(error, 'Could not save marketplace update.')
+      );
+    } finally {
+      setSavingUpdate(false);
+    }
+  };
+
+  const handleDeleteMarketplaceUpdate = async (updateId: string) => {
+    if (!user || !isSupremeAdminOrOwner || deletingUpdateId) return;
+    setDeletingUpdateId(updateId);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      await deleteMarketplaceUpdateRecord({
+        updateId,
+        actorRole,
+      });
+      setUpdatesList((prev) => prev.filter((item) => item.id !== updateId));
+      setConfirmDeleteUpdateId(null);
+      setStatusMessage('Marketplace notice removed.');
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(error, 'Could not delete marketplace notice.')
+      );
+    } finally {
+      setDeletingUpdateId(null);
     }
   };
 
@@ -1886,37 +1999,230 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         )
       ) : activeTab === 'updates' ? (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <h3 className="font-display text-base font-bold text-[#0B1A2E]">
-              Marketplace Announcements &amp; Safety Advisories
-            </h3>
-            <p className="mt-1 text-xs text-slate-600">
-              Official updates regarding campus trading guidelines, security
-              alerts, and accommodation notices.
-            </p>
+          <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center">
+            <div>
+              <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                Marketplace Announcements &amp; Safety Advisories
+              </h3>
+              <p className="mt-1 text-xs text-slate-600">
+                Official updates regarding campus trading guidelines, security
+                alerts, and accommodation notices.
+              </p>
+            </div>
+            {isSupremeAdminOrOwner && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (showUpdateForm) resetUpdateForm();
+                  else setShowUpdateForm(true);
+                }}
+                className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+              >
+                <Plus className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                {showUpdateForm ? 'Close Form' : 'Publish Update'}
+              </button>
+            )}
           </div>
 
-          <div className="space-y-3">
-            {updatesList.map((up) => (
-              <article
-                key={up.id}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs"
-              >
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span className="font-semibold text-[#1E88E5]">
-                    {up.author}
-                  </span>
-                  <span>{up.date}</span>
-                </div>
-                <h4 className="mt-2 font-display text-base font-bold text-[#0B1A2E]">
-                  {up.title}
+          {showUpdateForm && isSupremeAdminOrOwner && (
+            <form
+              onSubmit={handleSaveMarketplaceUpdate}
+              className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-display text-sm font-bold text-[#0B1A2E]">
+                  {editingUpdate
+                    ? `Edit Notice: ${editingUpdate.title}`
+                    : 'New Marketplace Update / Safety Advisory'}
                 </h4>
-                <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                  {up.body}
-                </p>
-              </article>
-            ))}
-          </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <input
+                  type="text"
+                  required
+                  minLength={3}
+                  maxLength={BLUEPRINT_LIMITS.postTitleMax}
+                  value={updateTitle}
+                  onChange={(e) => setUpdateTitle(e.target.value)}
+                  placeholder="Notice headline..."
+                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] sm:col-span-2"
+                />
+                <select
+                  value={updateCategory}
+                  onChange={(e) =>
+                    setUpdateCategory(e.target.value as MarketplaceUpdateCategory)
+                  }
+                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E]"
+                >
+                  <option value="safety">Safety Advisory</option>
+                  <option value="policy">Trading Policy</option>
+                  <option value="notice">Campus Notice</option>
+                  <option value="general">General Update</option>
+                </select>
+              </div>
+
+              <textarea
+                rows={3}
+                required
+                maxLength={BLUEPRINT_LIMITS.postBodyMax}
+                value={updateBody}
+                onChange={(e) => setUpdateBody(e.target.value)}
+                placeholder="Write the official notice details..."
+                className="block w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E]"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="inline-flex items-center gap-2 text-xs font-medium text-[#0B1A2E]">
+                  <input
+                    type="checkbox"
+                    checked={updatePublished}
+                    onChange={(e) => setUpdatePublished(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 accent-[#1E88E5]"
+                  />
+                  Publish immediately to all users
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={savingUpdate}
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl bg-[#1E88E5] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
+                  >
+                    {savingUpdate && (
+                      <Loader2
+                        className="h-3.5 w-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    )}
+                    {editingUpdate ? 'Save Changes' : 'Publish Update'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetUpdateForm}
+                    className="min-h-[38px] rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {updatesLoading ? (
+            <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+              <Loader2
+                className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
+                aria-hidden="true"
+              />
+              Loading official updates...
+            </div>
+          ) : updatesList.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-10 text-center text-sm text-slate-600">
+              No marketplace updates or safety advisories published yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {updatesList.map((up) => {
+                const tsMs = extractTimestampMs(up.createdAt);
+                const formattedDate = tsMs
+                  ? new Date(tsMs).toLocaleDateString('en-NG', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })
+                  : 'Official notice';
+                const confirmingDelete = confirmDeleteUpdateId === up.id;
+
+                return (
+                  <article
+                    key={up.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-md bg-[#1E88E5]/10 px-2 py-0.5 font-semibold text-[#1E88E5] uppercase">
+                          {up.category}
+                        </span>
+                        {!up.published && (
+                          <span className="rounded-md bg-amber-100 px-2 py-0.5 font-semibold text-amber-900">
+                            Draft
+                          </span>
+                        )}
+                        <span>{formattedDate}</span>
+                      </div>
+                      {isSupremeAdminOrOwner && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingUpdate(up);
+                              setUpdateTitle(up.title);
+                              setUpdateBody(up.body);
+                              setUpdateCategory(up.category);
+                              setUpdatePublished(up.published);
+                              setShowUpdateForm(true);
+                            }}
+                            aria-label={`Edit ${up.title}`}
+                            className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setConfirmDeleteUpdateId((curr) =>
+                                curr === up.id ? null : up.id
+                              )
+                            }
+                            aria-label={`Delete ${up.title}`}
+                            className="rounded-lg p-1.5 text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <h4 className="mt-2 font-display text-base font-bold text-[#0B1A2E]">
+                      {up.title}
+                    </h4>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                      {up.body}
+                    </p>
+                    {confirmingDelete && isSupremeAdminOrOwner && (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900">
+                        <span>Delete this marketplace notice?</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={deletingUpdateId === up.id}
+                            onClick={() =>
+                              void handleDeleteMarketplaceUpdate(up.id)
+                            }
+                            className="inline-flex min-h-[32px] items-center gap-1 rounded-lg bg-red-700 px-3 py-1 font-semibold text-white hover:bg-red-800 disabled:opacity-60"
+                          >
+                            {deletingUpdateId === up.id && (
+                              <Loader2
+                                className="h-3 w-3 animate-spin"
+                                aria-hidden="true"
+                              />
+                            )}
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteUpdateId(null)}
+                            className="min-h-[32px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
       ) : pendingListings.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center text-sm text-slate-600">
@@ -2110,7 +2416,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                         <span className="truncate font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]">
                           {selectedSeller.fullName}
                         </span>
-                        <RoleBadge badge={selectedSeller.badge} size="xs" />
+                        <ProfileBadgesRow profile={selectedSeller} size="xs" />
                       </div>
                       <p className="truncate text-xs text-slate-500">
                         @{selectedSeller.username}
@@ -2168,19 +2474,6 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 </p>
               </div>
 
-              {reportedListingIds.has(selectedProduct.id) && (
-                <div
-                  role="status"
-                  className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900"
-                >
-                  <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span>
-                    Thank you. This listing has been flagged for moderator
-                    review.
-                  </span>
-                </div>
-              )}
-
               <MarketplaceListingComments
                 key={selectedProduct.id}
                 listingId={selectedProduct.id}
@@ -2202,29 +2495,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <button
-                type="button"
-                disabled={reportedListingIds.has(selectedProduct.id)}
-                onClick={() => {
-                  const id = selectedProduct.id;
-                  setReportedListingIds((prev) => {
-                    const next = new Set(prev);
-                    next.add(id);
-                    return next;
-                  });
-                }}
-                className={`text-xs font-semibold ${
-                  reportedListingIds.has(selectedProduct.id)
-                    ? 'text-emerald-700'
-                    : 'text-red-600 hover:underline'
-                }`}
-              >
-                {reportedListingIds.has(selectedProduct.id)
-                  ? 'Reported to Moderators'
-                  : 'Report Listing'}
-              </button>
-
+            <div className="flex items-center justify-end border-t border-slate-200 bg-slate-50 px-6 py-4">
               {buildWhatsAppChatUrl(selectedProduct.whatsappNumber) && (
                 <a
                   href={buildWhatsAppChatUrl(selectedProduct.whatsappNumber)!}

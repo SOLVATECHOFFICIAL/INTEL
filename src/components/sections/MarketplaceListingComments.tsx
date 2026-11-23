@@ -51,7 +51,7 @@ import {
   removeCommentTreeEntries,
   restoreCommentEntriesOrdered,
 } from '../../utils/optimisticInteractions';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow } from '../RoleBadge';
 
 interface MarketplaceListingCommentsProps {
   listingId: string;
@@ -686,17 +686,23 @@ export const MarketplaceListingComments: React.FC<
                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
                     {author ? (
                       <>
+                        <span className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => onNavigateProfile?.(author.username)}
+                            className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                          >
+                            {author.fullName}
+                          </button>
+                          <ProfileBadgesRow profile={author} size="xs" />
+                        </span>
                         <button
                           type="button"
                           onClick={() => onNavigateProfile?.(author.username)}
-                          className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                          className="font-normal text-slate-500 hover:text-[#1E88E5]"
                         >
-                          {author.fullName}{' '}
-                          <span className="font-normal text-slate-500">
-                            @{author.username}
-                          </span>
+                          @{author.username}
                         </button>
-                        <RoleBadge badge={author.badge} size="xs" />
                       </>
                     ) : (
                       <span className="font-bold text-[#0B1A2E]">
@@ -879,8 +885,8 @@ export const MarketplaceListingComments: React.FC<
                                   >
                                     {replyAuthor.fullName}
                                   </button>
-                                  <RoleBadge
-                                    badge={replyAuthor.badge}
+                                  <ProfileBadgesRow
+                                    profile={replyAuthor}
                                     size="xs"
                                   />
                                 </>

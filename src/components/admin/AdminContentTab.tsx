@@ -38,7 +38,7 @@ import {
 import { canActorDeleteCommentByBadge } from '../../utils/adminPermissions';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow } from '../RoleBadge';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
 interface AdminContentTabProps {
@@ -51,6 +51,7 @@ interface AdminContentTabProps {
   actorUid: string;
   actorRole: UserRole;
   isFullAdmin: boolean;
+  canRevealAnonymous?: boolean;
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
   onReload: () => void;
@@ -84,6 +85,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
   actorUid,
   actorRole,
   isFullAdmin,
+  canRevealAnonymous = false,
   onSuccess,
   onError,
   onReload,
@@ -345,7 +347,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
-    if (!isFullAdmin || !lookupEntryId.trim() || lookupBusy) return;
+    if (!canRevealAnonymous || !lookupEntryId.trim() || lookupBusy) return;
     setLookupBusy(true);
     setRevealedResult(null);
     try {
@@ -544,7 +546,9 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                               : post.ownerUID}
                           </strong>
                         </span>
-                        {author && <RoleBadge badge={author.badge} size="xs" />}
+                        {author && (
+                          <ProfileBadgesRow profile={author} size="xs" />
+                        )}
                         <span className="tabular-nums">
                           · {post.likesCount} likes · {post.commentsCount}{' '}
                           comments
@@ -656,7 +660,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                   </div>
 
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    {isFullAdmin && (
+                    {canRevealAnonymous && (
                       <button
                         type="button"
                         onClick={() => setLookupEntryId(post.id)}
@@ -712,7 +716,9 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           ? `${author.fullName} (@${author.username})`
                           : postComment.ownerUID}
                       </strong>
-                      {author && <RoleBadge badge={author.badge} size="xs" />}
+                      {author && (
+                        <ProfileBadgesRow profile={author} size="xs" />
+                      )}
                       <span className="text-slate-400">·</span>
                       <span className="text-slate-500">
                         {formatShortTime(comment.createdAt)}
@@ -784,7 +790,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                   </div>
 
                   <div className="flex shrink-0 items-center gap-2">
-                    {isFullAdmin && (
+                    {canRevealAnonymous && (
                       <button
                         type="button"
                         onClick={() => setLookupEntryId(comment.id)}
@@ -874,7 +880,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                   </div>
 
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    {isFullAdmin && (
+                    {canRevealAnonymous && (
                       <button
                         type="button"
                         onClick={() => setLookupEntryId(report.targetId)}
@@ -922,7 +928,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
       )}
 
       {/* Supreme Admin / Owner ONLY: Anonymous Safety Identity Reveal */}
-      {isFullAdmin && (
+      {canRevealAnonymous && (
         <form
           onSubmit={handleRevealLookup}
           className="space-y-3 rounded-xl border border-purple-200 bg-purple-50/50 p-4"

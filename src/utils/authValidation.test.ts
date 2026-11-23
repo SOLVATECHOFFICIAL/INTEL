@@ -10,17 +10,26 @@ import {
   canCreateAnonymousEntry,
   canPublishOrdinaryFeedUpdate,
   canPublishOrdinaryPostStrict,
+  canRevealAnonymousAuthor,
+  DESIGNATED_SUPREME_ADMIN_EMAILS,
   formatFirestoreOrAppError,
   isAccountSuspended,
+  isDesignatedSupremeAdminUser,
   isPermanentOwnerUser,
+  isProfileAccessibleByDirectInteraction,
+  isProfilePubliclyDiscoverableInDirectory,
+  isPublicSupremeAdminUser,
   isReservedUsername,
+  isUndergroundSupremeAdminUser,
   isValidEmailAddress,
   mapFirebaseAuthError,
   normalizeUsername,
   PERMANENT_OWNER_EMAIL,
+  PUBLIC_SUPREME_ADMIN_EMAIL,
   resolveAuthoritativeMappingRole,
   resolveEffectiveAccountTier,
   toPublicProfileProjection,
+  UNDERGROUND_SUPREME_ADMIN_EMAIL,
   validatePasswordChangeForm,
   validateProfileSettingsForm,
   validateRegistrationForm,
@@ -497,5 +506,138 @@ test('resolveAuthoritativeMappingRole mirrors firestore.rules currentRoleString(
   assert.equal(
     resolveAuthoritativeMappingRole(standardUser, undefined, 'moderator'),
     'moderator'
+  );
+});
+
+test('Prompt 20 designated Supreme Admins, anonymous reveal restriction, and underground discoverability rules', () => {
+  const publicAdmin = {
+    uid: 'pub_admin',
+    email: PUBLIC_SUPREME_ADMIN_EMAIL,
+    emailVerified: true,
+  } as User;
+  const undergroundAdmin = {
+    uid: 'ug_admin',
+    email: 'Awoyinfasolomon1@gmail.com',
+    emailVerified: true,
+  } as User;
+  const unverifiedAdmin = {
+    uid: 'unv_admin',
+    email: UNDERGROUND_SUPREME_ADMIN_EMAIL,
+    emailVerified: false,
+  } as User;
+  const genericSupremeAdmin = {
+    uid: 'other_admin',
+    email: 'co_admin@lasued.edu.ng',
+    emailVerified: true,
+  } as User;
+
+  assert.equal(DESIGNATED_SUPREME_ADMIN_EMAILS.length, 2);
+  assert.equal(isPublicSupremeAdminUser(publicAdmin), true);
+  assert.equal(isUndergroundSupremeAdminUser(undergroundAdmin), true);
+  assert.equal(isUndergroundSupremeAdminUser(unverifiedAdmin), false);
+  assert.equal(isDesignatedSupremeAdminUser(publicAdmin), true);
+  assert.equal(isDesignatedSupremeAdminUser(undergroundAdmin), true);
+  assert.equal(isDesignatedSupremeAdminUser(genericSupremeAdmin), false);
+
+  assert.equal(canRevealAnonymousAuthor(publicAdmin), true);
+  assert.equal(canRevealAnonymousAuthor(undergroundAdmin), true);
+  assert.equal(canRevealAnonymousAuthor(unverifiedAdmin), false);
+  assert.equal(canRevealAnonymousAuthor(genericSupremeAdmin), false);
+  assert.equal(canRevealAnonymousAuthor(null), false);
+
+  assert.equal(resolveEffectiveAccountTier(publicAdmin, null), 'supreme_admin');
+  assert.equal(resolveEffectiveAccountTier(undergroundAdmin, null), 'supreme_admin');
+  assert.equal(resolveAuthoritativeMappingRole(undergroundAdmin, null, 'member'), 'supreme_admin');
+
+  // Underground Supreme Admin can still publish community updates with public badge toggled OFF ('none')
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: undergroundAdmin,
+      tier: 'supreme_admin',
+      profile: {
+        uid: 'ug_admin',
+        memberId: 'LI-UG',
+        fullName: 'Solomon',
+        username: 'solomon_ug',
+        showWhatsappPublicly: false,
+        publicWhatsapp: '',
+        badge: 'none',
+        accountStatus: 'active',
+        isHiddenFromDirectory: true,
+        followersCount: 0,
+        followingCount: 0,
+        createdAt: null,
+        updatedAt: null,
+      },
+      roleRecord: {
+        uid: 'ug_admin',
+        role: 'supreme_admin',
+        badge: 'supreme_admin',
+        isPermanentOwner: false,
+        isHiddenFromDirectory: true,
+        updatedAt: null,
+      },
+      suspended: false,
+    }),
+    true
+  );
+
+  // Underground discoverability rules
+  assert.equal(
+    isProfilePubliclyDiscoverableInDirectory({
+      accountStatus: 'active',
+      isHiddenFromDirectory: true,
+    }),
+    false
+  );
+  assert.equal(
+    isProfilePubliclyDiscoverableInDirectory({
+      accountStatus: 'active',
+      isHiddenFromDirectory: false,
+    }),
+    true
+  );
+  assert.equal(
+    isProfilePubliclyDiscoverableInDirectory({
+      accountStatus: 'suspended',
+      isHiddenFromDirectory: false,
+    }),
+    false
+  );
+  assert.equal(
+    isProfileAccessibleByDirectInteraction(
+      {
+        uid: 'ug_admin',
+        accountStatus: 'active',
+        isHiddenFromDirectory: true,
+        hasPublicActivity: false,
+      },
+      'guest_or_other'
+    ),
+    false
+  );
+  assert.equal(
+    isProfileAccessibleByDirectInteraction(
+      {
+        uid: 'ug_admin',
+        accountStatus: 'active',
+        isHiddenFromDirectory: true,
+        hasPublicActivity: true,
+      },
+      'guest_or_other'
+    ),
+    true
+  );
+  assert.equal(
+    isProfileAccessibleByDirectInteraction(
+      {
+        uid: 'ug_admin',
+        accountStatus: 'active',
+        isHiddenFromDirectory: true,
+        hasPublicActivity: false,
+      },
+      'ug_admin'
+    ),
+    true
   );
 });

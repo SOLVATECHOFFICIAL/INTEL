@@ -61,11 +61,17 @@ import {
   type UserRoleRecord,
 } from '../types/database';
 import {
+  canRevealAnonymousAuthor,
   isFirebaseErrorCode,
   isPermanentOwnerUser,
   resolveAuthoritativeMappingRole,
   toPublicProfileProjection,
 } from '../utils/authValidation';
+import {
+  buildPostViewDocId,
+  hasRecordedPostViewLocally,
+  markPostViewLocally,
+} from '../utils/postViews';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
   computeNextReactionTransactionState,
@@ -106,6 +112,7 @@ import {
   notifyMarketplaceListingCommentMutated,
   notifyOpportunitySavedChanged,
   notifyPostCommentMutated,
+  notifyPostViewCountUpdated,
 } from './cacheInvalidation';
 
 export interface ComposerImageAttachment {
@@ -391,6 +398,10 @@ export async function createCommunityPostWithMedia(input: {
       primeMediaImageCache(att.imageId, att.compressed.dataUrl);
     }
   }
+  void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
+    hasPublicActivity: true,
+    updatedAt: serverTimestamp(),
+  }).catch(() => undefined);
   input.onProgress?.({ percent: 100, label: 'Published' });
 
   const createdPost: CommunityPost = {
@@ -1903,6 +1914,13 @@ export async function addPostComment(input: {
       }
     }
 
+    if (input.kind === 'posts') {
+      void updateDoc(doc(db, COLLECTION_NAMES.users, input.actorUid), {
+        hasPublicActivity: true,
+        updatedAt: serverTimestamp(),
+      }).catch(() => undefined);
+    }
+
     if (input.kind === 'anonymousPosts' && ownership?.exists) {
       const nextIds = [
         commentId,
@@ -2049,6 +2067,11 @@ export async function revealAnonymousEntryAuthor(input: {
   revealedByUid: string;
   reason: string;
 }): Promise<RevealedAuthorResult> {
+  if (!canRevealAnonymousAuthor(auth.currentUser)) {
+    throw new Error(
+      'Only designated Supreme Admin accounts may reveal anonymous authors.'
+    );
+  }
   const cleanReason = input.reason.trim();
   if (
     cleanReason.length < BLUEPRINT_LIMITS.auditReasonMin ||
@@ -2429,5 +2452,121 @@ export async function deleteMarketplaceListingComment(input: {
       throw error;
     }
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function recordDeduplicatedPostView(input: {
+  kind: 'ordinary' | 'anonymous';
+  postId: string;
+  viewerUid?: string | null;
+  currentViewsCount?: number;
+  isBackgroundRefresh?: boolean;
+}): Promise<number | null> {
+  if (input.isBackgroundRefresh || !isValidFirestoreId(input.postId)) {
+    return null;
+  }
+
+  const targetCollection =
+    input.kind === 'ordinary'
+      ? COLLECTION_NAMES.posts
+      : COLLECTION_NAMES.anonymousPosts;
+  const hasSignedInViewer =
+    Boolean(input.viewerUid) &&
+    isValidFirestoreId(input.viewerUid!) &&
+    auth.currentUser?.uid === input.viewerUid;
+  const viewerKey = hasSignedInViewer ? input.viewerUid! : 'guest';
+
+  if (hasRecordedPostViewLocally(targetCollection, input.postId, viewerKey)) {
+    return null;
+  }
+
+  if (!hasSignedInViewer) {
+    // Guest sessions deduplicate locally without attempting restricted Firestore view writes.
+    markPostViewLocally(targetCollection, input.postId, 'guest');
+    return null;
+  }
+
+  const postRef = doc(db, targetCollection, input.postId);
+  try {
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) {
+      return null;
+    }
+    const postData = postSnap.data() as {
+      status?: string;
+      viewsCount?: number;
+    };
+    if (postData.status !== 'published') {
+      return null;
+    }
+
+    const baseViews =
+      typeof postData.viewsCount === 'number' && Number.isFinite(postData.viewsCount)
+        ? Math.max(0, Math.floor(postData.viewsCount))
+        : Math.max(0, Math.floor(input.currentViewsCount ?? 0));
+    const nextViews = baseViews + 1;
+
+    const viewId = buildPostViewDocId(
+      targetCollection,
+      input.postId,
+      input.viewerUid!
+    );
+    const batch = writeBatch(db);
+    batch.set(doc(db, COLLECTION_NAMES.postViews, viewId), {
+      id: viewId,
+      targetCollection,
+      targetId: input.postId,
+      createdAt: serverTimestamp(),
+    });
+    batch.update(postRef, { viewsCount: nextViews });
+
+    await batch.commit();
+    markPostViewLocally(targetCollection, input.postId, input.viewerUid!);
+    notifyPostViewCountUpdated(input.kind, input.postId, nextViews);
+    return nextViews;
+  } catch (error) {
+    if (
+      isFirebaseErrorCode(error, 'permission-denied') ||
+      isFirebaseErrorCode(error, 'already-exists')
+    ) {
+      // Server rule blocks duplicate postViews creation; record locally to avoid retries.
+      markPostViewLocally(targetCollection, input.postId, input.viewerUid!);
+    }
+    return null;
+  }
+}
+
+export async function syncOwnAnonymousLikesReceivedCount(
+  uid: string
+): Promise<number> {
+  if (!isValidFirestoreId(uid) || auth.currentUser?.uid !== uid) {
+    return 0;
+  }
+  try {
+    const [ownPosts, userSnap] = await Promise.all([
+      fetchMyAnonymousHistory(uid),
+      getDoc(doc(db, COLLECTION_NAMES.users, uid)),
+    ]);
+    const totalLikes = ownPosts.reduce((sum, post) => {
+      const likes =
+        post.status === 'published' && Number.isFinite(post.likesCount)
+          ? Math.max(0, Math.floor(post.likesCount))
+          : 0;
+      return sum + likes;
+    }, 0);
+
+    if (userSnap.exists()) {
+      const currentStored = (userSnap.data() as PublicUserProfile)
+        .anonymousLikesReceivedCount;
+      if (Math.floor(currentStored ?? 0) !== totalLikes) {
+        await updateDoc(doc(db, COLLECTION_NAMES.users, uid), {
+          anonymousLikesReceivedCount: totalLikes,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    return totalLikes;
+  } catch {
+    return 0;
   }
 }

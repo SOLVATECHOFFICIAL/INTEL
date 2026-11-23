@@ -1,21 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Wifi, WifiOff, X } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { HomeFeedWorkspace } from './components/HomeFeedWorkspace';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileSectionDrawer } from './components/MobileSectionDrawer';
+import { PWAInstallControl } from './components/pwa/PWAInstallControl';
 import { SectionSidebar } from './components/SectionSidebar';
 import { SectionWorkspace } from './components/SectionWorkspace';
-import { LoginPage } from './components/auth/LoginPage';
-import { RegisterPage } from './components/auth/RegisterPage';
-import { AccountPage } from './components/pages/AccountPage';
-import { AdminGuardPage } from './components/pages/AdminGuardPage';
-import { MemberProfilePage } from './components/pages/MemberProfilePage';
-import { NotificationsPage } from './components/pages/NotificationsPage';
-import { SearchPage } from './components/pages/SearchPage';
 import { useFirebase } from './context/firebaseContext';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
+import { verifyStoredPushSubscriptionForUser } from './services/webPush';
+import { getPublicSiteBaseUrl } from './config/site';
+import { parseNotificationTargetUrl } from './utils/pwa';
+import {
+  applyDocumentSeoMetadata,
+  resolvePageSeoMetadata,
+} from './utils/seo';
 import {
   AccountSettingsSection,
   ActiveRoute,
@@ -59,6 +60,40 @@ import {
   isProtectedRouteOrTab,
   parseLocationSearch,
 } from './utils/urlRouting';
+
+const LoginPage = lazy(() =>
+  import('./components/auth/LoginPage').then((m) => ({ default: m.LoginPage }))
+);
+const RegisterPage = lazy(() =>
+  import('./components/auth/RegisterPage').then((m) => ({
+    default: m.RegisterPage,
+  }))
+);
+const AccountPage = lazy(() =>
+  import('./components/pages/AccountPage').then((m) => ({
+    default: m.AccountPage,
+  }))
+);
+const AdminGuardPage = lazy(() =>
+  import('./components/pages/AdminGuardPage').then((m) => ({
+    default: m.AdminGuardPage,
+  }))
+);
+const MemberProfilePage = lazy(() =>
+  import('./components/pages/MemberProfilePage').then((m) => ({
+    default: m.MemberProfilePage,
+  }))
+);
+const NotificationsPage = lazy(() =>
+  import('./components/pages/NotificationsPage').then((m) => ({
+    default: m.NotificationsPage,
+  }))
+);
+const SearchPage = lazy(() =>
+  import('./components/pages/SearchPage').then((m) => ({
+    default: m.SearchPage,
+  }))
+);
 
 export interface NavigateOptions extends Partial<Omit<RouteDestination, 'route'>> {
   replace?: boolean;
@@ -159,6 +194,11 @@ export function App() {
   const syncCanGoBack = useCallback((stack: NavigationStackState) => {
     setCanGoBack(canGoBackHistory(stack));
   }, []);
+
+  useEffect(() => {
+    const metadata = resolvePageSeoMetadata(navDest, getPublicSiteBaseUrl());
+    applyDocumentSeoMetadata(metadata);
+  }, [navDest]);
 
   const scheduleScrollRestore = useCallback((targetScrollY: number) => {
     if (cancelScrollRestoreRef.current) {
@@ -636,6 +676,46 @@ export function App() {
     });
   }, [authReady, user, handleNavigate]);
 
+  // Listen for Service Worker notification click deep links and rotated push subscriptions
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      const data = event.data as Record<string, unknown> | null;
+      if (!data || typeof data !== 'object') return;
+
+      if (data.type === 'LASUED_NAVIGATE_NOTIFICATION') {
+        const parsed = parseNotificationTargetUrl(
+          typeof data.targetPath === 'string' ? data.targetPath : null,
+          typeof window !== 'undefined' ? window.location.origin : undefined
+        );
+        if (parsed) {
+          handleNavigate(parsed.route, parsed.destination);
+        } else {
+          handleNavigate('notifications');
+        }
+        return;
+      }
+
+      if (data.type === 'LASUED_PUSH_SUBSCRIPTION_CHANGED' && user?.uid) {
+        void verifyStoredPushSubscriptionForUser(user.uid);
+      }
+    };
+
+    navigator.serviceWorker.addEventListener(
+      'message',
+      handleServiceWorkerMessage
+    );
+    return () => {
+      navigator.serviceWorker.removeEventListener(
+        'message',
+        handleServiceWorkerMessage
+      );
+    };
+  }, [handleNavigate, user?.uid]);
+
   const handleReplaceCurrentDestination = useCallback(
     (patch: Partial<Omit<RouteDestination, 'route'>>) => {
       const currentEntry =
@@ -1082,7 +1162,24 @@ export function App() {
             </div>
           )}
 
-          {renderMainContent()}
+          {showSidebar && <PWAInstallControl variant="banner" />}
+
+          <Suspense
+            fallback={
+              <div
+                role="status"
+                aria-label="Loading view"
+                className="flex min-h-[260px] items-center justify-center rounded-2xl border border-slate-200 bg-white p-8"
+              >
+                <div className="flex items-center gap-3 text-sm font-medium text-slate-500">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1E88E5] border-t-transparent" />
+                  <span>Loading campus view...</span>
+                </div>
+              </div>
+            }
+          >
+            {renderMainContent()}
+          </Suspense>
         </div>
       </main>
 

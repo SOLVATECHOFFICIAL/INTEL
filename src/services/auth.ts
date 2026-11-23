@@ -15,6 +15,11 @@ import {
   type User,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
+import { clearPostViewSessionCache } from '../utils/postViews';
+import { notifyViewerSessionReset } from './cacheInvalidation';
+import { clearViewerScopedMediaCache } from './mediaStorage';
+import { clearSearchBundleCache } from './searchDiscovery';
+import { cleanupDevicePushBeforeSignOut } from './webPush';
 
 export interface AuthAccountSummary {
   isSignedIn: boolean;
@@ -137,6 +142,33 @@ export async function deleteAuthenticatedUser(user: User): Promise<void> {
 }
 
 export async function signOutCurrentUser(): Promise<void> {
+  const currentUid = auth.currentUser?.uid ?? null;
+  try {
+    await Promise.race([
+      cleanupDevicePushBeforeSignOut(currentUid),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 1500);
+      }),
+    ]);
+  } catch {
+    // Sign-out must never hang if offline or SW cleanup fails
+  }
+
+  try {
+    clearPostViewSessionCache();
+    clearViewerScopedMediaCache(currentUid);
+    clearSearchBundleCache();
+    await notifyViewerSessionReset(currentUid);
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const controller = navigator.serviceWorker.controller;
+      if (controller) {
+        controller.postMessage({ type: 'LASUED_CLEAR_USER_CACHE' });
+      }
+    }
+  } catch {
+    // Non-blocking cache reset during sign-out
+  }
+
   await signOut(auth);
 }
 

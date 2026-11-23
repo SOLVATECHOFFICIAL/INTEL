@@ -25,7 +25,7 @@ import {
 import { formatAdminAuditActionLabel } from '../../utils/adminPermissions';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow } from '../RoleBadge';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
@@ -265,7 +265,7 @@ export const AdminMembersTab: React.FC<AdminMembersTabProps> = ({
                       <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
                         {profile.fullName}
                       </span>
-                      <RoleBadge badge={profile.badge} size="xs" />
+                      <ProfileBadgesRow profile={profile} size="xs" />
                       {profile.accountStatus === 'suspended' ? (
                         <span className="rounded-md bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-800">
                           Suspended
@@ -407,7 +407,7 @@ export const AdminMembersTab: React.FC<AdminMembersTabProps> = ({
                       <span className="font-display text-base font-bold text-[#0B1A2E]">
                         {selectedDetails.profile.fullName}
                       </span>
-                      <RoleBadge badge={selectedDetails.profile.badge} size="sm" />
+                      <ProfileBadgesRow profile={selectedDetails.profile} size="sm" />
                     </div>
                     <p className="text-xs text-slate-600">
                       @{selectedDetails.profile.username} · Member ID:{' '}

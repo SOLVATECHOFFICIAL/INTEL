@@ -773,7 +773,6 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                     viewerSuspended={isSuspended}
                     isLiked={interactions.likedPostIds.has(post.id)}
                     isSaved={interactions.savedPostIds.has(post.id)}
-                    allowAnonymousReport={false}
                     onOpenPost={(pid) =>
                       onNavigate('for-you', { postId: pid })
                     }
@@ -855,7 +854,6 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                   isSaved={interactions.savedAnonIds.has(post.id)}
                   isOwnedAnonymous={interactions.ownedAnonPostIds.has(post.id)}
                   ownedAnonymousCommentIds={interactions.ownedAnonCommentIds}
-                  allowAnonymousReport={false}
                   onOpenPost={(pid) => onNavigate('anonymous', { postId: pid })}
                   onSaveChanged={(postId, saved) =>
                     setInteractions((prev) => {

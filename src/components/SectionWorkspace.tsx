@@ -788,7 +788,6 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                         ownedAnonPostIds.has(item.id) || activeAnonTab === 'mine'
                       }
                       ownedAnonymousCommentIds={ownedAnonCommentIds}
-                      allowAnonymousReport={false}
                       onRequireAuth={onRequireAuth}
                       returnRoute="anonymous"
                       onEditPost={(targetPost) =>
@@ -850,6 +849,28 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
               <EmptyState section={activeSection} />
             ) : (
               <div className="space-y-4">
+                {selectedPostId &&
+                  anonLoadState === 'ready' &&
+                  deepLinkedAnonPost?.targetId === selectedPostId &&
+                  deepLinkedAnonPost.post === null &&
+                  !anonymousPosts.some((item) => item.id === selectedPostId) && (
+                    <div
+                      role="status"
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:text-sm"
+                    >
+                      <span>
+                        This anonymous post is unavailable or may have been
+                        removed.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate('anonymous')}
+                        className="font-semibold text-[#1E88E5] hover:underline"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
                 {feedAnonPosts.map((item) => (
                   <PostCard
                     key={item.id}
@@ -874,7 +895,6 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                     }
                     isOwnedAnonymous={ownedAnonPostIds.has(item.id)}
                     ownedAnonymousCommentIds={ownedAnonCommentIds}
-                    allowAnonymousReport={false}
                     onRequireAuth={onRequireAuth}
                     returnRoute="anonymous"
                     onEditPost={(targetPost) =>

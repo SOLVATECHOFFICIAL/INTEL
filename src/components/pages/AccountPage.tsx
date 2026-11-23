@@ -30,8 +30,10 @@ import {
 import {
   checkUsernameAvailability,
   deleteOwnMemberFirestoreData,
+  fetchPrivateUserData,
   updateMemberAccountProfileAndUsername,
   updateMemberPrivacySettings,
+  updateUndergroundBadgeVisibilitySetting,
 } from '../../services/firestoreFoundation';
 import {
   getAccountSectionSnapshot,
@@ -52,6 +54,7 @@ import {
   canAccessFullAdminDashboard,
   formatFirestoreOrAppError,
   getAccountTierDisplayLabel,
+  isUndergroundSupremeAdminUser,
   isValidEmailAddress,
   mapFirebaseAuthError,
   normalizeUsername,
@@ -69,10 +72,12 @@ import {
   NOTIFICATION_PREFERENCE_OPTIONS,
   type NotificationPrefKey,
 } from '../../utils/notifications';
-import { RoleBadge } from '../RoleBadge';
+import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
+import { PWAInstallControl } from '../pwa/PWAInstallControl';
+import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 export type { AccountSettingsSection };
 
@@ -162,6 +167,36 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
   // Section C: Privacy toggle state
   const [togglingWhatsapp, setTogglingWhatsapp] = useState(false);
+  const isUndergroundAdmin = isUndergroundSupremeAdminUser(user);
+  const [showSupremeBadge, setShowSupremeBadge] = useState<boolean>(false);
+  const [togglingSupremeBadge, setTogglingSupremeBadge] = useState(false);
+
+  const effectiveShowSupremeBadge =
+    isUndergroundAdmin &&
+    (showSupremeBadge || profile?.badge === 'supreme_admin');
+
+  useEffect(() => {
+    let active = true;
+    if (!user || !isUndergroundAdmin) {
+      return () => {
+        active = false;
+      };
+    }
+    void fetchPrivateUserData(user.uid)
+      .then((priv) => {
+        if (!active) return;
+        setShowSupremeBadge(
+          Boolean(priv?.showSupremeAdminBadge) ||
+            profile?.badge === 'supreme_admin'
+        );
+      })
+      .catch(() => {
+        // Ignore silent fetch errors on optional preference read
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, isUndergroundAdmin, profile?.badge]);
 
   // Section D: Account Deletion state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -348,6 +383,38 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     }
   };
 
+  const handleToggleSupremeAdminBadgeVisibility = async () => {
+    if (!user || !isUndergroundAdmin || isSuspended || togglingSupremeBadge) {
+      return;
+    }
+    setTogglingSupremeBadge(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      const nextShow = !effectiveShowSupremeBadge;
+      const savedShow = await updateUndergroundBadgeVisibilitySetting(
+        user.uid,
+        nextShow
+      );
+      setShowSupremeBadge(savedShow);
+      await refreshAccountState();
+      setStatusMessage(
+        savedShow
+          ? 'Supreme Admin badge is now shown on your profile.'
+          : 'Supreme Admin badge is now hidden while preserving all Supreme Admin permissions.'
+      );
+    } catch (error) {
+      setErrorMessage(
+        formatFirestoreOrAppError(
+          error,
+          'Unable to update Supreme Admin badge visibility right now.'
+        )
+      );
+    } finally {
+      setTogglingSupremeBadge(false);
+    }
+  };
+
   const handleDeleteAccount = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
@@ -443,17 +510,44 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               </p>
 
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                {effectiveTier === 'supreme_admin' ||
-                effectiveTier === 'owner' ||
-                effectiveTier === 'moderator' ||
-                effectiveTier === 'verified' ? (
+                {isUndergroundAdmin ? (
                   <>
-                    <RoleBadge
-                      badge={
-                        effectiveTier === 'owner'
-                          ? 'supreme_admin'
-                          : effectiveTier
-                      }
+                    {effectiveShowSupremeBadge ? (
+                      <RoleBadge badge="supreme_admin" size="md" />
+                    ) : (
+                      <span className="text-xs font-medium text-slate-600">
+                        Role: Ordinary Member (Badge Hidden)
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleSupremeAdminBadgeVisibility()}
+                      disabled={!profile || isSuspended || togglingSupremeBadge}
+                      className="inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      {togglingSupremeBadge ? (
+                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <Shield className="h-3 w-3 text-[#1E88E5]" aria-hidden="true" />
+                      )}
+                      {effectiveShowSupremeBadge
+                        ? 'Hide Supreme Badge'
+                        : 'Show Supreme Badge'}
+                    </button>
+                  </>
+                ) : effectiveTier === 'supreme_admin' ||
+                  effectiveTier === 'owner' ||
+                  effectiveTier === 'moderator' ||
+                  effectiveTier === 'verified' ? (
+                  <>
+                    <ProfileBadgesRow
+                      profile={{
+                        badge:
+                          effectiveTier === 'owner'
+                            ? 'supreme_admin'
+                            : effectiveTier,
+                        isVerified: Boolean(profile?.isVerified),
+                      }}
                       size="md"
                     />
                     {effectiveTier === 'owner' && (
@@ -955,6 +1049,63 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                   )}
                 </div>
 
+                {isUndergroundAdmin && (
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                      <div>
+                        <h3 className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
+                          <Shield
+                            className="h-4 w-4 text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                          Supreme Admin Badge Visibility
+                        </h3>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                          Choose whether your Supreme Admin badge appears on your
+                          public profile and posts. All Supreme Admin governance
+                          permissions remain active whether the badge is hidden
+                          or visible.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={effectiveShowSupremeBadge}
+                        aria-label="Show Supreme Admin badge on public profile"
+                        disabled={!profile || isSuspended || togglingSupremeBadge}
+                        onClick={() =>
+                          void handleToggleSupremeAdminBadgeVisibility()
+                        }
+                        className={`inline-flex min-h-[40px] shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60 ${
+                          effectiveShowSupremeBadge
+                            ? 'border-[#1E88E5]/40 bg-[#1E88E5]/10 text-[#0B1A2E]'
+                            : 'border-slate-300 bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {togglingSupremeBadge ? (
+                          <Loader2
+                            className="h-3.5 w-3.5 animate-spin"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            className={`inline-block h-2.5 w-2.5 rounded-full ${
+                              effectiveShowSupremeBadge
+                                ? 'bg-[#1E88E5]'
+                                : 'bg-slate-400'
+                            }`}
+                          />
+                        )}
+                        {effectiveShowSupremeBadge
+                          ? 'Badge Visible'
+                          : 'Badge Hidden'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-slate-200 p-4">
                   <h3 className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
                     <Lock
@@ -1048,6 +1199,33 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                    <div>
+                      <h3 className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
+                        <Bell
+                          className="h-4 w-4 text-[#1E88E5]"
+                          aria-hidden="true"
+                        />
+                        Device Push Alerts &amp; App Install
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Receive real-time mobile and desktop notifications when
+                        the app is closed, or install LASUED Intel to your device
+                        home screen.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3.5 flex flex-wrap items-center gap-3">
+                    <WebPushNotificationButton
+                      variant="full"
+                      allowDisable
+                      showIosHint
+                    />
+                    <PWAInstallControl variant="settings" />
                   </div>
                 </div>
 

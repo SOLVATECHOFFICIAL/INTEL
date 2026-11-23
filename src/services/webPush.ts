@@ -264,7 +264,9 @@ export async function verifyStoredPushSubscriptionForUser(
       writeSyncedPushMarker(uid, endpoint);
       return true;
     }
-    return false;
+    // Browser rotated/renewed its PushSubscription endpoint under granted permission; re-save safely
+    await savePushSubscriptionForUser(uid, sub);
+    return true;
   } catch {
     return false;
   }

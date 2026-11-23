@@ -5,7 +5,7 @@ import type {
   PublicProfileProjection,
 } from '../../../types/database';
 import { buildWhatsAppChatUrl } from '../../../utils/authValidation';
-import { RoleBadge } from '../../RoleBadge';
+import { ProfileBadgesRow } from '../../RoleBadge';
 import { TikTokFollowButton } from '../../TikTokFollowButton';
 import { AvatarMedia, FirestoreImage } from '../../media/FirestoreImage';
 
@@ -126,7 +126,7 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
                 <span className="truncate text-[11px] font-semibold text-[#0B1A2E] hover:text-[#1E88E5]">
                   {seller.fullName}
                 </span>
-                <RoleBadge badge={seller.badge} size="xs" />
+                <ProfileBadgesRow profile={seller} size="xs" />
               </button>
 
               <TikTokFollowButton
