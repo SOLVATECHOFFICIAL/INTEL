@@ -189,7 +189,17 @@ export async function savePushSubscriptionForUser(
       : undefined;
 
   const existingSnap = await getDoc(subRef).catch(() => null);
-  const basePayload: Record<string, unknown> = {
+  const basePayload: {
+    id: string;
+    uid: string;
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+    isStandalone: boolean;
+    updatedAt: ReturnType<typeof serverTimestamp>;
+    userAgent?: string;
+    platform?: string;
+  } = {
     id: subId,
     uid,
     endpoint,

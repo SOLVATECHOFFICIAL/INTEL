@@ -43,7 +43,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       ? Notification.permission
       : 'unsupported'
   );
-  const [isSubscribedForUser, setIsSubscribedForUser] = useState(false);
+  const [verifiedForUid, setVerifiedForUid] = useState<string | null>(null);
   const [enabling, setEnabling] = useState(false);
   const [vapidConfigured, setVapidConfigured] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -56,7 +56,6 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
         setPermission(Notification.permission);
       }
     };
-    refreshCapability();
     const media = window.matchMedia?.('(display-mode: standalone)');
     media?.addEventListener?.('change', refreshCapability);
     return () => {
@@ -67,7 +66,6 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
   useEffect(() => {
     let cancelled = false;
     if (!capability.canShowEnableButton || !user || isSuspended) {
-      setIsSubscribedForUser(false);
       return;
     }
 
@@ -84,11 +82,9 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     ) {
       void verifyStoredPushSubscriptionForUser(user.uid).then((verified) => {
         if (!cancelled) {
-          setIsSubscribedForUser(verified);
+          setVerifiedForUid(verified ? user.uid : null);
         }
       });
-    } else {
-      setIsSubscribedForUser(false);
     }
 
     return () => {
@@ -125,16 +121,16 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       }
 
       if (resolvedPermission !== 'granted') {
-        setIsSubscribedForUser(false);
+        setVerifiedForUid(null);
         return false;
       }
 
       await subscribeDeviceToWebPush(user.uid);
-      setIsSubscribedForUser(true);
+      setVerifiedForUid(user.uid);
       setVapidConfigured(true);
       return true;
     } catch (err) {
-      setIsSubscribedForUser(false);
+      setVerifiedForUid(null);
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -150,12 +146,20 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     if (!user) return;
     setErrorMessage(null);
     await disableCurrentDevicePushSubscription(user.uid);
-    setIsSubscribedForUser(false);
+    setVerifiedForUid(null);
   }, [user]);
 
   const clearError = useCallback(() => {
     setErrorMessage(null);
   }, []);
+
+  const isSubscribedForUser = Boolean(
+    user &&
+      !isSuspended &&
+      capability.canShowEnableButton &&
+      permission === 'granted' &&
+      verifiedForUid === user.uid
+  );
 
   let status: WebPushButtonStatus = 'hidden';
   if (user && !isSuspended && capability.canShowEnableButton) {
@@ -163,7 +167,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       status = 'denied';
     } else if (enabling) {
       status = 'enabling';
-    } else if (permission === 'granted' && isSubscribedForUser) {
+    } else if (isSubscribedForUser) {
       status = 'enabled';
     } else {
       status = 'ready_to_enable';

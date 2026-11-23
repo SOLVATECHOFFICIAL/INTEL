@@ -178,10 +178,21 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const clean = base64String.trim();
   const padding = '='.repeat((4 - (clean.length % 4)) % 4);
   const base64 = (clean + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const nodeBuffer = (
+    globalThis as unknown as {
+      Buffer?: {
+        from: (input: string, encoding: string) => {
+          toString: (encoding: string) => string;
+        };
+      };
+    }
+  ).Buffer;
   const rawData =
     typeof atob === 'function'
       ? atob(base64)
-      : Buffer.from(base64, 'base64').toString('binary');
+      : nodeBuffer
+        ? nodeBuffer.from(base64, 'base64').toString('binary')
+        : '';
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; i += 1) {
     outputArray[i] = rawData.charCodeAt(i);
@@ -259,8 +270,8 @@ export function parseNotificationTargetUrl(
     return null;
   }
 
-  let search = '';
-  let pathname = '/';
+  let search: string;
+  let pathname: string;
 
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     try {

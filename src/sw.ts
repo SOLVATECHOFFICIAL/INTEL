@@ -84,11 +84,17 @@ interface SwMessageEvent extends SwExtendableEvent {
   data?: unknown;
 }
 
+declare global {
+  interface Window {
+    __WB_MANIFEST?: Array<PrecacheEntry | string>;
+  }
+}
+
 const sw = self as unknown as SwGlobalScope;
 
 clientsClaim();
 cleanupOutdatedCaches();
-precacheAndRoute(sw.__WB_MANIFEST ?? []);
+precacheAndRoute(self.__WB_MANIFEST ?? []);
 
 const SENSITIVE_HOSTS = new Set([
   'firestore.googleapis.com',
