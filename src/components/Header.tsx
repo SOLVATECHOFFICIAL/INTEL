@@ -51,12 +51,12 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 md:h-16 md:gap-6">
         {/* Left: Brand Logo + Desktop Search Trigger */}
-        <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => onNavigate('for-you')}
             aria-label="LASUED Intel home"
-            className="inline-flex min-h-[44px] min-w-0 shrink items-center rounded-lg focus-visible:outline-[#1E88E5]"
+            className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg focus-visible:outline-[#1E88E5]"
           >
             <BrandLogo size="sm" showWordmark />
           </button>
@@ -67,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
               onNavigate('search', { searchScope: currentSearchScope })
             }
             aria-label="Search LASUED Intel"
-            className={`hidden min-h-[40px] shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors lg:inline-flex ${
+            className={`hidden min-h-[40px] shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors xl:inline-flex ${
               activeRoute === 'search'
                 ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5]'
                 : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:text-[#0B1A2E]'
@@ -78,10 +78,10 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Center: Desktop Main Navigation (never forces mobile bottom bar) */}
+        {/* Center: Desktop Main Navigation (only when >=1024px alongside sidebar) */}
         <nav
           aria-label="Main navigation"
-          className="hidden items-center gap-4 md:flex lg:gap-5"
+          className="hidden items-center gap-3 lg:flex xl:gap-5"
         >
           {DESKTOP_NAV_LINKS.map((item) => {
             const isActive = isNavItemActive(item.id);
@@ -111,14 +111,14 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Notifications & Account Controls (Desktop) + Mobile Quick Actions */}
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {/* Mobile / tablet Search trigger */}
+          {/* Mobile / tablet / compact laptop Search trigger */}
           <button
             type="button"
             onClick={() =>
               onNavigate('search', { searchScope: currentSearchScope })
             }
             aria-label="Search"
-            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors lg:hidden ${
+            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors xl:hidden ${
               activeRoute === 'search'
                 ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
                 : 'text-slate-700 hover:bg-slate-100 hover:text-[#0B1A2E]'
@@ -198,14 +198,14 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Mobile 3-line navigation drawer button */}
+          {/* Mobile / tablet 3-line navigation drawer button */}
           <button
             type="button"
             onClick={onOpenMobileDrawer}
             aria-label="Open navigation menu"
             aria-expanded={isMobileDrawerOpen}
             aria-controls="mobile-navigation-drawer"
-            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-[#0B1A2E] shadow-xs transition-colors hover:bg-slate-50 md:hidden"
+            className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-[#0B1A2E] shadow-xs transition-colors hover:bg-slate-50 lg:hidden"
           >
             <Menu className="h-5 w-5" strokeWidth={2.25} aria-hidden="true" />
           </button>

@@ -414,6 +414,7 @@ export async function saveProfileMediaImage(input: {
   slot: 'avatar' | 'cover';
   compressed: CompressedImageResult;
   previousImageId?: string;
+  username?: string;
   onProgress?: (state: UploadProgressState) => void;
 }): Promise<{ imageId: string; dataUrl: string }> {
   if (!isValidFirestoreId(input.uid)) {
@@ -483,7 +484,14 @@ export async function saveProfileMediaImage(input: {
     evictMediaImageCache(input.previousImageId);
   }
   primeMediaImageCache(newImageId, input.compressed.dataUrl);
-  notifyProfileUpdated({ uid: input.uid });
+  notifyProfileUpdated({
+    uid: input.uid,
+    username: input.username,
+    patch:
+      input.slot === 'avatar'
+        ? { photoImageId: newImageId, photoUrl: '' }
+        : { coverImageId: newImageId, coverUrl: '' },
+  });
   input.onProgress?.({ percent: 100, label: 'Saved to profile' });
 
   return {
@@ -496,6 +504,7 @@ export async function removeProfileMediaImage(input: {
   uid: string;
   slot: 'avatar' | 'cover';
   currentImageId?: string;
+  username?: string;
 }): Promise<void> {
   if (!isValidFirestoreId(input.uid)) {
     throw new Error('Sign in with a valid account before removing photographs.');
@@ -541,5 +550,12 @@ export async function removeProfileMediaImage(input: {
   if (input.currentImageId) {
     evictMediaImageCache(input.currentImageId);
   }
-  notifyProfileUpdated({ uid: input.uid });
+  notifyProfileUpdated({
+    uid: input.uid,
+    username: input.username,
+    patch:
+      input.slot === 'avatar'
+        ? { photoImageId: '', photoUrl: '' }
+        : { coverImageId: '', coverUrl: '' },
+  });
 }

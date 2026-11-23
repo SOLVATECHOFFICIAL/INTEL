@@ -22,6 +22,7 @@ import { FirestoreImage } from './FirestoreImage';
 
 interface ProfileMediaUploadersProps {
   uid: string;
+  username?: string;
   fullName: string;
   currentPhotoImageId?: string;
   currentPhotoUrl?: string;
@@ -35,6 +36,7 @@ interface ProfileMediaUploadersProps {
 
 export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
   uid,
+  username,
   fullName,
   currentPhotoImageId,
   currentPhotoUrl,
@@ -95,6 +97,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
     try {
       await saveProfileMediaImage({
         uid,
+        username,
         slot: 'avatar',
         compressed: pendingAvatar,
         previousImageId: currentPhotoImageId,
@@ -130,6 +133,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
     try {
       await removeProfileMediaImage({
         uid,
+        username,
         slot: 'avatar',
         currentImageId: currentPhotoImageId,
       });
@@ -181,6 +185,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
     try {
       await saveProfileMediaImage({
         uid,
+        username,
         slot: 'cover',
         compressed: pendingCover,
         previousImageId: currentCoverImageId,
@@ -216,6 +221,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
     try {
       await removeProfileMediaImage({
         uid,
+        username,
         slot: 'cover',
         currentImageId: currentCoverImageId,
       });

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ImagePlus,
@@ -62,7 +63,10 @@ import {
   type ForYouRankingOptions,
 } from '../utils/feedRanking';
 import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions';
-import { mergeCommunityPostItems } from '../utils/cacheSync';
+import {
+  mergeCommunityPostItems,
+  reuseSetIfUnchanged,
+} from '../utils/cacheSync';
 import { isDataSaverConnection } from '../utils/mediaCache';
 import { getSectionById } from '../utils/sectionState';
 import type { AccountSettingsSection } from '../types/platform';
@@ -79,6 +83,8 @@ interface HomeFeedWorkspaceProps {
   activeFeedTab: FeedTabId;
   selectedPostId?: string | null;
   selectedCommentId?: string | null;
+  canGoBack?: boolean;
+  onBack?: () => void;
   onSelectFeedTab: (tab: FeedTabId) => void;
   onNavigate: (
     route: ActiveRoute,
@@ -109,6 +115,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   activeFeedTab,
   selectedPostId = null,
   selectedCommentId = null,
+  canGoBack = false,
+  onBack,
   onSelectFeedTab,
   onNavigate,
   onRequireAuth,
@@ -224,6 +232,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   const interestSigRef = useRef(interestSignature);
   const postItemsRef = useRef(postItems);
   const loadStateRef = useRef(loadState);
+  const rankingOptionsRef = useRef(rankingOptions);
+  const lastDiscoverySyncAtRef = useRef<number>(
+    initialCache?.rankingOptions ? initialCache.cachedAt : 0
+  );
 
   useEffect(() => {
     activeTabRef.current = activeFeedTab;
@@ -232,6 +244,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     interestSigRef.current = interestSignature;
     postItemsRef.current = postItems;
     loadStateRef.current = loadState;
+    rankingOptionsRef.current = rankingOptions;
   }, [
     activeFeedTab,
     viewerKey,
@@ -239,6 +252,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     interestSignature,
     postItems,
     loadState,
+    rankingOptions,
   ]);
 
   const prefetchLeadPostMedia = useCallback(
@@ -296,20 +310,31 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       let nextDiscovery: ForYouDiscoveryBundle | undefined;
 
       if (targetTab === 'for-you') {
-        const personalisation = await loadPersonalisationContextAndDiscovery({
-          viewerUid: uid,
-          viewerProfile: latestProfileRef.current,
-          interestCategories: latestInterestsRef.current,
-          followedUids: [],
-          followingUsernames: latestFollowingUsernamesRef.current,
-          likedPostIds: likedIds,
-          savedPostIds: savedIds,
-          dismissedKeys: loadDismissedRecommendationKeys(uid),
-        }).catch(() => null);
+        const shouldReuseCachedDiscovery =
+          mode === 'background' &&
+          Boolean(rankingOptionsRef.current) &&
+          Date.now() - lastDiscoverySyncAtRef.current < 45_000;
 
-        if (personalisation) {
-          nextRankingOptions = personalisation.rankingOptions;
-          nextDiscovery = personalisation.discovery;
+        if (shouldReuseCachedDiscovery) {
+          nextRankingOptions = rankingOptionsRef.current;
+        } else {
+          const personalisation = await loadPersonalisationContextAndDiscovery({
+            viewerUid: uid,
+            viewerProfile: latestProfileRef.current,
+            interestCategories: latestInterestsRef.current,
+            followedUids: [],
+            followingUsernames: latestFollowingUsernamesRef.current,
+            likedPostIds: likedIds,
+            savedPostIds: savedIds,
+            dismissedKeys: loadDismissedRecommendationKeys(uid),
+          }).catch(() => null);
+
+          if (personalisation) {
+            nextRankingOptions = personalisation.rankingOptions;
+            nextDiscovery = personalisation.discovery;
+            rankingOptionsRef.current = personalisation.rankingOptions;
+            lastDiscoverySyncAtRef.current = Date.now();
+          }
         }
       }
 
@@ -357,8 +382,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           ? prevHasMore
           : page.hasMore
       );
-      setLikedPostIds(likedIds);
-      setSavedPostIds(savedIds);
+      setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+      setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
       if (nextRankingOptions) {
         setRankingOptions(nextRankingOptions);
       }
@@ -852,6 +877,19 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
   return (
     <div className="min-w-0 flex-1 space-y-5">
+      {canGoBack && onBack && (
+        <div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#0B1A2E] sm:text-sm"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+        </div>
+      )}
+
       {/* Contextual Home Search (Members & Public Ordinary Posts) */}
       <ContextualSearchBar
         scope="home"

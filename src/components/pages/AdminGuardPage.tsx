@@ -81,6 +81,7 @@ interface AdminGuardPageProps {
     options?: { username?: string }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
+  onBack?: () => void;
 }
 
 const SECTION_ICONS: Record<
@@ -102,6 +103,7 @@ const SECTION_ICONS: Record<
 export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   onNavigate,
   onRequireAuth,
+  onBack,
 }) => {
   const {
     authReady,
@@ -295,6 +297,16 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
         aria-labelledby="admin-restricted-heading"
         className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
       >
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+        )}
         <h1
           id="admin-restricted-heading"
           className="font-display text-2xl font-bold text-[#0B1A2E]"
@@ -343,11 +355,11 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
             </p>
             <button
               type="button"
-              onClick={() => onNavigate('for-you')}
+              onClick={onBack ?? (() => onNavigate('for-you'))}
               className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-[#0B1A2E] px-4 py-2 text-sm font-semibold text-white hover:bg-[#132844]"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              Return to Campus Feed
+              {onBack ? 'Back' : 'Return to Campus Feed'}
             </button>
           </div>
         </div>
@@ -390,6 +402,18 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
     >
       {/* Top Header Card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+        {onBack && (
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back
+            </button>
+          </div>
+        )}
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">

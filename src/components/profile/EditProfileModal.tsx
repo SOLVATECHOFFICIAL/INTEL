@@ -221,6 +221,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           {profile && (
             <ProfileMediaUploaders
               uid={uid}
+              username={currentUsername || undefined}
               fullName={fullName || profile.fullName || 'LASUED Member'}
               currentPhotoImageId={profile.photoImageId}
               currentPhotoUrl={profile.photoUrl}

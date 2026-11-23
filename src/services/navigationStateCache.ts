@@ -52,6 +52,7 @@ import type {
   OpportunityDeadlineFilter,
   OpportunityStatusFilter,
 } from '../utils/opportunities';
+import type { TrustedCircleCategoryFilter } from '../utils/followRelations';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 
 const SESSION_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -247,6 +248,7 @@ export interface MarketplaceSessionSnapshot {
   pendingListings: MarketplaceListing[];
   activeGalleryIndexByListingId: Record<string, number>;
   detailLightbox: { listingId: string; index: number } | null;
+  showCreateForm?: boolean;
   directLookupListing: {
     targetId: string;
     listing: MarketplaceListing | null;
@@ -269,6 +271,7 @@ interface PersistedMarketplacePrivate {
   pendingListings: MarketplaceListing[];
   activeGalleryIndexByListingId: Record<string, number>;
   detailLightbox: { listingId: string; index: number } | null;
+  showCreateForm?: boolean;
   cachedAt: number;
 }
 
@@ -317,6 +320,7 @@ export function saveMarketplaceSessionSnapshot(
       : snapshot.pendingListings,
     activeGalleryIndexByListingId: snapshot.activeGalleryIndexByListingId,
     detailLightbox: snapshot.detailLightbox,
+    showCreateForm: Boolean(snapshot.showCreateForm),
     cachedAt: snapshot.cachedAt,
   };
   void writePersistentContent(
@@ -358,6 +362,7 @@ export async function hydrateMarketplaceSnapshot(
     pendingListings: isGuestViewer(viewerKey) ? [] : priv?.pendingListings ?? [],
     activeGalleryIndexByListingId: priv?.activeGalleryIndexByListingId ?? {},
     detailLightbox: priv?.detailLightbox ?? null,
+    showCreateForm: Boolean(priv?.showCreateForm),
     directLookupListing: null,
     cachedAt: Math.max(pub?.cachedAt ?? 0, priv?.cachedAt ?? 0) || Date.now(),
   };
@@ -670,6 +675,7 @@ export interface TrustedCircleSnapshot {
   supremeAdmins: PublicProfileProjection[];
   verifiedMembers: PublicProfileProjection[];
   officialContacts: TrustedContact[];
+  activeFilter?: TrustedCircleCategoryFilter;
   cachedAt: number;
 }
 
@@ -712,7 +718,7 @@ export async function hydrateTrustedCircleSnapshot(
   if (ramHit) return ramHit;
 
   const pub = await readPersistentContent<
-    Omit<TrustedCircleSnapshot, 'viewerKey'>
+    Omit<TrustedCircleSnapshot, 'viewerKey' | 'activeFilter'>
   >(TRUSTED_CIRCLE_PUBLIC_IDB_KEY);
   if (!pub) return null;
 
@@ -721,6 +727,7 @@ export async function hydrateTrustedCircleSnapshot(
     supremeAdmins: pub.supremeAdmins ?? [],
     verifiedMembers: pub.verifiedMembers ?? [],
     officialContacts: pub.officialContacts ?? [],
+    activeFilter: 'all',
     cachedAt: pub.cachedAt,
   };
   trustedCircleCache.set(viewerKey, snapshot);
@@ -1110,6 +1117,8 @@ export function saveAccountSectionSnapshot(
 export interface AnonymousTabSnapshot {
   viewerKey: string;
   anonViewTab: 'feed' | 'mine';
+  myAnonItems?: AnonymousPost[];
+  myAnonLoaded?: boolean;
   cachedAt: number;
 }
 
@@ -1128,7 +1137,173 @@ export function getAnonymousTabSnapshot(
 }
 
 export function saveAnonymousTabSnapshot(snapshot: AnonymousTabSnapshot): void {
-  anonymousTabCache.set(snapshot.viewerKey, snapshot);
+  anonymousTabCache.set(snapshot.viewerKey, {
+    ...snapshot,
+    myAnonItems:
+      !isGuestViewer(snapshot.viewerKey) && snapshot.myAnonItems
+        ? sanitizeAnonymousPostsForCache(snapshot.myAnonItems)
+        : undefined,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 8. Event & Marketplace Comment Thread Snapshots
+// ---------------------------------------------------------------------------
+export interface ThreadCommentsSnapshot {
+  viewerKey: string;
+  targetCollection: 'events' | 'marketplaceListings';
+  targetId: string;
+  comments: CommentWithAuthor[];
+  commentsCursor: CommentsPageCursor | null;
+  hasMoreComments: boolean;
+  likedCommentIds: Set<string>;
+  commentLikesCounts: Record<string, number>;
+  cachedAt: number;
+}
+
+interface PersistedThreadCommentsPublic {
+  targetCollection: 'events' | 'marketplaceListings';
+  targetId: string;
+  comments: CommentWithAuthor[];
+  commentsCursor: { mode: 'offset'; offset: number } | null;
+  hasMoreComments: boolean;
+  commentLikesCounts: Record<string, number>;
+  cachedAt: number;
+}
+
+interface PersistedThreadCommentsPrivate {
+  viewerKey: string;
+  likedCommentIds: string[];
+  cachedAt: number;
+}
+
+const threadCommentsCache = new Map<string, ThreadCommentsSnapshot>();
+
+function makeThreadCommentsKey(
+  viewerKey: string,
+  targetCollection: 'events' | 'marketplaceListings',
+  targetId: string
+): string {
+  return `${viewerKey}:${targetCollection}:${targetId}`;
+}
+
+function makeThreadCommentsPublicIdbKey(
+  targetCollection: 'events' | 'marketplaceListings',
+  targetId: string
+): string {
+  return `comments:pub:v1:${targetCollection}:${targetId}`;
+}
+
+function makeThreadCommentsPrivateIdbKey(
+  viewerKey: string,
+  targetCollection: 'events' | 'marketplaceListings',
+  targetId: string
+): string {
+  return `priv:comments:v1:${viewerKey}:${targetCollection}:${targetId}`;
+}
+
+export function getThreadCommentsSnapshot(
+  viewerKey: string,
+  targetCollection: 'events' | 'marketplaceListings',
+  targetId: string
+): ThreadCommentsSnapshot | null {
+  const key = makeThreadCommentsKey(viewerKey, targetCollection, targetId);
+  const entry = threadCommentsCache.get(key);
+  if (!entry) return null;
+  if (!isFresh(entry.cachedAt)) {
+    threadCommentsCache.delete(key);
+    return null;
+  }
+  perfMetrics.recordHit('thread_comments_ram');
+  return entry;
+}
+
+export function saveThreadCommentsSnapshot(
+  snapshot: ThreadCommentsSnapshot
+): void {
+  const key = makeThreadCommentsKey(
+    snapshot.viewerKey,
+    snapshot.targetCollection,
+    snapshot.targetId
+  );
+  if (threadCommentsCache.size >= 60 && !threadCommentsCache.has(key)) {
+    const oldest = threadCommentsCache.keys().next().value;
+    if (oldest) threadCommentsCache.delete(oldest);
+  }
+  threadCommentsCache.set(key, snapshot);
+
+  const pubPayload: PersistedThreadCommentsPublic = {
+    targetCollection: snapshot.targetCollection,
+    targetId: snapshot.targetId,
+    comments: snapshot.comments.slice(0, 60),
+    commentsCursor: stripFirestoreCursor(snapshot.commentsCursor),
+    hasMoreComments: snapshot.hasMoreComments,
+    commentLikesCounts: snapshot.commentLikesCounts,
+    cachedAt: snapshot.cachedAt,
+  };
+  void writePersistentContent(
+    makeThreadCommentsPublicIdbKey(snapshot.targetCollection, snapshot.targetId),
+    pubPayload,
+    { viewerKey: 'public', scope: 'public' }
+  );
+
+  if (!isGuestViewer(snapshot.viewerKey)) {
+    const privPayload: PersistedThreadCommentsPrivate = {
+      viewerKey: snapshot.viewerKey,
+      likedCommentIds: serializeSet(snapshot.likedCommentIds),
+      cachedAt: snapshot.cachedAt,
+    };
+    void writePersistentContent(
+      makeThreadCommentsPrivateIdbKey(
+        snapshot.viewerKey,
+        snapshot.targetCollection,
+        snapshot.targetId
+      ),
+      privPayload,
+      { viewerKey: snapshot.viewerKey, scope: 'private' }
+    );
+  }
+}
+
+export async function hydrateThreadCommentsSnapshot(
+  viewerKey: string,
+  targetCollection: 'events' | 'marketplaceListings',
+  targetId: string
+): Promise<ThreadCommentsSnapshot | null> {
+  const ramHit = getThreadCommentsSnapshot(viewerKey, targetCollection, targetId);
+  if (ramHit) return ramHit;
+
+  const [pub, priv] = await Promise.all([
+    readPersistentContent<PersistedThreadCommentsPublic>(
+      makeThreadCommentsPublicIdbKey(targetCollection, targetId)
+    ),
+    isGuestViewer(viewerKey)
+      ? Promise.resolve(null)
+      : readPersistentContent<PersistedThreadCommentsPrivate>(
+          makeThreadCommentsPrivateIdbKey(viewerKey, targetCollection, targetId)
+        ),
+  ]);
+
+  if (!pub) return null;
+
+  const hydrated: ThreadCommentsSnapshot = {
+    viewerKey,
+    targetCollection,
+    targetId,
+    comments: pub.comments ?? [],
+    commentsCursor: pub.commentsCursor ?? null,
+    hasMoreComments: Boolean(pub.hasMoreComments),
+    likedCommentIds: isGuestViewer(viewerKey)
+      ? new Set()
+      : deserializeSet(priv?.likedCommentIds),
+    commentLikesCounts: pub.commentLikesCounts ?? {},
+    cachedAt: pub.cachedAt,
+  };
+  threadCommentsCache.set(
+    makeThreadCommentsKey(viewerKey, targetCollection, targetId),
+    hydrated
+  );
+  return hydrated;
 }
 
 // ---------------------------------------------------------------------------
@@ -1146,4 +1321,5 @@ export function clearAllViewerNavigationCaches(): void {
   notificationsFilterCache.clear();
   accountSectionCache.clear();
   anonymousTabCache.clear();
+  threadCommentsCache.clear();
 }

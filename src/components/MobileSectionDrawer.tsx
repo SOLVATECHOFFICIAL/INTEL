@@ -102,7 +102,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
   return (
     <div
       id="mobile-navigation-drawer"
-      className="fixed inset-0 z-50 flex items-end bg-[#0B1A2E]/50 backdrop-blur-xs md:hidden"
+      className="fixed inset-0 z-50 flex items-end bg-[#0B1A2E]/50 backdrop-blur-xs lg:hidden"
       role="dialog"
       aria-modal="true"
       aria-labelledby="mobile-sections-title"

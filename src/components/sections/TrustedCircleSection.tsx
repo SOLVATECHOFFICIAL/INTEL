@@ -99,7 +99,9 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
     () => initialCache?.officialContacts ?? []
   );
   const [activeFilter, setActiveFilter] =
-    useState<TrustedCircleCategoryFilter>('all');
+    useState<TrustedCircleCategoryFilter>(
+      () => initialCache?.activeFilter ?? 'all'
+    );
   const [loading, setLoading] = useState(() => !initialCache);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -213,6 +215,9 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         setSupremeAdmins(persisted.supremeAdmins);
         setVerifiedMembers(persisted.verifiedMembers);
         setOfficialContacts(persisted.officialContacts);
+        if (persisted.activeFilter) {
+          setActiveFilter(persisted.activeFilter);
+        }
         hasDirectoryDataRef.current = true;
         setLoading(false);
         prefetchDirectoryAvatars(
@@ -259,9 +264,17 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
       supremeAdmins,
       verifiedMembers,
       officialContacts,
+      activeFilter,
       cachedAt: Date.now(),
     });
-  }, [loading, viewerKey, supremeAdmins, verifiedMembers, officialContacts]);
+  }, [
+    loading,
+    viewerKey,
+    supremeAdmins,
+    verifiedMembers,
+    officialContacts,
+    activeFilter,
+  ]);
 
   useActiveBackgroundRefresh({
     enabled: !loading,

@@ -32,10 +32,12 @@ import {
 } from './utils/contextualSearch';
 import {
   areDestinationsEqual,
+  canGoBackHistory,
   createInitialHistoryStack,
   destinationFromParsedLocation,
   findMostRecentSearchEntry,
   getBackTarget,
+  getDestinationMemoryKey,
   moveToHistoryEntryKey,
   normalizeRouteDestination,
   pushHistoryStackEntry,
@@ -144,10 +146,19 @@ export function App() {
     )
   );
   const entryScrollMapRef = useRef<Map<string, number>>(new Map());
+  const routeScrollMemoryRef = useRef<Map<string, number>>(new Map());
   const pendingAuthDestinationRef = useRef<NormalizedRouteDestination | null>(
     null
   );
   const cancelScrollRestoreRef = useRef<(() => void) | null>(null);
+  const cancelPendingScrollRafRef = useRef<(() => void) | null>(null);
+  const isRestoringScrollRef = useRef(false);
+  const lastSearchQueryRef = useRef<string | null>(initialDest.searchQuery);
+  const [canGoBack, setCanGoBack] = useState(false);
+
+  const syncCanGoBack = useCallback((stack: NavigationStackState) => {
+    setCanGoBack(canGoBackHistory(stack));
+  }, []);
 
   const scheduleScrollRestore = useCallback((targetScrollY: number) => {
     if (cancelScrollRestoreRef.current) {
@@ -158,17 +169,27 @@ export function App() {
 
     const clampedTarget = Math.max(0, Math.round(targetScrollY));
     if (clampedTarget === 0) {
+      isRestoringScrollRef.current = true;
       window.scrollTo({ top: 0, behavior: 'auto' });
+      const clearRaf = window.requestAnimationFrame(() => {
+        isRestoringScrollRef.current = false;
+      });
+      cancelScrollRestoreRef.current = () => {
+        window.cancelAnimationFrame(clearRaf);
+        isRestoringScrollRef.current = false;
+      };
       return;
     }
 
     let cancelled = false;
     let rafId: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
-    const deadline = performance.now() + 950;
+    const deadline = performance.now() + 2500;
+    isRestoringScrollRef.current = true;
 
     const cleanup = () => {
       cancelled = true;
+      isRestoringScrollRef.current = false;
       if (rafId !== null) window.cancelAnimationFrame(rafId);
       window.clearTimeout(timeoutId);
       resizeObserver?.disconnect();
@@ -218,14 +239,19 @@ export function App() {
       }
     };
 
-    const timeoutId = window.setTimeout(cleanup, 1000);
-    if (typeof ResizeObserver !== 'undefined' && document.body) {
+    const timeoutId = window.setTimeout(cleanup, 2550);
+    if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
         if (!cancelled) {
           attemptScroll();
         }
       });
-      resizeObserver.observe(document.body);
+      if (document.documentElement) {
+        resizeObserver.observe(document.documentElement);
+      }
+      if (document.body) {
+        resizeObserver.observe(document.body);
+      }
     }
 
     window.addEventListener('wheel', cleanup, { passive: true, once: true });
@@ -302,6 +328,10 @@ export function App() {
       historyStackRef.current.entries[historyStackRef.current.index];
     if (initialEntry) {
       entryScrollMapRef.current.set(initialEntry.key, initialEntry.scrollY);
+      routeScrollMemoryRef.current.set(
+        getDestinationMemoryKey(initialEntry.destination),
+        initialEntry.scrollY
+      );
       persistCurrentBrowserState(initialEntry, initialEntry.scrollY);
       if (initialEntry.scrollY > 0) {
         scheduleScrollRestore(initialEntry.scrollY);
@@ -309,12 +339,25 @@ export function App() {
     }
 
     let scrollRaf: number | null = null;
+    const cancelQueuedScrollRaf = () => {
+      if (scrollRaf !== null) {
+        window.cancelAnimationFrame(scrollRaf);
+        scrollRaf = null;
+      }
+    };
+    cancelPendingScrollRafRef.current = cancelQueuedScrollRaf;
+
     const captureScrollPosition = () => {
+      if (isRestoringScrollRef.current) return;
       const activeEntry =
         historyStackRef.current.entries[historyStackRef.current.index];
       if (!activeEntry) return;
       const currentScroll = Math.max(0, Math.round(window.scrollY));
       entryScrollMapRef.current.set(activeEntry.key, currentScroll);
+      routeScrollMemoryRef.current.set(
+        getDestinationMemoryKey(activeEntry.destination),
+        currentScroll
+      );
       historyStackRef.current = updateHistoryEntryScroll(
         historyStackRef.current,
         currentScroll
@@ -322,6 +365,7 @@ export function App() {
     };
 
     const handleScroll = () => {
+      if (isRestoringScrollRef.current) return;
       if (scrollRaf !== null) return;
       scrollRaf = window.requestAnimationFrame(() => {
         scrollRaf = null;
@@ -330,6 +374,7 @@ export function App() {
     };
 
     const flushHistoryScrollState = () => {
+      cancelQueuedScrollRaf();
       captureScrollPosition();
       const activeEntry =
         historyStackRef.current.entries[historyStackRef.current.index];
@@ -339,6 +384,7 @@ export function App() {
     };
 
     const onPopState = (event: PopStateEvent) => {
+      cancelQueuedScrollRaf();
       const parsed = parseLocationSearch(window.location.search);
       const historyObj = readBrowserHistoryState(event.state);
       const fallbackDest = destinationFromParsedLocation(
@@ -361,10 +407,20 @@ export function App() {
         targetEntry.scrollY ??
         0;
 
+      entryScrollMapRef.current.set(targetEntry.key, recordedScroll);
+      routeScrollMemoryRef.current.set(
+        getDestinationMemoryKey(targetEntry.destination),
+        recordedScroll
+      );
+      if (targetEntry.destination.route === 'search') {
+        lastSearchQueryRef.current = targetEntry.destination.searchQuery;
+      }
+
       if (!historyObj.entryKey) {
         persistCurrentBrowserState(targetEntry, recordedScroll);
       }
 
+      syncCanGoBack(historyStackRef.current);
       setNavDest(targetEntry.destination);
       syncSearchBannerFromStack(historyStackRef.current);
       scheduleScrollRestore(recordedScroll);
@@ -375,8 +431,9 @@ export function App() {
     window.addEventListener('popstate', onPopState);
 
     return () => {
-      if (scrollRaf !== null) {
-        window.cancelAnimationFrame(scrollRaf);
+      cancelQueuedScrollRaf();
+      if (cancelPendingScrollRafRef.current === cancelQueuedScrollRaf) {
+        cancelPendingScrollRafRef.current = null;
       }
       if ('scrollRestoration' in window.history) {
         window.history.scrollRestoration = prevScrollRestoration;
@@ -395,12 +452,20 @@ export function App() {
     persistCurrentBrowserState,
     scheduleScrollRestore,
     setNavDest,
+    syncCanGoBack,
     syncSearchBannerFromStack,
   ]);
 
   const handleNavigate = useCallback(
     (route: ActiveRoute, options?: NavigateOptions) => {
-      const departingScrollY =
+      cancelPendingScrollRafRef.current?.();
+      const wasRestoring = isRestoringScrollRef.current;
+      if (cancelScrollRestoreRef.current) {
+        cancelScrollRestoreRef.current();
+        cancelScrollRestoreRef.current = null;
+      }
+
+      const rawWindowScrollY =
         typeof window !== 'undefined' ? Math.max(0, Math.round(window.scrollY)) : 0;
 
       const nextDest = normalizeRouteDestination({
@@ -421,8 +486,17 @@ export function App() {
 
       const currentEntry =
         historyStackRef.current.entries[historyStackRef.current.index];
+      const departingScrollY =
+        wasRestoring && currentEntry
+          ? Math.max(rawWindowScrollY, currentEntry.scrollY)
+          : rawWindowScrollY;
+
       if (currentEntry) {
         entryScrollMapRef.current.set(currentEntry.key, departingScrollY);
+        routeScrollMemoryRef.current.set(
+          getDestinationMemoryKey(currentEntry.destination),
+          departingScrollY
+        );
         historyStackRef.current = updateHistoryEntryScroll(
           historyStackRef.current,
           departingScrollY
@@ -437,23 +511,39 @@ export function App() {
           options.restoreScrollY ?? 0
         );
         historyStackRef.current = replaced.stack;
-        entryScrollMapRef.current.set(
-          replaced.entry.key,
-          options.restoreScrollY ?? 0
+        const targetScroll = options.restoreScrollY ?? 0;
+        entryScrollMapRef.current.set(replaced.entry.key, targetScroll);
+        routeScrollMemoryRef.current.set(
+          getDestinationMemoryKey(replaced.entry.destination),
+          targetScroll
         );
+        if (replaced.entry.destination.route === 'search') {
+          lastSearchQueryRef.current = replaced.entry.destination.searchQuery;
+        }
+        syncCanGoBack(historyStackRef.current);
         setNavDest(replaced.entry.destination);
         syncSearchBannerFromStack(historyStackRef.current);
-        persistCurrentBrowserState(replaced.entry, options.restoreScrollY ?? 0);
+        persistCurrentBrowserState(replaced.entry, targetScroll);
 
         if (options.restoreScrollY !== undefined) {
           scheduleScrollRestore(options.restoreScrollY);
         } else if (!nextDest.postId && !nextDest.commentId) {
-          window.scrollTo({ top: 0, behavior: 'auto' });
+          scheduleScrollRestore(0);
         }
         return;
       }
 
-      const targetInitialScroll = options?.restoreScrollY ?? 0;
+      const nextMemoryKey = getDestinationMemoryKey(nextDest);
+      const isExplicitNewSearchQuery =
+        nextDest.route === 'search' &&
+        Boolean(nextDest.searchQuery) &&
+        nextDest.searchQuery !== lastSearchQueryRef.current;
+      const rememberedScroll =
+        !nextDest.postId && !nextDest.commentId && !isExplicitNewSearchQuery
+          ? routeScrollMemoryRef.current.get(nextMemoryKey) ?? 0
+          : 0;
+      const targetInitialScroll = options?.restoreScrollY ?? rememberedScroll;
+
       const pushed = pushHistoryStackEntry(
         historyStackRef.current,
         nextDest,
@@ -461,18 +551,40 @@ export function App() {
         targetInitialScroll
       );
       historyStackRef.current = pushed.stack;
-      entryScrollMapRef.current.set(pushed.entry.key, pushed.entry.scrollY);
-      setNavDest(pushed.entry.destination);
-      syncSearchBannerFromStack(historyStackRef.current);
 
       if (!pushed.pushed) {
+        syncCanGoBack(historyStackRef.current);
+        setNavDest(pushed.entry.destination);
+        syncSearchBannerFromStack(historyStackRef.current);
         if (options?.restoreScrollY !== undefined) {
+          entryScrollMapRef.current.set(
+            pushed.entry.key,
+            options.restoreScrollY
+          );
+          routeScrollMemoryRef.current.set(
+            nextMemoryKey,
+            options.restoreScrollY
+          );
           scheduleScrollRestore(options.restoreScrollY);
         } else if (!nextDest.postId && !nextDest.commentId) {
+          entryScrollMapRef.current.set(pushed.entry.key, 0);
+          routeScrollMemoryRef.current.set(nextMemoryKey, 0);
+          historyStackRef.current = updateHistoryEntryScroll(
+            historyStackRef.current,
+            0
+          );
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
         return;
       }
+
+      entryScrollMapRef.current.set(pushed.entry.key, pushed.entry.scrollY);
+      if (pushed.entry.destination.route === 'search' && nextDest.searchQuery) {
+        lastSearchQueryRef.current = nextDest.searchQuery;
+      }
+      syncCanGoBack(historyStackRef.current);
+      setNavDest(pushed.entry.destination);
+      syncSearchBannerFromStack(historyStackRef.current);
 
       const nextUrl = buildUrlForDestination(pushed.entry.destination);
       if (typeof window !== 'undefined') {
@@ -492,7 +604,7 @@ export function App() {
       if (options?.restoreScrollY !== undefined) {
         scheduleScrollRestore(targetInitialScroll);
       } else if (!nextDest.postId && !nextDest.commentId) {
-        window.scrollTo({ top: 0, behavior: 'auto' });
+        scheduleScrollRestore(targetInitialScroll);
       }
     },
     [
@@ -500,6 +612,7 @@ export function App() {
       persistCurrentBrowserState,
       scheduleScrollRestore,
       setNavDest,
+      syncCanGoBack,
       syncSearchBannerFromStack,
     ]
   );
@@ -562,6 +675,7 @@ export function App() {
         historyStackRef.current.entries[historyStackRef.current.index];
       if (!currentEntry || currentEntry.destination.route !== 'search') return;
       const cleanQuery = next.query.trim() || null;
+      lastSearchQueryRef.current = cleanQuery;
       handleReplaceCurrentDestination({
         searchScope: next.scope,
         searchQuery: cleanQuery,
@@ -762,6 +876,7 @@ export function App() {
         <NotificationsPage
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
+          onBack={handleNavigateBack}
         />
       );
     }
@@ -774,6 +889,7 @@ export function App() {
           onSectionChange={handleSyncAccountSection}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
+          onBack={handleNavigateBack}
         />
       );
     }
@@ -797,6 +913,7 @@ export function App() {
         <AdminGuardPage
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
+          onBack={handleNavigateBack}
         />
       );
     }
@@ -810,6 +927,7 @@ export function App() {
           onSyncSearchState={handleSyncSearchState}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
+          onBack={handleNavigateBack}
         />
       );
     }
@@ -821,6 +939,8 @@ export function App() {
           activeFeedTab={activeRoute as FeedTabId}
           selectedPostId={selectedPostId}
           selectedCommentId={selectedCommentId}
+          canGoBack={canGoBack}
+          onBack={handleNavigateBack}
           onSelectFeedTab={(tab) => handleNavigate(tab)}
           onNavigate={handleNavigate}
           onRequireAuth={handleRequireAuth}
@@ -852,6 +972,7 @@ export function App() {
           activeRoute === 'marketplace' ? handleSyncMarketplaceTab : undefined
         }
         sectionStates={sectionStates}
+        onBack={handleNavigateBack}
         onNavigate={handleNavigate}
         onRetry={handleRetry}
         onRequireAuth={handleRequireAuth}

@@ -18,13 +18,25 @@ export default tseslint.config(
       'react-hooks': reactHooks,
       'react-refresh': reactRefresh,
     },
-    rules: {
-      ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowConstantExport: true },
-      ],
+      rules: {
+        ...reactHooks.configs.recommended.rules,
+        'react-refresh/only-export-components': [
+          'warn',
+          { allowConstantExport: true },
+        ],
+      },
     },
-  },
-  firebaseRulesPlugin.configs['flat/recommended']
-);
+    {
+      files: ['api/**/*.ts', 'vite.config.ts'],
+      languageOptions: {
+        globals: globals.node,
+      },
+    },
+    {
+      files: ['src/sw.ts'],
+      languageOptions: {
+        globals: globals.serviceworker,
+      },
+    },
+    firebaseRulesPlugin.configs['flat/recommended']
+  );

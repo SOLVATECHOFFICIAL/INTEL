@@ -8,16 +8,20 @@ import type {
 import {
   BoundedLruMap,
   SingleFlightRegistry,
+  areSetsEqual,
   computeActivePollDelayMs,
+  computeSnapshotSignature,
   deserializeRecordMap,
   deserializeSet,
   isNewerOrSameTimestamp,
   isPersistableCacheKey,
   mergeCommunityPostItems,
   mergeOrderedRecords,
+  patchAuthorProjectionInMap,
   patchAuthorProjectionInPostItems,
   perfMetrics,
   removeItemById,
+  reuseSetIfUnchanged,
   sanitizeAnonymousPostForCache,
   sanitizeAnonymousPostsForCache,
   serializeRecordMap,
@@ -326,4 +330,73 @@ test('perfMetrics tracks hits, misses, and timings cleanly', () => {
     avgMs: 60,
     lastMs: 80,
   });
+});
+
+test('areSetsEqual and reuseSetIfUnchanged preserve reference identity for equal sets', () => {
+  const prev = new Set(['p1', 'p2']);
+  const same = new Set(['p2', 'p1']);
+  const diff = new Set(['p1', 'p3']);
+
+  assert.equal(areSetsEqual(prev, same), true);
+  assert.equal(areSetsEqual(prev, diff), false);
+  assert.equal(reuseSetIfUnchanged(prev, same), prev);
+  assert.equal(reuseSetIfUnchanged(prev, diff), diff);
+});
+
+test('computeSnapshotSignature ignores volatile keys and detects structural content updates', () => {
+  const snapA = {
+    tab: 'for-you',
+    cachedAt: 1000,
+    lastAccessedAt: 1000,
+    docSnap: { id: 'ignored-1' },
+    ids: new Set(['b', 'a']),
+    posts: [{ id: 'p1', likesCount: 4, updatedAt: { toMillis: () => 5000 } }],
+  };
+  const snapB = {
+    tab: 'for-you',
+    cachedAt: 999999,
+    lastAccessedAt: 888888,
+    docSnap: { id: 'ignored-2' },
+    ids: new Set(['a', 'b']),
+    posts: [{ id: 'p1', likesCount: 4, updatedAt: { toMillis: () => 5000 } }],
+  };
+  const snapC = {
+    ...snapB,
+    posts: [{ id: 'p1', likesCount: 5, updatedAt: { toMillis: () => 5000 } }],
+  };
+
+  assert.equal(computeSnapshotSignature(snapA), computeSnapshotSignature(snapB));
+  assert.notEqual(computeSnapshotSignature(snapA), computeSnapshotSignature(snapC));
+});
+
+test('computeActivePollDelayMs throttles constrained devices gracefully', () => {
+  assert.equal(
+    computeActivePollDelayMs({
+      isVisible: true,
+      isOnline: true,
+      isConstrainedDevice: true,
+    }),
+    10000
+  );
+  assert.equal(
+    computeActivePollDelayMs({
+      isVisible: true,
+      isOnline: true,
+      isConstrainedDevice: true,
+      isDataSaver: true,
+    }),
+    12000
+  );
+});
+
+test('patchAuthorProjectionInMap preserves ref when unchanged and updates target uid', () => {
+  const oldAuthor = makeProfile('u1', { fullName: 'Amaka Old' });
+  const sameAuthor = makeProfile('u1', { fullName: 'Amaka Old' });
+  const newAuthor = makeProfile('u1', { fullName: 'Amaka New' });
+  const map = new Map<string, PublicProfileProjection>([['u1', oldAuthor]]);
+
+  assert.equal(patchAuthorProjectionInMap(map, sameAuthor, 'u1'), map);
+  const updated = patchAuthorProjectionInMap(map, newAuthor, 'u1');
+  assert.notEqual(updated, map);
+  assert.equal(updated.get('u1')?.fullName, 'Amaka New');
 });

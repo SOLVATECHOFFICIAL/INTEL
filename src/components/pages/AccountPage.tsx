@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   Bell,
   CheckCircle2,
   ExternalLink,
@@ -87,6 +88,7 @@ interface AccountPageProps {
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
+  onBack?: () => void;
 }
 
 export const AccountPage: React.FC<AccountPageProps> = ({
@@ -94,6 +96,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   onSectionChange,
   onNavigate,
   onRequireAuth,
+  onBack,
 }) => {
   const {
     authReady,
@@ -178,6 +181,16 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   if (!user) {
     return (
       <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+        )}
         <h1 className="font-display text-2xl font-bold text-[#0B1A2E]">
           Account Settings
         </h1>
@@ -384,6 +397,18 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     >
       {/* Account Summary Header Card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+        {onBack && (
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back
+            </button>
+          </div>
+        )}
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div className="flex items-start gap-3.5">
             <AvatarMedia
@@ -1400,6 +1425,7 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
       {hasInitializedProfile ? (
         <ProfileMediaUploaders
           uid={uid}
+          username={currentUsername || undefined}
           fullName={editFullName || 'LASUED Member'}
           currentPhotoImageId={currentPhotoImageId}
           currentPhotoUrl={initialValues.photoUrl}

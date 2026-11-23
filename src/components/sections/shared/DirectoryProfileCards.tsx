@@ -14,18 +14,18 @@ interface MemberDirectoryCardProps {
   onRequireAuth?: () => void;
 }
 
-export const MemberDirectoryCard: React.FC<MemberDirectoryCardProps> = ({
+export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
   member,
   viewerUsername = null,
   onOpenProfile,
   onRequireAuth,
-}) => {
+}: MemberDirectoryCardProps) {
   const isSelf =
     Boolean(viewerUsername) &&
     viewerUsername!.toLowerCase() === member.username.toLowerCase();
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60">
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60">
       <button
         type="button"
         onClick={() => onOpenProfile(member.username)}
@@ -69,15 +69,15 @@ export const MemberDirectoryCard: React.FC<MemberDirectoryCardProps> = ({
       />
     </div>
   );
-};
+});
 
 interface TrustedDirectoryCardProps {
   contact: TrustedContact;
 }
 
-export const TrustedDirectoryCard: React.FC<TrustedDirectoryCardProps> = ({
+export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
   contact,
-}) => {
+}: TrustedDirectoryCardProps) {
   const waUrl = contact.contactNumber
     ? buildWhatsAppChatUrl(contact.contactNumber)
     : contact.whatsappLink || null;
@@ -85,7 +85,7 @@ export const TrustedDirectoryCard: React.FC<TrustedDirectoryCardProps> = ({
   return (
     <article
       data-directory-entry-id={contact.id}
-      className="rounded-xl border border-slate-200 bg-white p-4"
+      className="min-w-0 rounded-xl border border-slate-200 bg-white p-4"
     >
       <div className="flex min-w-0 items-start gap-3">
         <AvatarMedia
@@ -147,4 +147,4 @@ export const TrustedDirectoryCard: React.FC<TrustedDirectoryCardProps> = ({
       )}
     </article>
   );
-};
+});

@@ -16,6 +16,11 @@ import {
   togglePostCommentReaction,
 } from '../../../services/events';
 import {
+  getThreadCommentsSnapshot,
+  hydrateThreadCommentsSnapshot,
+  saveThreadCommentsSnapshot,
+} from '../../../services/navigationStateCache';
+import {
   clearPersistentDraft,
   loadPersistentDraft,
   savePersistentDraft,
@@ -36,6 +41,7 @@ import {
   toPublicProfileProjection,
 } from '../../../utils/authValidation';
 import { extractTimestampMs } from '../../../utils/contextualSearch';
+import { reuseSetIfUnchanged } from '../../../utils/cacheSync';
 import {
   appendOptimisticCommentEntry,
   buildOptimisticCommentEntry,
@@ -85,9 +91,21 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
   const isAdminOrOwner =
     effectiveTier === 'supreme_admin' || effectiveTier === 'owner';
 
-  const [comments, setComments] = useState<CommentWithAuthor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const currentThreadKey = `${viewerKey}:events:${eventId}`;
+  const initialThreadSnap = getThreadCommentsSnapshot(
+    viewerKey,
+    'events',
+    eventId
+  );
+
+  const [comments, setComments] = useState<CommentWithAuthor[]>(
+    () => initialThreadSnap?.comments ?? []
+  );
+  const [loading, setLoading] = useState(() => !initialThreadSnap);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hydratedThreadKey, setHydratedThreadKey] = useState<string | null>(
+    () => (initialThreadSnap ? currentThreadKey : null)
+  );
 
   const [newCommentBody, setNewCommentBody] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
@@ -98,10 +116,12 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   // Optimistic comment/reply likes state
-  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
+  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(
+    () => initialThreadSnap?.likedCommentIds ?? new Set()
+  );
   const [commentLikesCounts, setCommentLikesCounts] = useState<
     Record<string, number>
-  >({});
+  >(() => initialThreadSnap?.commentLikesCounts ?? {});
 
   // Locks to prevent duplicate concurrent submissions or rapid duplicate likes
   const submitLockRef = useRef<Set<string>>(new Set());
@@ -114,6 +134,20 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
 
   useEffect(() => {
     let active = true;
+    let networkSettled = false;
+
+    void hydrateThreadCommentsSnapshot(viewerKey, 'events', eventId)
+      .then((cached) => {
+        if (!active || networkSettled || !cached) return;
+        setComments(cached.comments);
+        setLikedCommentIds((prev) =>
+          reuseSetIfUnchanged(prev, cached.likedCommentIds)
+        );
+        setCommentLikesCounts(cached.commentLikesCounts ?? {});
+        setHydratedThreadKey(currentThreadKey);
+        setLoading(false);
+      })
+      .catch(() => undefined);
 
     const likesPromise = viewerUid
       ? fetchViewerLikedPostIds('postComments', viewerUid).catch(
@@ -123,12 +157,15 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
 
     Promise.all([fetchEventComments(eventId), likesPromise])
       .then(([loadedComments, likedIds]) => {
+        networkSettled = true;
         if (!active) return;
         setComments(loadedComments);
-        setLikedCommentIds(likedIds);
+        setLikedCommentIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+        setHydratedThreadKey(currentThreadKey);
         setErrorMessage(null);
       })
       .catch((error) => {
+        networkSettled = true;
         if (!active) return;
         setErrorMessage(
           formatFirestoreOrAppError(
@@ -144,7 +181,31 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     return () => {
       active = false;
     };
-  }, [eventId, viewerUid]);
+  }, [eventId, viewerUid, viewerKey, currentThreadKey]);
+
+  useEffect(() => {
+    if (loading || hydratedThreadKey !== currentThreadKey) return;
+    saveThreadCommentsSnapshot({
+      viewerKey,
+      targetCollection: 'events',
+      targetId: eventId,
+      comments,
+      commentsCursor: null,
+      hasMoreComments: false,
+      likedCommentIds,
+      commentLikesCounts,
+      cachedAt: Date.now(),
+    });
+  }, [
+    viewerKey,
+    eventId,
+    currentThreadKey,
+    hydratedThreadKey,
+    loading,
+    comments,
+    likedCommentIds,
+    commentLikesCounts,
+  ]);
 
   // Persistent draft load & autosave for event comment & active reply
   useEffect(() => {

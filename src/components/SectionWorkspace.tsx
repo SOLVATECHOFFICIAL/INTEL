@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   EyeOff,
   Image as ImageIcon,
   Loader2,
@@ -41,7 +42,10 @@ import {
   SectionId,
   ViewState,
 } from '../types/platform';
-import { mergeOrderedRecords } from '../utils/cacheSync';
+import {
+  mergeOrderedRecords,
+  reuseSetIfUnchanged,
+} from '../utils/cacheSync';
 import { isDataSaverConnection } from '../utils/mediaCache';
 import { getSectionById } from '../utils/sectionState';
 import { ContextualSearchBar } from './ContextualSearchBar';
@@ -65,6 +69,7 @@ interface SectionWorkspaceProps {
   marketplaceTab?: MarketplaceTab;
   onSelectMarketplaceTab?: (tab: MarketplaceTab) => void;
   sectionStates: Record<SectionId, ViewState>;
+  onBack?: () => void;
   onNavigate: (
     route: ActiveRoute,
     options?: {
@@ -94,6 +99,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   marketplaceTab = 'browse',
   onSelectMarketplaceTab,
   sectionStates,
+  onBack,
   onNavigate,
   onRetry,
   onRequireAuth,
@@ -123,14 +129,27 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   );
   const [loadingMoreAnon, setLoadingMoreAnon] = useState(false);
 
+  const initialAnonTabSnap =
+    sectionId === 'anonymous' ? getAnonymousTabSnapshot(viewerKey) : null;
+
   const [anonViewTab, setAnonViewTab] = useState<'feed' | 'mine'>(
-    () => getAnonymousTabSnapshot(viewerKey)?.anonViewTab ?? 'feed'
+    () => initialAnonTabSnap?.anonViewTab ?? 'feed'
   );
   const [myAnonState, setMyAnonState] = useState<{
     loadedKey: string | null;
     items: AnonymousPost[];
     error: string | null;
-  }>({ loadedKey: null, items: [], error: null });
+  }>(() => ({
+    loadedKey:
+      user?.uid && initialAnonTabSnap?.myAnonLoaded
+        ? `${user.uid}:0`
+        : null,
+    items:
+      user?.uid && initialAnonTabSnap?.myAnonItems
+        ? initialAnonTabSnap.myAnonItems
+        : [],
+    error: null,
+  }));
 
   const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(
     () => initialAnonCache?.likedAnonIds ?? new Set()
@@ -180,9 +199,26 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     saveAnonymousTabSnapshot({
       viewerKey,
       anonViewTab,
+      myAnonItems:
+        myAnonTargetKey && myAnonState.loadedKey === myAnonTargetKey
+          ? myAnonState.items
+          : undefined,
+      myAnonLoaded: Boolean(
+        myAnonTargetKey &&
+          myAnonState.loadedKey === myAnonTargetKey &&
+          !myAnonState.error
+      ),
       cachedAt: Date.now(),
     });
-  }, [sectionId, viewerKey, anonViewTab]);
+  }, [
+    sectionId,
+    viewerKey,
+    anonViewTab,
+    myAnonTargetKey,
+    myAnonState.loadedKey,
+    myAnonState.items,
+    myAnonState.error,
+  ]);
 
   const anonPostsRef = useRef(anonymousPosts);
   const viewerUidRef = useRef(user?.uid ?? null);
@@ -268,10 +304,12 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           ? prevHasMore
           : page.hasMore
       );
-      setLikedAnonIds(likedIds);
-      setSavedAnonIds(savedIds);
-      setOwnedAnonPostIds(owned.postIds);
-      setOwnedAnonCommentIds(owned.commentIds);
+      setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+      setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedIds));
+      setOwnedAnonPostIds((prev) => reuseSetIfUnchanged(prev, owned.postIds));
+      setOwnedAnonCommentIds((prev) =>
+        reuseSetIfUnchanged(prev, owned.commentIds)
+      );
       setAnonLoadState('ready');
       prefetchAnonMedia(page.items);
     },
@@ -546,16 +584,28 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
       <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex flex-col justify-between gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start">
           <div>
-            <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-              <button
-                type="button"
-                onClick={() => onNavigate('for-you')}
-                className="text-[#1E88E5] hover:underline"
-              >
-                Home
-              </button>
-              <span aria-hidden="true">/</span>
-              <span>{activeSection.group}</span>
+            <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-500">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  Back
+                </button>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('for-you')}
+                  className="text-[#1E88E5] hover:underline"
+                >
+                  Home
+                </button>
+                <span aria-hidden="true">/</span>
+                <span>{activeSection.group}</span>
+              </div>
             </div>
 
             <h1
@@ -912,9 +962,13 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
               selectedCommentId={selectedCommentId}
               initialTab={marketplaceTab}
               onTabChange={onSelectMarketplaceTab}
-              onSelectListing={(listingId) =>
-                onNavigate('marketplace', { listingId, marketplaceTab })
-              }
+              onSelectListing={(listingId) => {
+                if (listingId === null && onBack) {
+                  onBack();
+                } else {
+                  onNavigate('marketplace', { listingId, marketplaceTab });
+                }
+              }}
               onRequireAuth={onRequireAuth}
               onNavigateProfile={(uname) =>
                 onNavigate('profile', { username: uname })
@@ -923,18 +977,26 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           ) : sectionId === 'opportunities' ? (
             <OpportunitiesSection
               selectedOpportunityId={selectedOpportunityId}
-              onSelectOpportunity={(oppId) =>
-                onNavigate('opportunities', { opportunityId: oppId })
-              }
+              onSelectOpportunity={(oppId) => {
+                if (oppId === null && onBack) {
+                  onBack();
+                } else {
+                  onNavigate('opportunities', { opportunityId: oppId });
+                }
+              }}
               onRequireAuth={onRequireAuth}
             />
           ) : sectionId === 'upcoming-events' ? (
             <EventsSection
               selectedEventId={selectedEventId}
               selectedCommentId={selectedCommentId}
-              onSelectEvent={(evtId) =>
-                onNavigate('upcoming-events', { eventId: evtId })
-              }
+              onSelectEvent={(evtId) => {
+                if (evtId === null && onBack) {
+                  onBack();
+                } else {
+                  onNavigate('upcoming-events', { eventId: evtId });
+                }
+              }}
               onNavigateProfile={(uname) =>
                 onNavigate('profile', { username: uname })
               }

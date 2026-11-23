@@ -3,6 +3,7 @@ import {
   type CampusEvent,
   type EventCategory,
 } from '../types/database';
+import { buildPublicAppUrl } from '../config/site';
 import { extractTimestampMs } from './contextualSearch';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -471,12 +472,10 @@ export function buildEventShareUrl(
   origin?: string
 ): string {
   const safeId = encodeURIComponent(eventId.trim());
-  const baseOrigin =
-    origin ??
-    (typeof window !== 'undefined' && window.location?.origin
-      ? window.location.origin
-      : 'https://lasuedintel.app');
-  return `${baseOrigin.replace(/\/+$/, '')}/?view=upcoming-events&eventId=${safeId}`;
+  return buildPublicAppUrl(
+    `/?view=upcoming-events&eventId=${safeId}`,
+    origin
+  );
 }
 
 export function sanitizeEventIdSegment(value: string): string {

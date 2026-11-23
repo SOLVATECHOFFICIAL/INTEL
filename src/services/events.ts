@@ -17,11 +17,9 @@ import {
   isValidFirestoreId,
   type CampusEvent,
   type PostComment,
-  type PublicProfileProjection,
-  type PublicUserProfile,
   type ReactionType,
 } from '../types/database';
-import { toPublicProfileProjection, isFirebaseErrorCode } from '../utils/authValidation';
+import { isFirebaseErrorCode } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import { isCampusEventPublished } from '../utils/events';
 import {
@@ -30,7 +28,14 @@ import {
   runWithFirestoreConnectionRetry,
 } from '../utils/firestoreRetry';
 import { generateFirestoreDocId } from './mediaStorage';
-import { createSafeMemberNotification } from './firestoreFoundation';
+import {
+  createSafeMemberNotification,
+  fetchPublicProfileProjectionsByUids,
+} from './firestoreFoundation';
+import {
+  notifyEventCommentMutated,
+  notifyEventReactionChanged,
+} from './cacheInvalidation';
 import {
   buildCommentNotificationId,
   buildReactionNotificationId,
@@ -178,6 +183,12 @@ export async function toggleEventReaction(input: {
       });
     }
 
+    notifyEventReactionChanged(
+      input.eventId,
+      result.liked,
+      result.likesCount
+    );
+
     return { liked: result.liked, likesCount: result.likesCount };
   } catch (error) {
     if (!isFirestoreSdkError(error)) {
@@ -193,24 +204,10 @@ async function hydrateCommentAuthors(
   const authorUids = Array.from(
     new Set(comments.map((c) => c.ownerUID).filter(isValidFirestoreId))
   );
-  const authorMap = new Map<string, PublicProfileProjection>();
-
-  if (authorUids.length > 0) {
-    const results = await Promise.allSettled(
-      authorUids.map(async (uid) => {
-        const snap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
-        if (!snap.exists()) return null;
-        const profile = snap.data() as PublicUserProfile;
-        if (profile.accountStatus !== 'active') return null;
-        return { uid, projection: toPublicProfileProjection(profile) };
-      })
-    );
-    for (const res of results) {
-      if (res.status === 'fulfilled' && res.value) {
-        authorMap.set(res.value.uid, res.value.projection);
-      }
-    }
-  }
+  const authorMap =
+    authorUids.length > 0
+      ? await fetchPublicProfileProjectionsByUids(authorUids)
+      : new Map();
 
   return comments.map((comment) => ({
     comment,
@@ -377,6 +374,8 @@ export async function addEventComment(input: {
       });
     }
 
+    notifyEventCommentMutated(input.eventId, nextCount);
+
     const nowMs = Date.now();
     return {
       comment: {
@@ -450,23 +449,25 @@ export async function deleteEventComment(input: {
   const path = `${COLLECTION_NAMES.postComments}/${input.commentId}`;
 
   try {
-    return await runWithFirestoreConnectionRetry(() =>
+    const nextCount = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         const evtSnap = await tx.get(eventRef);
         const currentCount = evtSnap.exists()
           ? Number((evtSnap.data() as CampusEvent).commentsCount ?? 0)
           : 0;
-        const nextCount = Math.max(0, currentCount - idsToDelete.length);
+        const computedNextCount = Math.max(0, currentCount - idsToDelete.length);
 
         for (const id of idsToDelete) {
           tx.delete(doc(db, COLLECTION_NAMES.postComments, id));
         }
-        if (evtSnap.exists() && nextCount < currentCount) {
-          tx.update(eventRef, { commentsCount: nextCount });
+        if (evtSnap.exists() && computedNextCount < currentCount) {
+          tx.update(eventRef, { commentsCount: computedNextCount });
         }
-        return nextCount;
+        return computedNextCount;
       })
     );
+    notifyEventCommentMutated(input.eventId, nextCount);
+    return nextCount;
   } catch (error) {
     if (!isFirestoreSdkError(error)) {
       throw error;

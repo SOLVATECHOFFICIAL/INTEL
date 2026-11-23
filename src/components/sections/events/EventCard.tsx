@@ -30,7 +30,7 @@ interface EventCardProps {
   onToggleSave: (event: CampusEvent) => void;
 }
 
-export const EventCard: React.FC<EventCardProps> = ({
+export const EventCard = React.memo(function EventCard({
   event,
   nowMs,
   isLiked,
@@ -38,7 +38,7 @@ export const EventCard: React.FC<EventCardProps> = ({
   onOpenDetails,
   onToggleLike,
   onToggleSave,
-}) => {
+}: EventCardProps) {
   const [bannerError, setBannerError] = useState(false);
 
   const lifecycle = resolveEventLifecycle(event, nowMs);
@@ -60,11 +60,11 @@ export const EventCard: React.FC<EventCardProps> = ({
 
   return (
     <article
-      className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 sm:p-5"
+      className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 sm:p-5"
       data-testid={`event-card-${event.id}`}
     >
       {/* Top row: Category · Status · Date + small top-right Share icon */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <span className="font-semibold text-[#1E88E5]">
             {getEventCategoryShortLabel(event.category)}
@@ -214,4 +214,4 @@ export const EventCard: React.FC<EventCardProps> = ({
       </div>
     </article>
   );
-};
+});

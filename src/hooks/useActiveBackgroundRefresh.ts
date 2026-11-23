@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { computeActivePollDelayMs } from '../utils/cacheSync';
+import {
+  computeActivePollDelayMs,
+  isConstrainedDeviceOrNetwork,
+} from '../utils/cacheSync';
 import { isDataSaverConnection } from '../utils/mediaCache';
 
 export interface UseActiveBackgroundRefreshOptions {
@@ -63,6 +66,7 @@ export function useActiveBackgroundRefresh(
         isVisible,
         isOnline,
         isDataSaver: isDataSaverConnection(),
+        isConstrainedDevice: isConstrainedDeviceOrNetwork(),
         consecutiveErrors,
         baseIntervalMs,
       });

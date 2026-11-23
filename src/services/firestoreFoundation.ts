@@ -64,10 +64,11 @@ import {
   validateUsernameCandidate,
   type ProfileSettingsFormInput,
 } from '../utils/authValidation';
-import { SingleFlightRegistry } from '../utils/cacheSync';
+import { BoundedLruMap, SingleFlightRegistry } from '../utils/cacheSync';
 import {
   notifyFollowToggled,
   notifyProfileUpdated,
+  registerFoundationProjectionInvalidator,
 } from './cacheInvalidation';
 import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
@@ -567,6 +568,21 @@ export async function updateMemberAccountProfileAndUsername(
       uid,
       username: cleanUsername,
       previousUsername: normalizeUsername(currentUsername),
+      patch: {
+        fullName: cleanFullName,
+        username: cleanUsername,
+        bio: cleanBio,
+        department: cleanDepartment,
+        faculty: cleanFaculty,
+        level: cleanLevel,
+        accountCategory: cleanAccountCategory,
+        photoUrl: cleanPhotoUrl,
+        coverUrl: cleanCoverUrl,
+        publicWhatsapp: cleanWhatsapp,
+        ...(typeof input.showWhatsappPublicly === 'boolean'
+          ? { showWhatsappPublicly: input.showWhatsappPublicly }
+          : {}),
+      },
     });
 
     return { updatedUsername: cleanUsername };
@@ -596,7 +612,10 @@ export async function updateMemberPrivacySettings(
       updatedAt: serverTimestamp(),
     });
     await batch.commit();
-    notifyProfileUpdated({ uid });
+    notifyProfileUpdated({
+      uid,
+      patch: { showWhatsappPublicly: Boolean(input.showWhatsappPublicly) },
+    });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -660,6 +679,21 @@ async function resolveUsernameToUidInternal(
 }
 
 const foundationSingleFlight = new SingleFlightRegistry();
+const PUBLIC_PROJECTION_TTL_MS = 60 * 1000;
+const publicProjectionCache = new BoundedLruMap<
+  string,
+  { projection: PublicProfileProjection | null; fetchedAt: number }
+>(250);
+
+registerFoundationProjectionInvalidator({
+  invalidateUid: (uid) => {
+    if (uid) {
+      publicProjectionCache.delete(uid);
+    } else {
+      publicProjectionCache.clear();
+    }
+  },
+});
 
 export async function fetchMemberProfileBundleByUsername(
   rawUsername: string,
@@ -702,74 +736,88 @@ export async function fetchMemberProfileBundleByUsername(
     return null;
   }
 
+  const profileProjection = toPublicProfileProjection(profileDoc);
+  if (!profileDoc.isHiddenFromDirectory && profileDoc.accountStatus === 'active') {
+    publicProjectionCache.set(profileDoc.uid, {
+      projection: profileProjection,
+      fetchedAt: Date.now(),
+    });
+  }
+
   const canPublishOrdinaryPosts =
     profileDoc.badge === 'verified' ||
     profileDoc.badge === 'moderator' ||
     profileDoc.badge === 'supreme_admin';
 
-  let isFollowing = false;
-  if (viewerUid && viewerUid !== profileDoc.uid) {
+  const checkIsFollowing = async (): Promise<boolean> => {
+    if (!viewerUid || viewerUid === profileDoc.uid) return false;
     const followId = `${viewerUid}_${profileDoc.uid}`;
     const followPath = `${COLLECTION_NAMES.follows}/${followId}`;
     try {
       const followSnap = await getDoc(doc(db, COLLECTION_NAMES.follows, followId));
-      isFollowing = followSnap.exists();
+      return followSnap.exists();
     } catch (error) {
       handleFirestoreError(error, OperationType.GET, followPath);
     }
-  }
+  };
 
-  let posts: CommunityPost[] = [];
-  if (canPublishOrdinaryPosts) {
+  const fetchMemberPosts = async (): Promise<CommunityPost[]> => {
+    if (!canPublishOrdinaryPosts) return [];
     const postsPath = COLLECTION_NAMES.posts;
     try {
       const q = query(
         collection(db, COLLECTION_NAMES.posts),
+        where('ownerUID', '==', profileDoc.uid),
         where('status', '==', 'published'),
-        limit(80)
+        limit(60)
       );
       const snapshot = await getDocs(q);
-      posts = sortCommunityPosts(
-        snapshot.docs
-          .map((item) => item.data() as CommunityPost)
-          .filter((item) => item.ownerUID === profileDoc.uid)
+      return sortCommunityPosts(
+        snapshot.docs.map((item) => item.data() as CommunityPost)
       );
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, postsPath);
     }
-  }
+  };
 
-  let listings: MarketplaceListing[] = [];
-  const listingsPath = COLLECTION_NAMES.marketplaceListings;
-  try {
-    const q = query(
-      collection(db, COLLECTION_NAMES.marketplaceListings),
-      where('status', '==', 'active'),
-      limit(80)
-    );
-    const snapshot = await getDocs(q);
-    const nowMs = Date.now();
-    listings = sortByCreatedAtDesc(
-      snapshot.docs
-        .map((item) => item.data() as MarketplaceListing)
-        .filter((item) => {
-          if (item.ownerUID !== profileDoc.uid) return false;
-          if (item.approvalStatus !== 'approved') return false;
-          const expiresMs = extractTimestampMs(item.expiresAt);
-          return expiresMs === null || nowMs < expiresMs;
-        })
-    );
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, listingsPath);
-  }
+  const fetchMemberListings = async (): Promise<MarketplaceListing[]> => {
+    const listingsPath = COLLECTION_NAMES.marketplaceListings;
+    try {
+      const q = query(
+        collection(db, COLLECTION_NAMES.marketplaceListings),
+        where('ownerUID', '==', profileDoc.uid),
+        where('status', '==', 'active'),
+        limit(60)
+      );
+      const snapshot = await getDocs(q);
+      const nowMs = Date.now();
+      return sortByCreatedAtDesc(
+        snapshot.docs
+          .map((item) => item.data() as MarketplaceListing)
+          .filter((item) => {
+            if (item.approvalStatus !== 'approved') return false;
+            const expiresMs = extractTimestampMs(item.expiresAt);
+            return expiresMs === null || nowMs < expiresMs;
+          })
+      );
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, listingsPath);
+    }
+  };
 
-  const likedPosts = await fetchLikedOrdinaryPostsByUid(profileDoc.uid).catch(
-    () => [] as CommunityPostWithAuthor[]
-  );
+  const [isFollowing, posts, listings, likedPosts] = await Promise.all([
+    checkIsFollowing(),
+    fetchMemberPosts(),
+    fetchMemberListings(),
+    fetchLikedOrdinaryPostsByUid(profileDoc.uid).catch(
+      () => [] as CommunityPostWithAuthor[]
+    ),
+  ]);
+
   const totalLikesReceived = computeTotalOrdinaryPostLikes(posts);
 
   return {
-    profile: toPublicProfileProjection(profileDoc),
+    profile: profileProjection,
     resolvedUsername: profileDoc.username,
     redirectedFrom:
       resolved.redirectedFrom ||
@@ -1029,16 +1077,51 @@ export async function fetchPublicProfileProjectionsByUids(
   const result = new Map<string, PublicProfileProjection>();
   if (uniqueUids.length === 0) return result;
 
-  const settled = await Promise.allSettled(
-    uniqueUids.map(async (uid) => {
-      const snap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
-      if (!snap.exists()) return null;
-      const profile = snap.data() as PublicUserProfile;
-      if (profile.isHiddenFromDirectory || profile.accountStatus !== 'active') {
-        return null;
+  const now = Date.now();
+  const missingUids: string[] = [];
+
+  for (const uid of uniqueUids) {
+    const cached = publicProjectionCache.get(uid);
+    if (cached && now - cached.fetchedAt <= PUBLIC_PROJECTION_TTL_MS) {
+      if (cached.projection) {
+        result.set(uid, cached.projection);
       }
-      return { uid, projection: toPublicProfileProjection(profile) };
-    })
+    } else {
+      missingUids.push(uid);
+    }
+  }
+
+  if (missingUids.length === 0) {
+    return result;
+  }
+
+  const settled = await Promise.allSettled(
+    missingUids.map((uid) =>
+      foundationSingleFlight.run(`proj:${uid}`, async () => {
+        const snap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
+        if (!snap.exists()) {
+          publicProjectionCache.set(uid, {
+            projection: null,
+            fetchedAt: Date.now(),
+          });
+          return null;
+        }
+        const profile = snap.data() as PublicUserProfile;
+        if (profile.isHiddenFromDirectory || profile.accountStatus !== 'active') {
+          publicProjectionCache.set(uid, {
+            projection: null,
+            fetchedAt: Date.now(),
+          });
+          return null;
+        }
+        const projection = toPublicProfileProjection(profile);
+        publicProjectionCache.set(uid, {
+          projection,
+          fetchedAt: Date.now(),
+        });
+        return { uid, projection };
+      })
+    )
   );
 
   for (const entry of settled) {

@@ -27,6 +27,7 @@ import {
   purgePersistentContentByPrefix,
 } from './persistentCache';
 import {
+  patchAuthorProjectionInMap,
   patchAuthorProjectionInPostItems,
   removeItemById,
   sanitizeAnonymousPostForCache,
@@ -59,14 +60,36 @@ let searchCacheHandlers: {
   invalidate: () => void;
   clearAuthorCache: () => void;
   patchAuthor: (uid: string, profile: PublicProfileProjection) => void;
+  patchAuthorPartial?: (uid: string, patch: Partial<PublicProfileProjection>) => void;
+} | null = null;
+
+let foundationProjectionHandlers: {
+  invalidateUid: (uid?: string) => void;
+} | null = null;
+
+let personalisationPoolHandlers: {
+  invalidateAll: () => void;
 } | null = null;
 
 export function registerSearchCacheInvalidator(handlers: {
   invalidate: () => void;
   clearAuthorCache: () => void;
   patchAuthor: (uid: string, profile: PublicProfileProjection) => void;
+  patchAuthorPartial?: (uid: string, patch: Partial<PublicProfileProjection>) => void;
 }): void {
   searchCacheHandlers = handlers;
+}
+
+export function registerFoundationProjectionInvalidator(handlers: {
+  invalidateUid: (uid?: string) => void;
+}): void {
+  foundationProjectionHandlers = handlers;
+}
+
+export function registerPersonalisationInvalidator(handlers: {
+  invalidateAll: () => void;
+}): void {
+  personalisationPoolHandlers = handlers;
 }
 
 export function subscribeCacheMutations(listener: MutationListener): () => void {
@@ -264,6 +287,78 @@ export function notifyCommunityPostSavedChanged(
   emitMutation({ type: 'community_post_saved', postId, saved });
 }
 
+export function notifyPostCommentMutated(
+  kind: 'ordinary' | 'anonymous',
+  postId: string,
+  commentsCount: number
+): void {
+  const safeCount = Math.max(0, commentsCount);
+
+  if (kind === 'ordinary') {
+    updateAllCachedHomeFeedSnapshots((snap) => ({
+      ...snap,
+      postItems: snap.postItems.map((entry) =>
+        entry.post.id === postId
+          ? { ...entry, post: { ...entry.post, commentsCount: safeCount } }
+          : entry
+      ),
+      cachedAt: Date.now(),
+    }));
+
+    updateAllCachedProfileSnapshots((snap) => ({
+      ...snap,
+      bundle: {
+        ...snap.bundle,
+        posts: snap.bundle.posts.map((p) =>
+          p.id === postId ? { ...p, commentsCount: safeCount } : p
+        ),
+        likedPosts: snap.bundle.likedPosts.map((e) =>
+          e.post.id === postId
+            ? { ...e, post: { ...e.post, commentsCount: safeCount } }
+            : e
+        ),
+      },
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            posts: snap.savedBundle.posts.map((e) =>
+              e.post.id === postId
+                ? { ...e, post: { ...e.post, commentsCount: safeCount } }
+                : e
+            ),
+          }
+        : null,
+      cachedAt: Date.now(),
+    }));
+  } else {
+    updateCachedAnonymousFeedSnapshot((snap) => ({
+      ...snap,
+      anonymousPosts: snap.anonymousPosts.map((p) =>
+        p.id === postId ? { ...p, commentsCount: safeCount } : p
+      ),
+      cachedAt: Date.now(),
+    }));
+
+    updateAllCachedProfileSnapshots((snap) => ({
+      ...snap,
+      anonHistory: snap.anonHistory
+        ? snap.anonHistory.map((p) =>
+            p.id === postId ? { ...p, commentsCount: safeCount } : p
+          )
+        : null,
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            anonymousPosts: snap.savedBundle.anonymousPosts.map((p) =>
+              p.id === postId ? { ...p, commentsCount: safeCount } : p
+            ),
+          }
+        : null,
+      cachedAt: Date.now(),
+    }));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Anonymous Posts
 // ---------------------------------------------------------------------------
@@ -438,6 +533,40 @@ export function notifyMarketplaceListingUpdated(listing: MarketplaceListing): vo
     };
   });
 
+  updateAllCachedProfileSnapshots((snap) => {
+    const hasInListings = snap.bundle.listings.some((l) => l.id === listing.id);
+    const hasInSaved = Boolean(
+      snap.savedBundle?.listings.some((l) => l.id === listing.id)
+    );
+    const isOwnSeller =
+      snap.bundle.isOwnProfile && snap.viewerKey === listing.ownerUID;
+    if (!hasInListings && !hasInSaved && !isOwnSeller) {
+      return snap;
+    }
+    const isPublicActive =
+      listing.approvalStatus === 'approved' && listing.status === 'active';
+    return {
+      ...snap,
+      bundle: {
+        ...snap.bundle,
+        listings: isPublicActive
+          ? upsertItemById(snap.bundle.listings, listing, false)
+          : removeItemById(snap.bundle.listings, listing.id),
+      },
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            listings: snap.savedBundle.listings.some((l) => l.id === listing.id)
+              ? snap.savedBundle.listings.map((l) =>
+                  l.id === listing.id ? listing : l
+                )
+              : snap.savedBundle.listings,
+          }
+        : null,
+      cachedAt: Date.now(),
+    };
+  });
+
   void deletePersistentContent('mkt:public:v1');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'marketplace_mutated' });
@@ -452,9 +581,65 @@ export function notifyMarketplaceListingDeleted(listingId: string): void {
     cachedAt: Date.now(),
   }));
 
+  updateAllCachedProfileSnapshots((snap) => {
+    const hasInListings = snap.bundle.listings.some((l) => l.id === listingId);
+    const hasInSaved = Boolean(
+      snap.savedBundle?.listings.some((l) => l.id === listingId)
+    );
+    if (!hasInListings && !hasInSaved) {
+      return snap;
+    }
+    return {
+      ...snap,
+      bundle: {
+        ...snap.bundle,
+        listings: removeItemById(snap.bundle.listings, listingId),
+      },
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            listings: removeItemById(snap.savedBundle.listings, listingId),
+          }
+        : null,
+      cachedAt: Date.now(),
+    };
+  });
+
   void deletePersistentContent('mkt:public:v1');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'marketplace_mutated' });
+}
+
+export function notifyMarketplaceListingCommentMutated(
+  listingId: string,
+  commentsCount: number
+): void {
+  const safeCount = Math.max(0, commentsCount);
+  const patchList = (items: MarketplaceListing[]) =>
+    items.map((l) => (l.id === listingId ? { ...l, commentsCount: safeCount } : l));
+
+  updateAllCachedMarketplaceSnapshots((snap) => ({
+    ...snap,
+    publicListings: patchList(snap.publicListings),
+    myListings: patchList(snap.myListings),
+    pendingListings: patchList(snap.pendingListings),
+    cachedAt: Date.now(),
+  }));
+
+  updateAllCachedProfileSnapshots((snap) => ({
+    ...snap,
+    bundle: {
+      ...snap.bundle,
+      listings: patchList(snap.bundle.listings),
+    },
+    savedBundle: snap.savedBundle
+      ? {
+          ...snap.savedBundle,
+          listings: patchList(snap.savedBundle.listings),
+        }
+      : null,
+    cachedAt: Date.now(),
+  }));
 }
 
 export function notifyCampusEventMutated(input: {
@@ -484,9 +669,127 @@ export function notifyCampusEventMutated(input: {
     return snap;
   });
 
+  personalisationPoolHandlers?.invalidateAll();
   void deletePersistentContent('events:public:v1');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'event_mutated' });
+}
+
+export function notifyEventReactionChanged(
+  eventId: string,
+  liked: boolean,
+  likesCount: number
+): void {
+  const safeCount = Math.max(0, likesCount);
+
+  updateAllCachedEventsSnapshots((snap) => {
+    const nextLiked = new Set(snap.likedIds);
+    if (liked) nextLiked.add(eventId);
+    else nextLiked.delete(eventId);
+    return {
+      ...snap,
+      likedIds: nextLiked,
+      events: snap.events.map((ev) =>
+        ev.id === eventId ? { ...ev, likesCount: safeCount } : ev
+      ),
+      cachedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    if (!snap.discovery) return snap;
+    const nextLiked = new Set(snap.discovery.likedEventIds);
+    if (liked) nextLiked.add(eventId);
+    else nextLiked.delete(eventId);
+    return {
+      ...snap,
+      discovery: {
+        ...snap.discovery,
+        likedEventIds: nextLiked,
+        recommendedEvents: snap.discovery.recommendedEvents.map((item) =>
+          item.event.id === eventId
+            ? { ...item, event: { ...item.event, likesCount: safeCount } }
+            : item
+        ),
+      },
+      cachedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedProfileSnapshots((snap) =>
+    snap.savedBundle
+      ? {
+          ...snap,
+          savedBundle: {
+            ...snap.savedBundle,
+            events: snap.savedBundle.events.map((ev) =>
+              ev.id === eventId ? { ...ev, likesCount: safeCount } : ev
+            ),
+          },
+          cachedAt: Date.now(),
+        }
+      : snap
+  );
+}
+
+export function notifyEventSavedChanged(eventId: string, saved: boolean): void {
+  updateAllCachedEventsSnapshots((snap) => {
+    const nextSaved = new Set(snap.savedIds);
+    if (saved) nextSaved.add(eventId);
+    else nextSaved.delete(eventId);
+    return {
+      ...snap,
+      savedIds: nextSaved,
+      cachedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    if (!snap.discovery) return snap;
+    const nextSaved = new Set(snap.discovery.savedEventIds);
+    if (saved) nextSaved.add(eventId);
+    else nextSaved.delete(eventId);
+    return {
+      ...snap,
+      discovery: {
+        ...snap.discovery,
+        savedEventIds: nextSaved,
+      },
+      cachedAt: Date.now(),
+    };
+  });
+}
+
+export function notifyEventCommentMutated(
+  eventId: string,
+  commentsCount: number
+): void {
+  const safeCount = Math.max(0, commentsCount);
+
+  updateAllCachedEventsSnapshots((snap) => ({
+    ...snap,
+    events: snap.events.map((ev) =>
+      ev.id === eventId ? { ...ev, commentsCount: safeCount } : ev
+    ),
+    cachedAt: Date.now(),
+  }));
+
+  updateAllCachedHomeFeedSnapshots((snap) =>
+    snap.discovery
+      ? {
+          ...snap,
+          discovery: {
+            ...snap.discovery,
+            recommendedEvents: snap.discovery.recommendedEvents.map((item) =>
+              item.event.id === eventId
+                ? { ...item, event: { ...item.event, commentsCount: safeCount } }
+                : item
+            ),
+          },
+          cachedAt: Date.now(),
+        }
+      : snap
+  );
 }
 
 export function notifyOpportunityMutated(input: {
@@ -517,9 +820,41 @@ export function notifyOpportunityMutated(input: {
     return snap;
   });
 
+  personalisationPoolHandlers?.invalidateAll();
   void deletePersistentContent('opps:public:v1');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'opportunity_mutated' });
+}
+
+export function notifyOpportunitySavedChanged(
+  opportunityId: string,
+  saved: boolean
+): void {
+  updateAllCachedOpportunitiesSnapshots((snap) => {
+    const nextSaved = new Set(snap.savedIds);
+    if (saved) nextSaved.add(opportunityId);
+    else nextSaved.delete(opportunityId);
+    return {
+      ...snap,
+      savedIds: nextSaved,
+      cachedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    if (!snap.discovery) return snap;
+    const nextSaved = new Set(snap.discovery.savedOpportunityIds);
+    if (saved) nextSaved.add(opportunityId);
+    else nextSaved.delete(opportunityId);
+    return {
+      ...snap,
+      discovery: {
+        ...snap.discovery,
+        savedOpportunityIds: nextSaved,
+      },
+      cachedAt: Date.now(),
+    };
+  });
 }
 
 export function notifyTrustedContactMutated(): void {
@@ -537,7 +872,11 @@ export function notifyProfileUpdated(input: {
   username?: string;
   previousUsername?: string;
   projection?: PublicProfileProjection;
+  patch?: Partial<PublicProfileProjection>;
 }): void {
+  foundationProjectionHandlers?.invalidateUid(input.uid);
+  personalisationPoolHandlers?.invalidateAll();
+
   if (input.projection) {
     const proj = input.projection;
     updateAllCachedHomeFeedSnapshots((snap) => ({
@@ -548,10 +887,56 @@ export function notifyProfileUpdated(input: {
         input.uid
       ),
     }));
+    updateAllCachedMarketplaceSnapshots((snap) => {
+      const nextMap = patchAuthorProjectionInMap(snap.sellerMap, proj, input.uid);
+      if (nextMap === snap.sellerMap) return snap;
+      return {
+        ...snap,
+        sellerMap: nextMap,
+        cachedAt: Date.now(),
+      };
+    });
     searchCacheHandlers?.patchAuthor(input.uid, proj);
+  } else if (input.patch) {
+    const patch = input.patch;
+    updateAllCachedHomeFeedSnapshots((snap) => {
+      let changed = false;
+      const nextItems = snap.postItems.map((entry) => {
+        if (entry.post.ownerUID !== input.uid || !entry.author) return entry;
+        changed = true;
+        return {
+          ...entry,
+          author: { ...entry.author, ...patch },
+        };
+      });
+      return changed ? { ...snap, postItems: nextItems } : snap;
+    });
+    updateAllCachedMarketplaceSnapshots((snap) => {
+      const existing = snap.sellerMap.get(input.uid);
+      if (!existing) return snap;
+      const updatedProj = { ...existing, ...patch };
+      const nextMap = patchAuthorProjectionInMap(
+        snap.sellerMap,
+        updatedProj,
+        input.uid
+      );
+      if (nextMap === snap.sellerMap) return snap;
+      return {
+        ...snap,
+        sellerMap: nextMap,
+        cachedAt: Date.now(),
+      };
+    });
+    if (searchCacheHandlers?.patchAuthorPartial) {
+      searchCacheHandlers.patchAuthorPartial(input.uid, patch);
+    } else {
+      searchCacheHandlers?.clearAuthorCache();
+    }
   } else {
     searchCacheHandlers?.clearAuthorCache();
   }
+
+  const hasFreshProfileData = Boolean(input.projection || input.patch);
 
   updateAllCachedProfileSnapshots((snap) => {
     const resolvedLower = snap.bundle.resolvedUsername.toLowerCase();
@@ -564,28 +949,61 @@ export function notifyProfileUpdated(input: {
     );
     const matchesOwn =
       snap.bundle.isOwnProfile && snap.viewerKey === input.uid;
-    if (!matchesNew && !matchesPrev && !matchesOwn) return snap;
+    const matchesUidPostsOrListings =
+      snap.bundle.posts.some((p) => p.ownerUID === input.uid) ||
+      snap.bundle.listings.some((l) => l.ownerUID === input.uid);
+
+    if (!matchesNew && !matchesPrev && !matchesOwn && !matchesUidPostsOrListings) {
+      return snap;
+    }
+
+    const nextProfile = input.projection
+      ? input.projection
+      : input.patch
+        ? { ...snap.bundle.profile, ...input.patch }
+        : snap.bundle.profile;
+
+    const nextLikedPosts = input.projection
+      ? patchAuthorProjectionInPostItems(
+          snap.bundle.likedPosts,
+          input.projection,
+          input.uid
+        )
+      : input.patch
+        ? snap.bundle.likedPosts.map((entry) =>
+            entry.post.ownerUID === input.uid && entry.author
+              ? { ...entry, author: { ...entry.author, ...input.patch } }
+              : entry
+          )
+        : snap.bundle.likedPosts;
+
     return {
       ...snap,
-      username: input.username ?? snap.username,
-      bundle: input.projection
-        ? {
-            ...snap.bundle,
-            profile: input.projection,
-            resolvedUsername: input.projection.username,
-          }
-        : snap.bundle,
-      cachedAt: 0,
+      username: input.projection?.username ?? input.username ?? snap.username,
+      bundle: {
+        ...snap.bundle,
+        profile: nextProfile,
+        resolvedUsername:
+          input.projection?.username ??
+          input.patch?.username ??
+          input.username ??
+          snap.bundle.resolvedUsername,
+        likedPosts: nextLikedPosts,
+      },
+      cachedAt: hasFreshProfileData ? Date.now() : 0,
     };
   });
 
-  if (input.username) {
-    void deletePersistentContent(`profile:pub:v1:${input.username.toLowerCase()}`);
-  }
-  if (input.previousUsername) {
+  if (
+    input.previousUsername &&
+    input.previousUsername.toLowerCase() !== input.username?.toLowerCase()
+  ) {
     void deletePersistentContent(
       `profile:pub:v1:${input.previousUsername.toLowerCase()}`
     );
+  }
+  if (!hasFreshProfileData && input.username) {
+    void deletePersistentContent(`profile:pub:v1:${input.username.toLowerCase()}`);
   }
   emitMutation({
     type: 'profile_updated',
@@ -639,6 +1057,8 @@ export async function notifyViewerSessionReset(
   clearAnonymousFeedSessionCache();
   clearAllViewerNavigationCaches();
   searchCacheHandlers?.clearAuthorCache();
+  foundationProjectionHandlers?.invalidateUid();
+  personalisationPoolHandlers?.invalidateAll();
   await clearViewerPersistentCaches(previousUid);
   emitMutation({ type: 'viewer_reset' });
 }

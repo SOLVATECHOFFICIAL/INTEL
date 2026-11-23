@@ -17,20 +17,20 @@ interface OpportunityCardProps {
   onOpenDetails: (opportunityId: string) => void;
 }
 
-export const OpportunityCard: React.FC<OpportunityCardProps> = ({
+export const OpportunityCard = React.memo(function OpportunityCard({
   opportunity,
   nowMs,
   isSaved,
   saving = false,
   onToggleSave,
   onOpenDetails,
-}) => {
+}: OpportunityCardProps) {
   const lifecycle = resolveOpportunityLifecycle(opportunity, nowMs);
 
   return (
-    <article className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-[#1E88E5]">
-      <div>
-        <div className="flex items-start justify-between gap-2">
+    <article className="flex min-w-0 flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-[#1E88E5]">
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="font-semibold text-[#1E88E5]">
               {getOpportunityCategoryLabel(opportunity.category)}
@@ -131,4 +131,4 @@ export const OpportunityCard: React.FC<OpportunityCardProps> = ({
       </div>
     </article>
   );
-};
+});

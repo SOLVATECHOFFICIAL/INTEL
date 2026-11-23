@@ -23,6 +23,7 @@ import {
   XCircle,
   ZoomIn,
 } from 'lucide-react';
+import { buildMarketplaceListingShareUrl } from '../../config/site';
 import { useFirebase } from '../../context/firebaseContext';
 import {
   createMarketplaceListingItem,
@@ -189,7 +190,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(
+    () => Boolean(initialCache?.showCreateForm)
+  );
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
   const [localSelectedListingId, setLocalSelectedListingId] = useState<
     string | null
@@ -423,6 +426,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         setSelectedCategory(persisted.selectedCategory || 'All Categories');
         setSearchQuery(persisted.searchQuery);
         setGalleryIndexByListingId(persisted.activeGalleryIndexByListingId);
+        if (persisted.showCreateForm) {
+          setShowCreateForm(true);
+        }
         setLoading(false);
 
         if (!isDataSaverConnection()) {
@@ -542,6 +548,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               index: detailLightboxIndex,
             }
           : null,
+      showCreateForm,
       directLookupListing,
       cachedAt: Date.now(),
     });
@@ -557,6 +564,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     pendingListings,
     galleryIndexByListingId,
     detailLightboxIndex,
+    showCreateForm,
     effectiveSelectedListingId,
     directLookupListing,
   ]);
@@ -652,10 +660,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   };
 
   const handleShareListing = async (listing: MarketplaceListing) => {
-    const url =
-      typeof window !== 'undefined'
-        ? `${window.location.origin}/?view=marketplace&listingId=${listing.id}`
-        : `/?view=marketplace&listingId=${listing.id}`;
+    const url = buildMarketplaceListingShareUrl(listing.id);
 
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
@@ -1972,13 +1977,24 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         >
           <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-6 py-4">
-              <div className="min-w-0">
-                <span className="text-xs font-bold text-[#1E88E5] uppercase">
-                  {selectedProduct.listingKind} · {selectedProduct.category}
-                </span>
-                <h3 className="truncate font-display text-lg font-bold text-[#0B1A2E]">
-                  {selectedProduct.title}
-                </h3>
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => openListingModal(null)}
+                  aria-label="Back from product details"
+                  className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  Back
+                </button>
+                <div className="min-w-0">
+                  <span className="text-xs font-bold text-[#1E88E5] uppercase">
+                    {selectedProduct.listingKind} · {selectedProduct.category}
+                  </span>
+                  <h3 className="truncate font-display text-lg font-bold text-[#0B1A2E]">
+                    {selectedProduct.title}
+                  </h3>
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 <button

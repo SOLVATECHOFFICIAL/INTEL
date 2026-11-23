@@ -39,6 +39,8 @@ import {
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
 } from './socialPosts';
+import { SingleFlightRegistry } from '../utils/cacheSync';
+import { registerPersonalisationInvalidator } from './cacheInvalidation';
 
 export type {
   AnonymousFeedSessionSnapshot,
@@ -71,27 +73,97 @@ export interface ForYouDiscoveryBundle {
   ownedAnonCommentIds: Set<string>;
 }
 
+const personalisationSingleFlight = new SingleFlightRegistry();
+const DIRECTORY_POOL_TTL_MS = 60 * 1000;
+const PUBLIC_POOLS_TTL_MS = 45 * 1000;
+
+let cachedDirectoryPool: {
+  data: {
+    projections: PublicProfileProjection[];
+    uidToUsernameLower: Map<string, string>;
+  };
+  fetchedAt: number;
+} | null = null;
+
+let cachedDiscoveryPools: {
+  events: CampusEvent[];
+  opportunities: Opportunity[];
+  anonPosts: AnonymousPost[];
+  fetchedAt: number;
+} | null = null;
+
+export function invalidatePersonalisationPools(): void {
+  cachedDirectoryPool = null;
+  cachedDiscoveryPools = null;
+}
+
+registerPersonalisationInvalidator({
+  invalidateAll: invalidatePersonalisationPools,
+});
+
 async function fetchActiveDirectoryMembers(maxItems = 50): Promise<{
   projections: PublicProfileProjection[];
   uidToUsernameLower: Map<string, string>;
 }> {
-  const snap = await getDocs(
-    query(
-      collection(db, COLLECTION_NAMES.users),
-      where('isHiddenFromDirectory', '==', false),
-      limit(maxItems)
-    )
-  );
-  const projections: PublicProfileProjection[] = [];
-  const uidToUsernameLower = new Map<string, string>();
-  for (const docSnap of snap.docs) {
-    const profile = docSnap.data() as PublicUserProfile;
-    if (profile.accountStatus === 'active' && !profile.isHiddenFromDirectory) {
-      projections.push(toPublicProfileProjection(profile));
-      uidToUsernameLower.set(profile.uid, profile.username.toLowerCase());
-    }
+  if (
+    cachedDirectoryPool &&
+    Date.now() - cachedDirectoryPool.fetchedAt <= DIRECTORY_POOL_TTL_MS
+  ) {
+    return cachedDirectoryPool.data;
   }
-  return { projections, uidToUsernameLower };
+
+  return personalisationSingleFlight.run(`dir:${maxItems}`, async () => {
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.users),
+        where('isHiddenFromDirectory', '==', false),
+        limit(maxItems)
+      )
+    );
+    const projections: PublicProfileProjection[] = [];
+    const uidToUsernameLower = new Map<string, string>();
+    for (const docSnap of snap.docs) {
+      const profile = docSnap.data() as PublicUserProfile;
+      if (profile.accountStatus === 'active' && !profile.isHiddenFromDirectory) {
+        projections.push(toPublicProfileProjection(profile));
+        uidToUsernameLower.set(profile.uid, profile.username.toLowerCase());
+      }
+    }
+    const data = { projections, uidToUsernameLower };
+    cachedDirectoryPool = { data, fetchedAt: Date.now() };
+    return data;
+  });
+}
+
+async function fetchPublicDiscoveryPools(): Promise<{
+  events: CampusEvent[];
+  opportunities: Opportunity[];
+  anonPosts: AnonymousPost[];
+}> {
+  if (
+    cachedDiscoveryPools &&
+    Date.now() - cachedDiscoveryPools.fetchedAt <= PUBLIC_POOLS_TTL_MS
+  ) {
+    return cachedDiscoveryPools;
+  }
+
+  return personalisationSingleFlight.run('discovery_pools', async () => {
+    const [eventsRes, oppsRes, anonPageRes] = await Promise.allSettled([
+      fetchPublishedCampusEvents(),
+      fetchPublishedOpportunities(),
+      fetchPublicAnonymousFeedPage({ pageSize: 20 }),
+    ]);
+
+    const pools = {
+      events: eventsRes.status === 'fulfilled' ? eventsRes.value : [],
+      opportunities: oppsRes.status === 'fulfilled' ? oppsRes.value : [],
+      anonPosts:
+        anonPageRes.status === 'fulfilled' ? anonPageRes.value.items : [],
+      fetchedAt: Date.now(),
+    };
+    cachedDiscoveryPools = pools;
+    return pools;
+  });
 }
 
 async function fetchSamplePostsByIds(
@@ -155,9 +227,7 @@ export async function loadPersonalisationContextAndDiscovery(input: {
 
   const [
     membersRes,
-    eventsRes,
-    oppsRes,
-    anonPageRes,
+    poolsRes,
     interactedPostsRes,
     likedEventsRes,
     savedEventsRes,
@@ -167,9 +237,7 @@ export async function loadPersonalisationContextAndDiscovery(input: {
     ownedAnonRes,
   ] = await Promise.allSettled([
     fetchActiveDirectoryMembers(50),
-    fetchPublishedCampusEvents(),
-    fetchPublishedOpportunities(),
-    fetchPublicAnonymousFeedPage({ pageSize: 20 }),
+    fetchPublicDiscoveryPools(),
     fetchSamplePostsByIds(interactedPostIds, 12),
     viewerUid
       ? fetchViewerLikedPostIds('events', viewerUid)
@@ -195,12 +263,13 @@ export async function loadPersonalisationContextAndDiscovery(input: {
     membersRes.status === 'fulfilled'
       ? membersRes.value
       : { projections: [], uidToUsernameLower: new Map<string, string>() };
-  const events: CampusEvent[] =
-    eventsRes.status === 'fulfilled' ? eventsRes.value : [];
-  const opportunities: Opportunity[] =
-    oppsRes.status === 'fulfilled' ? oppsRes.value : [];
-  const anonPosts: AnonymousPost[] =
-    anonPageRes.status === 'fulfilled' ? anonPageRes.value.items : [];
+  const pools =
+    poolsRes.status === 'fulfilled'
+      ? poolsRes.value
+      : { events: [], opportunities: [], anonPosts: [] };
+  const events: CampusEvent[] = pools.events;
+  const opportunities: Opportunity[] = pools.opportunities;
+  const anonPosts: AnonymousPost[] = pools.anonPosts;
   const interactedPosts =
     interactedPostsRes.status === 'fulfilled' ? interactedPostsRes.value : [];
 

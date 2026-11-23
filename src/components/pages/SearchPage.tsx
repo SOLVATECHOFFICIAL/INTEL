@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowRight,
   Clock,
   Filter,
@@ -102,6 +103,7 @@ interface SearchPageProps {
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
+  onBack?: () => void;
 }
 
 const DISCOVERY_TABS: { id: SearchScopeId; label: string }[] = [
@@ -171,6 +173,10 @@ function areSearchFiltersEqual(
   );
 }
 
+function areSearchFiltersDefault(filters: SearchFiltersState): boolean {
+  return areSearchFiltersEqual(filters, DEFAULT_SEARCH_FILTERS);
+}
+
 export const SearchPage: React.FC<SearchPageProps> = ({
   initialScope,
   initialQuery = null,
@@ -178,6 +184,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   onSyncSearchState,
   onNavigate,
   onRequireAuth,
+  onBack,
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const viewerKey = user?.uid ?? 'guest';
@@ -200,14 +207,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     initialCleanQuery ||
     (snapshotMatches && initialSnapshot ? initialSnapshot.submittedQuery : '');
   const startingScope =
-    initialScope !== 'all' || !snapshotMatches || !initialSnapshot
+    normalizedInitialScope !== 'all' ||
+    Boolean(initialCleanQuery) ||
+    !snapshotMatches ||
+    !initialSnapshot
       ? normalizedInitialScope
       : initialSnapshot.activeScope;
   const startingFilters =
-    initialFilters ??
-    (snapshotMatches && initialSnapshot
-      ? initialSnapshot.filters
-      : DEFAULT_SEARCH_FILTERS);
+    initialFilters && !areSearchFiltersDefault(initialFilters)
+      ? initialFilters
+      : snapshotMatches && initialSnapshot
+        ? initialSnapshot.filters
+        : initialFilters ?? DEFAULT_SEARCH_FILTERS;
   const startingBundle =
     (snapshotMatches && initialSnapshot?.bundle
       ? initialSnapshot.bundle
@@ -276,6 +287,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRequestIdRef = useRef(0);
   const skipNextDebounceRef = useRef(Boolean(startingQuery));
+  const lastExternalPropsRef = useRef<{
+    scope: SearchScopeId;
+    query: string;
+    filters: SearchFiltersState;
+  }>({
+    scope: normalizedInitialScope,
+    query: initialCleanQuery,
+    filters: initialFilters ?? DEFAULT_SEARCH_FILTERS,
+  });
   const lastSyncedRef = useRef<{
     scope: SearchScopeId;
     query: string;
@@ -334,8 +354,23 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     const nextScope = normalizeTabScope(initialScope);
     const nextQ = initialQuery ? normalizeSearchInput(initialQuery) : '';
     const nextFilters = initialFilters ?? DEFAULT_SEARCH_FILTERS;
-    const synced = lastSyncedRef.current;
+    const prevProps = lastExternalPropsRef.current;
 
+    if (
+      nextScope === prevProps.scope &&
+      nextQ === prevProps.query &&
+      areSearchFiltersEqual(nextFilters, prevProps.filters)
+    ) {
+      return;
+    }
+
+    lastExternalPropsRef.current = {
+      scope: nextScope,
+      query: nextQ,
+      filters: nextFilters,
+    };
+
+    const synced = lastSyncedRef.current;
     if (
       nextScope === synced.scope &&
       nextQ === synced.query &&
@@ -921,6 +956,16 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                className="mb-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+              >
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Back
+              </button>
+            )}
             <h1
               id="search-heading"
               className="font-display text-xl font-bold text-[#0B1A2E] sm:text-2xl"

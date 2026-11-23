@@ -48,7 +48,10 @@ import {
   type OpportunityDeadlineFilter,
   type OpportunityStatusFilter,
 } from '../../utils/opportunities';
-import { mergeOrderedRecords } from '../../utils/cacheSync';
+import {
+  mergeOrderedRecords,
+  reuseSetIfUnchanged,
+} from '../../utils/cacheSync';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { OpportunityCard } from './opportunities/OpportunityCard';
 
@@ -163,7 +166,7 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
             })
           : items
       );
-      setSavedIds(viewerSaved);
+      setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
       setErrorMessage(null);
       setLoading(false);
     },

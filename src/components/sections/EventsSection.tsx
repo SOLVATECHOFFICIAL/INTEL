@@ -38,7 +38,10 @@ import {
   type EventStatusFilter,
 } from '../../utils/events';
 import { computeOptimisticReactionToggle } from '../../utils/optimisticInteractions';
-import { mergeOrderedRecords } from '../../utils/cacheSync';
+import {
+  mergeOrderedRecords,
+  reuseSetIfUnchanged,
+} from '../../utils/cacheSync';
 import { isDataSaverConnection } from '../../utils/mediaCache';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { EventCard } from './events/EventCard';
@@ -187,8 +190,8 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
             })
           : loadedEvents
       );
-      setLikedIds(viewerLiked);
-      setSavedIds(viewerSaved);
+      setLikedIds((prev) => reuseSetIfUnchanged(prev, viewerLiked));
+      setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
       setErrorMessage(null);
       setLoading(false);
       prefetchEventMedia(loadedEvents);

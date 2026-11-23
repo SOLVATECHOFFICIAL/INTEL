@@ -27,6 +27,7 @@ import {
   getAnonymousBackgroundTheme,
   getTextPostBackgroundTheme,
 } from '../../config/anonymousBackgrounds';
+import { buildProfileShareUrl } from '../../config/site';
 import { useFirebase } from '../../context/firebaseContext';
 import {
   fetchFollowDirectoryPage,
@@ -75,6 +76,7 @@ import { extractTimestampMs } from '../../utils/contextualSearch';
 import {
   mergeCommunityPostItems,
   mergeOrderedRecords,
+  reuseSetIfUnchanged,
 } from '../../utils/cacheSync';
 import {
   compressImageFile,
@@ -411,11 +413,13 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             }),
           };
         });
-        setLikedPostIds(likedIds);
-        setSavedPostIds(savedIds);
-        setLikedAnonIds(likedAnons);
-        setSavedAnonIds(savedAnons);
-        setOwnedAnonCommentIds(ownedAnon.commentIds);
+        setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+        setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
+        setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedAnons));
+        setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedAnons));
+        setOwnedAnonCommentIds((prev) =>
+          reuseSetIfUnchanged(prev, ownedAnon.commentIds)
+        );
 
         // Enforce strict owner-only boundary on private tabs
         if (!result.isOwnProfile) {
@@ -794,7 +798,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   const handleShareProfile = async () => {
     if (!bundle || !displayedProfile) return;
-    const shareUrl = `${window.location.origin}${window.location.pathname}?view=profile&username=${encodeURIComponent(bundle.resolvedUsername)}`;
+    const shareUrl = buildProfileShareUrl(bundle.resolvedUsername);
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
         await navigator.share({
@@ -851,6 +855,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     try {
       await saveProfileMediaImage({
         uid: user.uid,
+        username: viewerProfile?.username,
         slot: 'cover',
         compressed: pendingCover,
         previousImageId: viewerProfile?.coverImageId,
@@ -882,6 +887,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     try {
       await removeProfileMediaImage({
         uid: user.uid,
+        username: viewerProfile?.username,
         slot: 'cover',
         currentImageId: viewerProfile?.coverImageId,
       });
@@ -928,6 +934,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     try {
       await saveProfileMediaImage({
         uid: user.uid,
+        username: viewerProfile?.username,
         slot: 'avatar',
         compressed: pendingAvatar,
         previousImageId: viewerProfile?.photoImageId,

@@ -80,7 +80,10 @@ import {
   primeMediaImageCache,
   type UploadProgressState,
 } from './mediaStorage';
-import { createSafeMemberNotification } from './firestoreFoundation';
+import {
+  createSafeMemberNotification,
+  fetchPublicProfileProjectionsByUids,
+} from './firestoreFoundation';
 import {
   buildCommentNotificationId,
   buildReactionNotificationId,
@@ -99,6 +102,10 @@ import {
   notifyCommunityPostSavedChanged,
   notifyAnonymousPostUpdated,
   notifyCommunityPostUpdated,
+  notifyEventSavedChanged,
+  notifyMarketplaceListingCommentMutated,
+  notifyOpportunitySavedChanged,
+  notifyPostCommentMutated,
 } from './cacheInvalidation';
 
 export interface ComposerImageAttachment {
@@ -1350,6 +1357,10 @@ export async function toggleSavedPost(input: {
         notifyCommunityPostSavedChanged(input.targetId, false);
       } else if (input.targetCollection === 'anonymousPosts') {
         notifyAnonymousPostSavedChanged(input.targetId, false);
+      } else if (input.targetCollection === 'events') {
+        notifyEventSavedChanged(input.targetId, false);
+      } else if (input.targetCollection === 'opportunities') {
+        notifyOpportunitySavedChanged(input.targetId, false);
       }
       return { saved: false };
     }
@@ -1366,6 +1377,10 @@ export async function toggleSavedPost(input: {
       notifyCommunityPostSavedChanged(input.targetId, true);
     } else if (input.targetCollection === 'anonymousPosts') {
       notifyAnonymousPostSavedChanged(input.targetId, true);
+    } else if (input.targetCollection === 'events') {
+      notifyEventSavedChanged(input.targetId, true);
+    } else if (input.targetCollection === 'opportunities') {
+      notifyOpportunitySavedChanged(input.targetId, true);
     }
     return { saved: true };
   } catch (error) {
@@ -1448,23 +1463,10 @@ export async function fetchOwnerSavedContentBundle(
   const authorUids = Array.from(
     new Set(rawPosts.map((p) => p.ownerUID).filter(isValidFirestoreId))
   );
-  const authorMap = new Map<string, PublicProfileProjection>();
-  if (authorUids.length > 0) {
-    const authorResults = await Promise.allSettled(
-      authorUids.map(async (uid) => {
-        const uSnap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
-        if (!uSnap.exists()) return null;
-        const p = uSnap.data() as PublicUserProfile;
-        if (p.accountStatus !== 'active') return null;
-        return { uid, projection: toPublicProfileProjection(p) };
-      })
-    );
-    for (const r of authorResults) {
-      if (r.status === 'fulfilled' && r.value) {
-        authorMap.set(r.value.uid, r.value.projection);
-      }
-    }
-  }
+  const authorMap =
+    authorUids.length > 0
+      ? await fetchPublicProfileProjectionsByUids(authorUids)
+      : new Map<string, PublicProfileProjection>();
 
   const anonymousPosts: AnonymousPost[] = [];
   for (const res of anonSnaps) {
@@ -1612,25 +1614,10 @@ async function hydrateCommentAuthors(
     )
   );
 
-  const authorMap = new Map<string, PublicProfileProjection>();
-  if (uids.length > 0) {
-    const settled = await Promise.allSettled(
-      uids.map(async (uid) => {
-        const uSnap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
-        if (!uSnap.exists()) return null;
-        const profile = uSnap.data() as PublicUserProfile;
-        if (profile.isHiddenFromDirectory || profile.accountStatus !== 'active') {
-          return null;
-        }
-        return { uid, projection: toPublicProfileProjection(profile) };
-      })
-    );
-    for (const entry of settled) {
-      if (entry.status === 'fulfilled' && entry.value) {
-        authorMap.set(entry.value.uid, entry.value.projection);
-      }
-    }
-  }
+  const authorMap =
+    uids.length > 0
+      ? await fetchPublicProfileProjectionsByUids(uids)
+      : new Map<string, PublicProfileProjection>();
 
   return rawComments.map((comment) => ({
     comment,
@@ -1927,6 +1914,12 @@ export async function addPostComment(input: {
       }).catch(() => undefined);
     }
 
+    notifyPostCommentMutated(
+      input.kind === 'posts' ? 'ordinary' : 'anonymous',
+      input.postId,
+      commentsCount
+    );
+
     return {
       comment: {
         ...(commentPayload as unknown as PostComment | AnonymousComment),
@@ -2039,6 +2032,12 @@ export async function deletePostComment(input: {
       }
     }
 
+    notifyPostCommentMutated(
+      input.kind === 'posts' ? 'ordinary' : 'anonymous',
+      input.postId,
+      nextCount
+    );
+
     return nextCount;
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
@@ -2131,15 +2130,10 @@ export async function fetchSinglePublishedPostWithAuthor(
     let author: PublicProfileProjection | null = null;
     if (isValidFirestoreId(post.ownerUID)) {
       try {
-        const userSnap = await getDoc(
-          doc(db, COLLECTION_NAMES.users, post.ownerUID)
-        );
-        if (userSnap.exists()) {
-          const profile = userSnap.data() as PublicUserProfile;
-          if (!profile.isHiddenFromDirectory && profile.accountStatus === 'active') {
-            author = toPublicProfileProjection(profile);
-          }
-        }
+        const authorMap = await fetchPublicProfileProjectionsByUids([
+          post.ownerUID,
+        ]);
+        author = authorMap.get(post.ownerUID) ?? null;
       } catch {
         author = null;
       }
@@ -2329,6 +2323,8 @@ export async function addMarketplaceListingComment(input: {
       });
     }
 
+    notifyMarketplaceListingCommentMutated(input.listingId, nextCount);
+
     const nowMs = Date.now();
     return {
       comment: {
@@ -2409,23 +2405,25 @@ export async function deleteMarketplaceListingComment(input: {
   const path = `${COLLECTION_NAMES.postComments}/${input.commentId}`;
 
   try {
-    return await runWithFirestoreConnectionRetry(() =>
+    const nextCount = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         const listingSnap = await tx.get(listingRef);
         const currentCount = listingSnap.exists()
           ? Number((listingSnap.data() as MarketplaceListing).commentsCount ?? 0)
           : 0;
-        const nextCount = Math.max(0, currentCount - idsToDelete.length);
+        const computedNextCount = Math.max(0, currentCount - idsToDelete.length);
 
         for (const id of idsToDelete) {
           tx.delete(doc(db, COLLECTION_NAMES.postComments, id));
         }
-        if (listingSnap.exists() && nextCount < currentCount) {
-          tx.update(listingRef, { commentsCount: nextCount });
+        if (listingSnap.exists() && computedNextCount < currentCount) {
+          tx.update(listingRef, { commentsCount: computedNextCount });
         }
-        return nextCount;
+        return computedNextCount;
       })
     );
+    notifyMarketplaceListingCommentMutated(input.listingId, nextCount);
+    return nextCount;
   } catch (error) {
     if (!isFirestoreSdkError(error)) {
       throw error;

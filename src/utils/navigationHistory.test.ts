@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   areDestinationsEqual,
+  canGoBackHistory,
   createInitialHistoryStack,
   findMostRecentSearchEntry,
   getBackTarget,
+  getDestinationMemoryKey,
   moveToHistoryEntryKey,
   pushHistoryStackEntry,
   replaceCurrentHistoryDestination,
@@ -209,4 +211,84 @@ test('resolveGuestSafeDestination strips protected routes and tabs when logged o
     resolveGuestSafeDestination({ route: 'login' }, true).route,
     'for-you'
   );
+});
+
+test('canGoBackHistory skips auth entries and reflects stack history cleanly', () => {
+  const s0 = createInitialHistoryStack({ route: 'for-you' }, 0, 'h0');
+  assert.equal(canGoBackHistory(s0), false);
+
+  const sLogin = pushHistoryStackEntry(s0, { route: 'login' }, 0).stack;
+  const sNotifications = pushHistoryStackEntry(
+    createInitialHistoryStack({ route: 'login' }, 0, 'l0'),
+    { route: 'notifications' },
+    0
+  ).stack;
+  assert.equal(canGoBackHistory(sNotifications), false);
+  assert.equal(canGoBackHistory(sLogin), true);
+
+  const sHomeFromNotifications = pushHistoryStackEntry(
+    sNotifications,
+    { route: 'for-you' },
+    240
+  ).stack;
+  assert.equal(canGoBackHistory(sHomeFromNotifications), true);
+});
+
+test('getDestinationMemoryKey creates stable scroll memory keys across routes and vice versa', () => {
+  assert.equal(
+    getDestinationMemoryKey({ route: 'for-you' }),
+    'for-you'
+  );
+  assert.equal(
+    getDestinationMemoryKey({ route: 'for-you', postId: 'post_9' }),
+    'for-you:post_9'
+  );
+  assert.equal(
+    getDestinationMemoryKey({
+      route: 'profile',
+      username: 'Ada_Campus',
+      profileTab: 'saved',
+    }),
+    'profile:ada_campus'
+  );
+  assert.equal(
+    getDestinationMemoryKey({
+      route: 'search',
+      searchScope: 'marketplace',
+      searchQuery: 'textbook',
+    }),
+    'search'
+  );
+  assert.equal(
+    getDestinationMemoryKey({
+      route: 'marketplace',
+      marketplaceTab: 'browse',
+      listingId: 'mkt_12',
+    }),
+    'marketplace:browse:mkt_12'
+  );
+});
+
+test('Notifications -> Home (scrolled) -> Notifications preserves departing Home scrollY', () => {
+  const s0 = createInitialHistoryStack({ route: 'notifications' }, 180, 'n0');
+  const s1 = pushHistoryStackEntry(s0, { route: 'for-you' }, 180).stack;
+  const s1Scrolled = updateHistoryEntryScroll(s1, 780);
+  const s2 = pushHistoryStackEntry(
+    s1Scrolled,
+    { route: 'notifications' },
+    780,
+    180
+  ).stack;
+
+  assert.equal(s2.entries[1].destination.route, 'for-you');
+  assert.equal(s2.entries[1].scrollY, 780);
+  assert.equal(s2.entries[2].destination.route, 'notifications');
+  assert.equal(s2.entries[2].scrollY, 180);
+
+  const backToHome = getBackTarget(s2);
+  assert.equal(backToHome.kind, 'history_back');
+  if (backToHome.kind === 'history_back') {
+    assert.equal(backToHome.targetEntry.destination.route, 'for-you');
+    assert.equal(backToHome.targetEntry.scrollY, 780);
+  }
 });

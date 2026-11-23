@@ -1,7 +1,5 @@
 import {
   collection,
-  doc,
-  getDoc,
   getDocs,
   limit,
   orderBy,
@@ -52,6 +50,7 @@ import {
   stripFirestoreCursor,
 } from '../utils/cacheSync';
 import { registerSearchCacheInvalidator } from './cacheInvalidation';
+import { fetchPublicProfileProjectionsByUids } from './firestoreFoundation';
 import { fetchMarketplaceSellersMap } from './governance';
 import {
   purgePersistentContentByPrefix,
@@ -333,25 +332,16 @@ async function hydrateAuthorsByUids(
   }
 
   if (missing.length > 0) {
-    await Promise.allSettled(
-      Array.from(new Set(missing))
-        .slice(0, 30)
-        .map(async (uid) => {
-          const snap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
-          if (!snap.exists()) {
-            authorProjectionCache.set(uid, null);
-            return;
-          }
-          const profile = snap.data() as PublicUserProfile;
-          if (profile.accountStatus !== 'active') {
-            authorProjectionCache.set(uid, null);
-            return;
-          }
-          const projection = toPublicProfileProjection(profile);
-          authorProjectionCache.set(uid, projection);
-          result.set(uid, projection);
-        })
+    const fetched = await fetchPublicProfileProjectionsByUids(
+      Array.from(new Set(missing)).slice(0, 30)
     );
+    for (const uid of missing) {
+      const projection = fetched.get(uid) ?? null;
+      authorProjectionCache.set(uid, projection);
+      if (projection) {
+        result.set(uid, projection);
+      }
+    }
   }
 
   return result;
@@ -1062,5 +1052,11 @@ registerSearchCacheInvalidator({
   },
   patchAuthor: (uid, profile) => {
     authorProjectionCache.set(uid, profile);
+  },
+  patchAuthorPartial: (uid, patch) => {
+    const existing = authorProjectionCache.get(uid);
+    if (existing) {
+      authorProjectionCache.set(uid, { ...existing, ...patch });
+    }
   },
 });

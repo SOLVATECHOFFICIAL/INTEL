@@ -1,4 +1,8 @@
-import { isPersistableCacheKey, perfMetrics } from '../utils/cacheSync';
+import {
+  computeSnapshotSignature,
+  isPersistableCacheKey,
+  perfMetrics,
+} from '../utils/cacheSync';
 
 const DB_NAME = 'lasued-intel-cache-v1';
 const DB_VERSION = 1;
@@ -44,6 +48,44 @@ interface DraftIdbRecord<T = unknown> {
 const memoryContentFallback = new Map<string, ContentRecord>();
 const memoryMediaFallback = new Map<string, MediaIdbRecord>();
 const memoryDraftFallback = new Map<string, DraftIdbRecord>();
+
+// Serialize STORE_CONTENT writes/deletes per key and coordinate global clears/purges
+const contentKeyQueues = new Map<string, Promise<unknown>>();
+let globalContentBarrier: Promise<void> = Promise.resolve();
+const lastWrittenContentSignatures = new Map<string, string>();
+
+function setWrittenSignature(key: string, signature: string): void {
+  if (
+    lastWrittenContentSignatures.size >= 360 &&
+    !lastWrittenContentSignatures.has(key)
+  ) {
+    const oldest = lastWrittenContentSignatures.keys().next().value;
+    if (oldest) lastWrittenContentSignatures.delete(oldest);
+  }
+  lastWrittenContentSignatures.set(key, signature);
+}
+
+function enqueueContentKeyOp<R>(key: string, op: () => Promise<R>): Promise<R> {
+  const prevKeyOp = contentKeyQueues.get(key) ?? Promise.resolve();
+  const next = Promise.allSettled([globalContentBarrier, prevKeyOp]).then(op);
+  const tracked = next.catch(() => undefined);
+  contentKeyQueues.set(key, tracked);
+  void tracked.finally(() => {
+    if (contentKeyQueues.get(key) === tracked) {
+      contentKeyQueues.delete(key);
+    }
+  });
+  return next;
+}
+
+function enqueueGlobalContentOp(op: () => Promise<void>): Promise<void> {
+  const pendingKeyOps = Array.from(contentKeyQueues.values());
+  const next = Promise.allSettled([globalContentBarrier, ...pendingKeyOps]).then(
+    op
+  );
+  globalContentBarrier = next.catch(() => undefined);
+  return next;
+}
 
 let dbOpenPromise: Promise<IDBDatabase | null> | null = null;
 
@@ -239,6 +281,7 @@ export async function readPersistentContent<T>(
         : DEFAULT_PUBLIC_CONTENT_MAX_AGE_MS);
     if (Date.now() - fallbackHit.cachedAt > maxAge) {
       memoryContentFallback.delete(key);
+      lastWrittenContentSignatures.delete(key);
       perfMetrics.recordMiss('idb_content');
       return null;
     }
@@ -264,6 +307,7 @@ export async function readPersistentContent<T>(
         : DEFAULT_PUBLIC_CONTENT_MAX_AGE_MS);
 
     if (Date.now() - record.cachedAt > maxAge) {
+      lastWrittenContentSignatures.delete(key);
       void deletePersistentContent(key);
       perfMetrics.recordMiss('idb_content');
       return null;
@@ -287,86 +331,105 @@ export async function writePersistentContent<T>(
 ): Promise<void> {
   if (!isPersistableCacheKey(key)) return;
 
-  const now = Date.now();
-  const scope = options.scope ?? 'public';
-  const viewerKey = options.viewerKey?.trim() || 'guest';
-  const record: ContentRecord<T> = {
-    key,
-    scope,
-    viewerKey,
-    value,
-    cachedAt: now,
-    lastAccessedAt: now,
-    byteEstimate: estimateJsonBytes(value),
-  };
+  const signature = computeSnapshotSignature(value);
 
-  if (memoryContentFallback.size >= 80 && !memoryContentFallback.has(key)) {
-    const oldestKey = memoryContentFallback.keys().next().value;
-    if (oldestKey) memoryContentFallback.delete(oldestKey);
-  }
-  memoryContentFallback.set(key, record);
-
-  const database = await openCacheDb();
-  if (!database) return;
-
-  const attemptPut = async () => {
-    const tx = database.transaction(STORE_CONTENT, 'readwrite');
-    await idbRequestPromise(tx.objectStore(STORE_CONTENT).put(record));
-  };
-
-  try {
-    await attemptPut();
-    const countTx = database.transaction(STORE_CONTENT, 'readonly');
-    const count = await idbRequestPromise(
-      countTx.objectStore(STORE_CONTENT).count()
-    );
-    if (count > MAX_CONTENT_ENTRIES) {
-      void pruneOldestContentEntries(database, 0);
+  return enqueueContentKeyOp(key, async () => {
+    if (lastWrittenContentSignatures.get(key) === signature) {
+      return;
     }
-  } catch (error) {
-    if (isQuotaExceededError(error)) {
-      await pruneOldestContentEntries(database, 0.35).catch(() => undefined);
-      await attemptPut().catch(() => undefined);
+
+    const now = Date.now();
+    const scope = options.scope ?? 'public';
+    const viewerKey = options.viewerKey?.trim() || 'guest';
+    const record: ContentRecord<T> = {
+      key,
+      scope,
+      viewerKey,
+      value,
+      cachedAt: now,
+      lastAccessedAt: now,
+      byteEstimate: estimateJsonBytes(value),
+    };
+
+    if (memoryContentFallback.size >= 80 && !memoryContentFallback.has(key)) {
+      const oldestKey = memoryContentFallback.keys().next().value;
+      if (oldestKey) memoryContentFallback.delete(oldestKey);
     }
-  }
+    memoryContentFallback.set(key, record);
+    setWrittenSignature(key, signature);
+
+    const database = await openCacheDb();
+    if (!database) return;
+
+    const attemptPut = async () => {
+      const tx = database.transaction(STORE_CONTENT, 'readwrite');
+      await idbRequestPromise(tx.objectStore(STORE_CONTENT).put(record));
+    };
+
+    try {
+      await attemptPut();
+      const countTx = database.transaction(STORE_CONTENT, 'readonly');
+      const count = await idbRequestPromise(
+        countTx.objectStore(STORE_CONTENT).count()
+      );
+      if (count > MAX_CONTENT_ENTRIES) {
+        void pruneOldestContentEntries(database, 0);
+      }
+    } catch (error) {
+      if (isQuotaExceededError(error)) {
+        await pruneOldestContentEntries(database, 0.35).catch(() => undefined);
+        await attemptPut().catch(() => undefined);
+      }
+    }
+  });
 }
 
 export async function deletePersistentContent(key: string): Promise<void> {
-  memoryContentFallback.delete(key);
-  const database = await openCacheDb();
-  if (!database) return;
-  try {
-    const tx = database.transaction(STORE_CONTENT, 'readwrite');
-    await idbRequestPromise(tx.objectStore(STORE_CONTENT).delete(key));
-  } catch {
-    // Non-blocking cleanup
-  }
+  return enqueueContentKeyOp(key, async () => {
+    memoryContentFallback.delete(key);
+    lastWrittenContentSignatures.delete(key);
+    const database = await openCacheDb();
+    if (!database) return;
+    try {
+      const tx = database.transaction(STORE_CONTENT, 'readwrite');
+      await idbRequestPromise(tx.objectStore(STORE_CONTENT).delete(key));
+    } catch {
+      // Non-blocking cleanup
+    }
+  });
 }
 
 export async function purgePersistentContentByPrefix(
   prefix: string
 ): Promise<void> {
-  for (const key of Array.from(memoryContentFallback.keys())) {
-    if (key.startsWith(prefix)) {
-      memoryContentFallback.delete(key);
-    }
-  }
-
-  const database = await openCacheDb();
-  if (!database) return;
-
-  try {
-    const tx = database.transaction(STORE_CONTENT, 'readwrite');
-    const store = tx.objectStore(STORE_CONTENT);
-    const keys = (await idbRequestPromise(store.getAllKeys())) as string[];
-    for (const k of keys) {
-      if (typeof k === 'string' && k.startsWith(prefix)) {
-        store.delete(k);
+  return enqueueGlobalContentOp(async () => {
+    for (const key of Array.from(memoryContentFallback.keys())) {
+      if (key.startsWith(prefix)) {
+        memoryContentFallback.delete(key);
       }
     }
-  } catch {
-    // Non-blocking cleanup
-  }
+    for (const key of Array.from(lastWrittenContentSignatures.keys())) {
+      if (key.startsWith(prefix)) {
+        lastWrittenContentSignatures.delete(key);
+      }
+    }
+
+    const database = await openCacheDb();
+    if (!database) return;
+
+    try {
+      const tx = database.transaction(STORE_CONTENT, 'readwrite');
+      const store = tx.objectStore(STORE_CONTENT);
+      const keys = (await idbRequestPromise(store.getAllKeys())) as string[];
+      for (const k of keys) {
+        if (typeof k === 'string' && k.startsWith(prefix)) {
+          store.delete(k);
+        }
+      }
+    } catch {
+      // Non-blocking cleanup
+    }
+  });
 }
 
 /**
@@ -378,57 +441,66 @@ export async function clearViewerPersistentCaches(
 ): Promise<void> {
   const targetViewer = uid?.trim() || null;
 
-  for (const [key, rec] of Array.from(memoryContentFallback.entries())) {
-    if (
-      rec.scope === 'private' ||
-      (targetViewer && rec.viewerKey === targetViewer) ||
-      key.startsWith('priv:')
-    ) {
-      memoryContentFallback.delete(key);
-    }
-  }
-  for (const [key, draft] of Array.from(memoryDraftFallback.entries())) {
-    if (!targetViewer || draft.viewerKey === targetViewer) {
-      memoryDraftFallback.delete(key);
-    }
-  }
-
-  const database = await openCacheDb();
-  if (!database) return;
-
-  try {
-    const contentTx = database.transaction(STORE_CONTENT, 'readwrite');
-    const contentStore = contentTx.objectStore(STORE_CONTENT);
-    const allContent = (await idbRequestPromise(
-      contentStore.getAll()
-    )) as ContentRecord[];
-    for (const item of allContent) {
+  return enqueueGlobalContentOp(async () => {
+    for (const [key, rec] of Array.from(memoryContentFallback.entries())) {
       if (
-        item.scope === 'private' ||
-        item.key.startsWith('priv:') ||
-        (targetViewer && item.viewerKey === targetViewer)
+        rec.scope === 'private' ||
+        (targetViewer && rec.viewerKey === targetViewer) ||
+        key.startsWith('priv:')
       ) {
-        contentStore.delete(item.key);
+        memoryContentFallback.delete(key);
+        lastWrittenContentSignatures.delete(key);
       }
     }
-  } catch {
-    // Non-blocking
-  }
-
-  try {
-    const draftsTx = database.transaction(STORE_DRAFTS, 'readwrite');
-    const draftsStore = draftsTx.objectStore(STORE_DRAFTS);
-    const allDrafts = (await idbRequestPromise(
-      draftsStore.getAll()
-    )) as DraftIdbRecord[];
-    for (const draft of allDrafts) {
+    for (const key of Array.from(lastWrittenContentSignatures.keys())) {
+      if (key.startsWith('priv:')) {
+        lastWrittenContentSignatures.delete(key);
+      }
+    }
+    for (const [key, draft] of Array.from(memoryDraftFallback.entries())) {
       if (!targetViewer || draft.viewerKey === targetViewer) {
-        draftsStore.delete(draft.key);
+        memoryDraftFallback.delete(key);
       }
     }
-  } catch {
-    // Non-blocking
-  }
+
+    const database = await openCacheDb();
+    if (!database) return;
+
+    try {
+      const contentTx = database.transaction(STORE_CONTENT, 'readwrite');
+      const contentStore = contentTx.objectStore(STORE_CONTENT);
+      const allContent = (await idbRequestPromise(
+        contentStore.getAll()
+      )) as ContentRecord[];
+      for (const item of allContent) {
+        if (
+          item.scope === 'private' ||
+          item.key.startsWith('priv:') ||
+          (targetViewer && item.viewerKey === targetViewer)
+        ) {
+          contentStore.delete(item.key);
+          lastWrittenContentSignatures.delete(item.key);
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+
+    try {
+      const draftsTx = database.transaction(STORE_DRAFTS, 'readwrite');
+      const draftsStore = draftsTx.objectStore(STORE_DRAFTS);
+      const allDrafts = (await idbRequestPromise(
+        draftsStore.getAll()
+      )) as DraftIdbRecord[];
+      for (const draft of allDrafts) {
+        if (!targetViewer || draft.viewerKey === targetViewer) {
+          draftsStore.delete(draft.key);
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+  });
 }
 
 export async function readPersistentMediaRecord(

@@ -271,6 +271,35 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidPushSubscription(data, subscriptionId, userId) {
+      return data.keys().hasAll([
+          'id', 'uid', 'endpoint', 'p256dh', 'auth', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'uid', 'endpoint', 'p256dh', 'auth',
+          'userAgent', 'platform', 'isStandalone', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id == subscriptionId &&
+        isValidId(data.id) &&
+        data.uid == userId &&
+        isValidId(data.uid) &&
+        data.endpoint is string &&
+        data.endpoint.size() >= 16 &&
+        data.endpoint.size() <= 1024 &&
+        data.endpoint.matches('^https://.*') &&
+        data.p256dh is string &&
+        data.p256dh.size() >= 20 &&
+        data.p256dh.size() <= 256 &&
+        data.auth is string &&
+        data.auth.size() >= 10 &&
+        data.auth.size() <= 128 &&
+        isOptionalShortString(data, 'userAgent', 300) &&
+        isOptionalShortString(data, 'platform', 64) &&
+        (!('isStandalone' in data) || data.isStandalone is bool) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     function isRoleBadgeConsistent(role, badge) {
       return (
         ((role == 'owner' || role == 'supreme_admin') && badge == 'supreme_admin') ||
@@ -908,6 +937,32 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if isValidId(userId) && isValidId(postId) && isOwnerOf(userId);
       }
+
+      // Strictly owner-only Web Push subscriptions for PWA background notifications
+      match /pushSubscriptions/{subscriptionId} {
+        allow get, list: if isValidId(userId) && isOwnerOf(userId);
+        allow create: if isActiveSignedInUser() &&
+          isValidId(userId) &&
+          isValidId(subscriptionId) &&
+          isOwnerOf(userId) &&
+          isValidPushSubscription(incoming(), subscriptionId, userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isActiveSignedInUser() &&
+          isValidId(userId) &&
+          isValidId(subscriptionId) &&
+          isOwnerOf(userId) &&
+          isValidPushSubscription(incoming(), subscriptionId, userId) &&
+          incoming().id == existing().id &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time;
+        allow delete: if isValidId(userId) && isValidId(subscriptionId) && isOwnerOf(userId);
+      }
+    }
+
+    match /_serverPushDedup/{dedupId} {
+      allow read, write: if false;
     }
 
     // -------------------------------------------------------------------------

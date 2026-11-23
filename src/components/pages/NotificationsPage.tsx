@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   Bell,
   Briefcase,
   Calendar,
@@ -53,6 +54,7 @@ interface NotificationsPageProps {
     }
   ) => void;
   onRequireAuth: (authRoute: 'login' | 'register', returnTo: ActiveRoute) => void;
+  onBack?: () => void;
 }
 
 function renderNotificationTypeVisual(eventType: NotificationEventType) {
@@ -117,6 +119,7 @@ function renderNotificationTypeVisual(eventType: NotificationEventType) {
 export const NotificationsPage: React.FC<NotificationsPageProps> = ({
   onNavigate,
   onRequireAuth,
+  onBack,
 }) => {
   const {
     authReady,
@@ -206,6 +209,16 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         aria-labelledby="notifications-heading"
         className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
       >
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+        )}
         <h1
           id="notifications-heading"
           className="font-display text-2xl font-bold text-[#0B1A2E]"
@@ -232,6 +245,19 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
       aria-labelledby="notifications-heading"
       className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
     >
+      {onBack && (
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+        </div>
+      )}
+
       {/* Top Bar */}
       <div className="flex flex-col justify-between gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2.5">

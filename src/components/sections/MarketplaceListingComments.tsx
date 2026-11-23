@@ -10,6 +10,11 @@ import {
 import { useFirebase } from '../../context/firebaseContext';
 import { togglePostCommentReaction } from '../../services/events';
 import {
+  getThreadCommentsSnapshot,
+  hydrateThreadCommentsSnapshot,
+  saveThreadCommentsSnapshot,
+} from '../../services/navigationStateCache';
+import {
   clearPersistentDraft,
   loadPersistentDraft,
   savePersistentDraft,
@@ -35,6 +40,7 @@ import {
   toPublicProfileProjection,
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
+import { reuseSetIfUnchanged } from '../../utils/cacheSync';
 import {
   appendOptimisticCommentEntry,
   buildOptimisticCommentEntry,
@@ -86,9 +92,21 @@ export const MarketplaceListingComments: React.FC<
   const isAdminOrOwner =
     effectiveTier === 'supreme_admin' || effectiveTier === 'owner';
 
-  const [comments, setComments] = useState<CommentWithAuthor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const currentThreadKey = `${viewerKey}:marketplaceListings:${listingId}`;
+  const initialThreadSnap = getThreadCommentsSnapshot(
+    viewerKey,
+    'marketplaceListings',
+    listingId
+  );
+
+  const [comments, setComments] = useState<CommentWithAuthor[]>(
+    () => initialThreadSnap?.comments ?? []
+  );
+  const [loading, setLoading] = useState(() => !initialThreadSnap);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hydratedThreadKey, setHydratedThreadKey] = useState<string | null>(
+    () => (initialThreadSnap ? currentThreadKey : null)
+  );
 
   const [newCommentBody, setNewCommentBody] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
@@ -98,10 +116,12 @@ export const MarketplaceListingComments: React.FC<
   const [editingBody, setEditingBody] = useState('');
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
-  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
+  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(
+    () => initialThreadSnap?.likedCommentIds ?? new Set()
+  );
   const [commentLikesCounts, setCommentLikesCounts] = useState<
     Record<string, number>
-  >({});
+  >(() => initialThreadSnap?.commentLikesCounts ?? {});
 
   const submitLockRef = useRef<Set<string>>(new Set());
   const commentLikeInFlightRef = useRef<Set<string>>(new Set());
@@ -112,6 +132,25 @@ export const MarketplaceListingComments: React.FC<
 
   useEffect(() => {
     let active = true;
+    let networkSettled = false;
+
+    void hydrateThreadCommentsSnapshot(
+      viewerKey,
+      'marketplaceListings',
+      listingId
+    )
+      .then((cached) => {
+        if (!active || networkSettled || !cached) return;
+        setComments(cached.comments);
+        setLikedCommentIds((prev) =>
+          reuseSetIfUnchanged(prev, cached.likedCommentIds)
+        );
+        setCommentLikesCounts(cached.commentLikesCounts ?? {});
+        setHydratedThreadKey(currentThreadKey);
+        setLoading(false);
+      })
+      .catch(() => undefined);
+
     const likesPromise = viewerUid
       ? fetchViewerLikedPostIds('postComments', viewerUid).catch(
           () => new Set<string>()
@@ -120,12 +159,15 @@ export const MarketplaceListingComments: React.FC<
 
     Promise.all([fetchCommentsForMarketplaceListing(listingId), likesPromise])
       .then(([loadedComments, likedIds]) => {
+        networkSettled = true;
         if (!active) return;
         setComments(loadedComments);
-        setLikedCommentIds(likedIds);
+        setLikedCommentIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+        setHydratedThreadKey(currentThreadKey);
         setErrorMessage(null);
       })
       .catch((error) => {
+        networkSettled = true;
         if (!active) return;
         setErrorMessage(
           formatFirestoreOrAppError(
@@ -141,7 +183,31 @@ export const MarketplaceListingComments: React.FC<
     return () => {
       active = false;
     };
-  }, [listingId, viewerUid]);
+  }, [listingId, viewerUid, viewerKey, currentThreadKey]);
+
+  useEffect(() => {
+    if (loading || hydratedThreadKey !== currentThreadKey) return;
+    saveThreadCommentsSnapshot({
+      viewerKey,
+      targetCollection: 'marketplaceListings',
+      targetId: listingId,
+      comments,
+      commentsCursor: null,
+      hasMoreComments: false,
+      likedCommentIds,
+      commentLikesCounts,
+      cachedAt: Date.now(),
+    });
+  }, [
+    viewerKey,
+    listingId,
+    currentThreadKey,
+    hydratedThreadKey,
+    loading,
+    comments,
+    likedCommentIds,
+    commentLikesCounts,
+  ]);
 
   // Persistent draft load & autosave for listing comment & active reply
   useEffect(() => {

@@ -59,6 +59,24 @@
       },
       "required": ["postId", "createdAt"]
     },
+    "PushSubscriptionRecord": {
+      "title": "PushSubscriptionRecord",
+      "description": "Strictly owner-only Web Push subscription keys bound to a signed-in LASUED Intel account and specific browser/device.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "endpoint": { "type": "string", "minLength": 16, "maxLength": 1024 },
+        "p256dh": { "type": "string", "minLength": 20, "maxLength": 256 },
+        "auth": { "type": "string", "minLength": 10, "maxLength": 128 },
+        "userAgent": { "type": "string", "maxLength": 300 },
+        "platform": { "type": "string", "maxLength": 64 },
+        "isStandalone": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "endpoint", "p256dh", "auth", "createdAt", "updatedAt"]
+    },
     "UserRoleRecord": {
       "title": "UserRoleRecord",
       "description": "Server/owner-governed authority and badge record. Never writable by ordinary users or self-escalated.",
@@ -547,6 +565,10 @@
     "/privateUserData/{userId}/anonymousHistory/{postId}": {
       "schema": { "$ref": "#/entities/PrivateAnonymousHistoryEntry" },
       "description": "Strictly owner-only private history pointers for anonymous posts authored by {userId}."
+    },
+    "/privateUserData/{userId}/pushSubscriptions/{subscriptionId}": {
+      "schema": { "$ref": "#/entities/PushSubscriptionRecord" },
+      "description": "Strictly owner-only Web Push subscriptions stored per device for authenticated push delivery."
     },
     "/userRoles/{userId}": {
       "schema": { "$ref": "#/entities/UserRoleRecord" },

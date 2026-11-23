@@ -46,6 +46,25 @@ export function deserializeSet(raw: unknown): Set<string> {
   );
 }
 
+export function areSetsEqual(
+  a: ReadonlySet<string>,
+  b: ReadonlySet<string>
+): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const item of a) {
+    if (!b.has(item)) return false;
+  }
+  return true;
+}
+
+export function reuseSetIfUnchanged(
+  prev: Set<string>,
+  next: Set<string>
+): Set<string> {
+  return areSetsEqual(prev, next) ? prev : next;
+}
+
 export function serializeRecordMap<V>(
   map: ReadonlyMap<string, V>
 ): Array<[string, V]> {
@@ -423,6 +442,157 @@ export function patchAuthorProjectionInPostItems<T extends PostWithAuthorLike>(
   return changed ? next : [...items];
 }
 
+export function patchAuthorProjectionInMap(
+  map: Map<string, PublicProfileProjection>,
+  updatedProfile: PublicProfileProjection,
+  targetUid: string
+): Map<string, PublicProfileProjection> {
+  const existing = map.get(targetUid);
+  if (!existing || areAuthorProjectionsEqual(existing, updatedProfile)) {
+    return map;
+  }
+  const next = new Map(map);
+  next.set(targetUid, updatedProfile);
+  return next;
+}
+
+const VOLATILE_SIGNATURE_KEYS = new Set([
+  'cachedAt',
+  'lastAccessedAt',
+  'docSnap',
+]);
+
+function hashMix(h: number, code: number): number {
+  let x = h ^ (code & 0xffff);
+  x = Math.imul(x, 0x01000193) >>> 0;
+  x ^= (code >>> 16) & 0xffff;
+  return Math.imul(x, 0x01000193) >>> 0;
+}
+
+/**
+ * Computes a deterministic structural signature for cache payloads while
+ * ignoring volatile metadata (`cachedAt`, `lastAccessedAt`, `docSnap`).
+ * Used to skip redundant IndexedDB write transactions on 5s background polls.
+ */
+export function computeSnapshotSignature(value: unknown): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  let nodes = 0;
+  const seen = new WeakSet<object>();
+
+  const feedStr = (str: string) => {
+    h1 = hashMix(h1, str.length);
+    h2 = hashMix(h2, str.length ^ 0x5555);
+    for (let i = 0; i < str.length; i += 1) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 0x01000193) >>> 0;
+      h2 = Math.imul(h2 ^ (ch + i), 0x85ebca6b) >>> 0;
+    }
+  };
+
+  const feedNum = (num: number) => {
+    feedStr(Number.isFinite(num) ? String(num) : 'NaN');
+  };
+
+  const visit = (val: unknown) => {
+    nodes += 1;
+    if (val === null) {
+      feedStr('null');
+      return;
+    }
+    const t = typeof val;
+    if (t === 'undefined') {
+      feedStr('undef');
+      return;
+    }
+    if (t === 'boolean') {
+      feedStr(val ? 'T' : 'F');
+      return;
+    }
+    if (t === 'number') {
+      feedNum(val as number);
+      return;
+    }
+    if (t === 'string') {
+      feedStr(`s:${val as string}`);
+      return;
+    }
+    if (t === 'bigint') {
+      feedStr(`bi:${String(val)}`);
+      return;
+    }
+    if (t !== 'object') {
+      return;
+    }
+
+    const obj = val as object;
+    if (obj instanceof Date) {
+      feedStr(`D:${obj.getTime()}`);
+      return;
+    }
+    if (seen.has(obj)) {
+      feedStr('Circular');
+      return;
+    }
+    seen.add(obj);
+
+    if (Array.isArray(obj)) {
+      feedStr(`A[${obj.length}]`);
+      for (let i = 0; i < obj.length; i += 1) {
+        visit(obj[i]);
+      }
+      return;
+    }
+
+    if (obj instanceof Set) {
+      const sorted = Array.from(obj).map((item) => String(item)).sort();
+      feedStr(`Set[${sorted.length}]`);
+      for (const item of sorted) {
+        feedStr(item);
+      }
+      return;
+    }
+
+    if (obj instanceof Map) {
+      const keys = Array.from(obj.keys()).sort((a, b) =>
+        String(a).localeCompare(String(b))
+      );
+      feedStr(`Map[${keys.length}]`);
+      for (const k of keys) {
+        visit(k);
+        visit(obj.get(k));
+      }
+      return;
+    }
+
+    const rec = obj as Record<string, unknown>;
+    if (typeof rec.toMillis === 'function') {
+      try {
+        feedStr(`Ts:${(rec as { toMillis: () => number }).toMillis()}`);
+        return;
+      } catch {
+        // Fall through to key inspection
+      }
+    }
+    if (typeof rec.seconds === 'number' && typeof rec.nanoseconds === 'number') {
+      feedStr(`Ts:${rec.seconds}.${rec.nanoseconds}`);
+      return;
+    }
+
+    const keys = Object.keys(rec)
+      .filter((k) => !VOLATILE_SIGNATURE_KEYS.has(k) && rec[k] !== undefined && typeof rec[k] !== 'function')
+      .sort();
+    feedStr(`O{${keys.length}}`);
+    for (const key of keys) {
+      feedStr(key);
+      visit(rec[key]);
+    }
+  };
+
+  visit(value);
+  return `${h1.toString(36)}:${h2.toString(36)}:${nodes.toString(36)}`;
+}
+
 /**
  * Coalesces concurrent identical fetch calls into a single shared Promise
  * so navigating back/forth or switching tabs never fires duplicate network work.
@@ -509,10 +679,31 @@ export class BoundedLruMap<K, V> {
   }
 }
 
+export function isConstrainedDeviceOrNetwork(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const nav = navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string };
+    deviceMemory?: number;
+  };
+  if (nav.connection?.saveData) return true;
+  const eff = nav.connection?.effectiveType;
+  if (eff === 'slow-2g' || eff === '2g') return true;
+  if (typeof nav.deviceMemory === 'number' && nav.deviceMemory <= 2) return true;
+  if (
+    typeof nav.hardwareConcurrency === 'number' &&
+    nav.hardwareConcurrency > 0 &&
+    nav.hardwareConcurrency <= 2
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export interface ActivePollDelayInput {
   isVisible: boolean;
   isOnline: boolean;
   isDataSaver?: boolean;
+  isConstrainedDevice?: boolean;
   consecutiveErrors?: number;
   baseIntervalMs?: number;
 }
@@ -528,7 +719,11 @@ export function computeActivePollDelayMs(
     return null;
   }
   const base = Math.max(1000, input.baseIntervalMs ?? 5000);
-  const effectiveBase = input.isDataSaver ? Math.max(base * 2, 12000) : base;
+  const effectiveBase = input.isDataSaver
+    ? Math.max(base * 2, 12000)
+    : input.isConstrainedDevice
+      ? Math.max(base * 2, 10000)
+      : base;
   const errors = Math.max(0, Math.floor(input.consecutiveErrors ?? 0));
   if (errors === 0) {
     return effectiveBase;

@@ -429,6 +429,37 @@ export function findMostRecentSearchEntry(
   return null;
 }
 
+export function canGoBackHistory(
+  stack: NavigationStackState,
+  options?: { skipAuthEntries?: boolean }
+): boolean {
+  return getBackTarget(stack, options).kind === 'history_back';
+}
+
+export function getDestinationMemoryKey(dest: RouteDestination): string {
+  const norm = normalizeRouteDestination(dest);
+  switch (norm.route) {
+    case 'search':
+      return 'search';
+    case 'profile':
+      return `profile:${norm.username ?? 'self'}`;
+    case 'marketplace':
+      return `marketplace:${norm.marketplaceTab}:${norm.listingId ?? ''}`;
+    case 'upcoming-events':
+      return `upcoming-events:${norm.eventId ?? ''}`;
+    case 'opportunities':
+      return `opportunities:${norm.opportunityId ?? ''}`;
+    case 'anonymous':
+      return `anonymous:${norm.postId ?? ''}`;
+    case 'for-you':
+    case 'following':
+    case 'latest':
+      return norm.postId ? `${norm.route}:${norm.postId}` : norm.route;
+    default:
+      return norm.route;
+  }
+}
+
 export function resolveGuestSafeDestination(
   dest: RouteDestination,
   isAuthenticated: boolean

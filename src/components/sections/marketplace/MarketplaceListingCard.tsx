@@ -42,13 +42,13 @@ interface MarketplaceListingCardProps {
   onRequireAuth?: () => void;
 }
 
-export const MarketplaceListingCard: React.FC<MarketplaceListingCardProps> = ({
+export const MarketplaceListingCard = React.memo(function MarketplaceListingCard({
   listing,
   seller = null,
   onOpenListing,
   onNavigateProfile,
   onRequireAuth,
-}) => {
+}: MarketplaceListingCardProps) {
   const waUrl = buildWhatsAppChatUrl(listing.whatsappNumber);
   const gallery = getMarketplaceListingGallerySources(listing);
   const leadPhoto = gallery[0] ?? null;
@@ -84,7 +84,7 @@ export const MarketplaceListingCard: React.FC<MarketplaceListingCardProps> = ({
         </span>
       </button>
 
-      <div className="flex flex-1 flex-col justify-between p-4">
+      <div className="flex min-w-0 flex-1 flex-col justify-between p-4">
         <div>
           <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
             <span className="truncate font-semibold text-[#1E88E5]">
@@ -160,4 +160,4 @@ export const MarketplaceListingCard: React.FC<MarketplaceListingCardProps> = ({
       </div>
     </article>
   );
-};
+});

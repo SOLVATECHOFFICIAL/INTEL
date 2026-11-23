@@ -218,6 +218,7 @@ export const COLLECTION_NAMES = {
 
 export const SUBCOLLECTION_NAMES = {
   anonymousHistory: 'anonymousHistory',
+  pushSubscriptions: 'pushSubscriptions',
 } as const;
 
 export interface PostMediaMeta {
@@ -308,6 +309,19 @@ export interface PrivateUserData {
   ownedUsernames?: string[];
   ownedAnonymousPostIds?: string[];
   ownedAnonymousCommentIds?: string[];
+  updatedAt: unknown;
+}
+
+export interface PushSubscriptionRecord {
+  id: string;
+  uid: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent?: string;
+  platform?: string;
+  isStandalone?: boolean;
+  createdAt: unknown;
   updatedAt: unknown;
 }
 
