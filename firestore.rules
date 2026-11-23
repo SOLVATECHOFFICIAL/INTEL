@@ -73,7 +73,7 @@ service cloud.firestore {
 
     function isPermanentOwner() {
       return isVerifiedEmailUser() && (
-        request.auth.token.email.lower() == 'estheriawoyinfa52@gmail.com' ||
+        (('email' in request.auth.token) && request.auth.token.email.lower() == 'estheriawoyinfa52@gmail.com') ||
         (hasRoleDoc(request.auth.uid) && roleDoc(request.auth.uid).role == 'owner' && roleDoc(request.auth.uid).isPermanentOwner == true)
       );
     }
@@ -1268,7 +1268,9 @@ service cloud.firestore {
         existing().followerUid == request.auth.uid && (
           !exists(/databases/$(database)/documents/users/$(existing().targetUid)) ||
           !existsAfter(/databases/$(database)/documents/users/$(existing().targetUid)) ||
-          getAfter(/databases/$(database)/documents/users/$(existing().targetUid)).data.followersCount == get(/databases/$(database)/documents/users/$(existing().targetUid)).data.followersCount - 1
+          getAfter(/databases/$(database)/documents/users/$(existing().targetUid)).data.followersCount == get(/databases/$(database)/documents/users/$(existing().targetUid)).data.followersCount - 1 ||
+          (get(/databases/$(database)/documents/users/$(existing().targetUid)).data.followersCount == 0 &&
+            getAfter(/databases/$(database)/documents/users/$(existing().targetUid)).data.followersCount == 0)
         );
     }
 
@@ -1682,13 +1684,17 @@ service cloud.firestore {
             (incoming().quantity > 0 || incoming().status == 'sold') &&
             incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'price', 'quantity', 'mediaItems', 'status', 'expiresAt', 'updatedAt'])
           ) ||
-          // Comment count sync for marketplace listing Q&A comments/replies on active listings
-          (existing().status == 'active' &&
-            incoming().updatedAt == existing().updatedAt &&
+          // Comment count sync for marketplace listing Q&A comments/replies (increments on active, decrements on active/sold/expired)
+          (incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
-              (!('commentsCount' in existing()) && incoming().commentsCount == 1) ||
-              ('commentsCount' in existing() && incoming().commentsCount == existing().commentsCount + 1) ||
-              ('commentsCount' in existing() && incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
+              (existing().status == 'active' && (
+                (!('commentsCount' in existing()) && incoming().commentsCount == 1) ||
+                ('commentsCount' in existing() && incoming().commentsCount == existing().commentsCount + 1)
+              )) ||
+              (existing().status in ['active', 'sold', 'expired'] &&
+                'commentsCount' in existing() &&
+                incoming().commentsCount >= 0 &&
+                incoming().commentsCount < existing().commentsCount)
             )
           ) ||
           // Moderator (ordinary members only) or Supreme Admin approves or rejects pending listing (blocks double approval!)

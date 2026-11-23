@@ -2,7 +2,7 @@ export const BRAND = {
   name: 'LASUED Intel',
   monogram: 'LI',
   tagline: 'Your Campus. Your Information. Your Community.',
-  logoPath: './lasued-intel.webp',
+  logoPath: '/lasued-intel.webp',
   logoAlt: 'LASUED Intel logo',
   colors: {
     navy: '#0B1A2E',

@@ -5,6 +5,8 @@ import {
   isSafeMediaUrl,
   resolveOpportunityEffectiveStatus,
   type AdminAuditAction,
+  type AnonymousReport,
+  type AnonymousReportReason,
   type BadgeAuditAction,
   type BadgeType,
   type CampusEvent,
@@ -181,11 +183,13 @@ export function canActorDeleteCommentByBadge(
 
 export interface PlatformOverviewStats {
   totalMembers: number;
+  activeMembers: number;
   verifiedMembers: number;
   moderators: number;
   ordinaryMembers: number;
   supremeAdmins: number;
   suspendedMembers: number;
+  totalActivePosts: number;
   publishedOrdinaryPosts: number;
   publishedAnonymousPosts: number;
   totalMarketplaceListings: number;
@@ -198,6 +202,15 @@ export interface PlatformOverviewStats {
   activeOpportunities: number;
   totalEvents: number;
   upcomingEvents: number;
+  totalFlaggedReports: number;
+  pendingFlaggedReports: number;
+  removedFlaggedReports: number;
+  dismissedFlaggedReports: number;
+  flaggedReportsByReason: Record<AnonymousReportReason, number>;
+  flaggedReportsByTarget: {
+    anonymousPost: number;
+    anonymousComment: number;
+  };
 }
 
 export function computePlatformOverviewStats(input: {
@@ -207,6 +220,7 @@ export function computePlatformOverviewStats(input: {
   listings: readonly MarketplaceListing[];
   opportunities: readonly Opportunity[];
   events: readonly CampusEvent[];
+  reports?: readonly AnonymousReport[];
   nowMs?: number;
 }): PlatformOverviewStats {
   const nowMs = input.nowMs ?? Date.now();
@@ -273,13 +287,48 @@ export function computePlatformOverviewStats(input: {
     }
   }
 
+  const flaggedReportsByReason: Record<AnonymousReportReason, number> = {
+    harassment: 0,
+    hate_speech: 0,
+    privacy_leak: 0,
+    misinformation: 0,
+    spam: 0,
+    other: 0,
+  };
+  let pendingFlaggedReports = 0;
+  let removedFlaggedReports = 0;
+  let dismissedFlaggedReports = 0;
+  let anonymousPostReports = 0;
+  let anonymousCommentReports = 0;
+
+  for (const report of input.reports ?? []) {
+    if (report.status === 'pending') pendingFlaggedReports += 1;
+    else if (report.status === 'reviewed_removed') removedFlaggedReports += 1;
+    else if (report.status === 'dismissed') dismissedFlaggedReports += 1;
+
+    if (report.targetType === 'anonymousPost') anonymousPostReports += 1;
+    else if (report.targetType === 'anonymousComment') anonymousCommentReports += 1;
+
+    if (Object.prototype.hasOwnProperty.call(flaggedReportsByReason, report.reason)) {
+      flaggedReportsByReason[report.reason] += 1;
+    } else {
+      flaggedReportsByReason.other += 1;
+    }
+  }
+
+  const activeMembers = Math.max(0, input.profiles.length - suspendedMembers);
+  const totalActivePosts = input.ordinaryPostsCount + input.anonymousPostsCount;
+  const totalFlaggedReports = (input.reports ?? []).length;
+
   return {
     totalMembers: input.profiles.length,
+    activeMembers,
     verifiedMembers,
     moderators,
     ordinaryMembers,
     supremeAdmins,
     suspendedMembers,
+    totalActivePosts,
     publishedOrdinaryPosts: input.ordinaryPostsCount,
     publishedAnonymousPosts: input.anonymousPostsCount,
     totalMarketplaceListings: input.listings.length,
@@ -292,6 +341,15 @@ export function computePlatformOverviewStats(input: {
     activeOpportunities,
     totalEvents: input.events.length,
     upcomingEvents,
+    totalFlaggedReports,
+    pendingFlaggedReports,
+    removedFlaggedReports,
+    dismissedFlaggedReports,
+    flaggedReportsByReason,
+    flaggedReportsByTarget: {
+      anonymousPost: anonymousPostReports,
+      anonymousComment: anonymousCommentReports,
+    },
   };
 }
 

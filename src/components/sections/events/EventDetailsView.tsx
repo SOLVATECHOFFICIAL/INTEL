@@ -191,14 +191,14 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
             items={gridItems}
             postLabel={event.title}
             showPerPhotoCaptions={false}
-            onImageClick={(idx) => setLightboxIndex(idx)}
+            onImageClick={(idx) => updateLightboxIndex(idx)}
           />
         ) : (
           safeBannerUrl &&
           !bannerError && (
             <button
               type="button"
-              onClick={() => setLightboxIndex(0)}
+              onClick={() => updateLightboxIndex(0)}
               aria-label={`View full cover image for ${event.title}`}
               className="block w-full overflow-hidden rounded-xl border border-slate-200 bg-[#0B1A2E] focus-visible:ring-2 focus-visible:ring-[#1E88E5]"
             >

@@ -254,6 +254,57 @@ test('computePlatformOverviewStats aggregates all real member, post, marketplace
     },
   ];
 
+  const reports = [
+    {
+      id: 'anonymousPost_ap1_u1',
+      targetType: 'anonymousPost' as const,
+      targetId: 'ap1',
+      postId: 'ap1',
+      reporterUid: 'u1',
+      reason: 'harassment' as const,
+      excerpt: 'Abusive anonymous remark',
+      status: 'pending' as const,
+      createdAt: 1000,
+      updatedAt: 1000,
+    },
+    {
+      id: 'anonymousComment_ac1_u2',
+      targetType: 'anonymousComment' as const,
+      targetId: 'ac1',
+      postId: 'ap2',
+      reporterUid: 'u2',
+      reason: 'privacy_leak' as const,
+      excerpt: 'Leaked phone number',
+      status: 'reviewed_removed' as const,
+      createdAt: 1200,
+      updatedAt: 1300,
+    },
+    {
+      id: 'anonymousPost_ap3_u3',
+      targetType: 'anonymousPost' as const,
+      targetId: 'ap3',
+      postId: 'ap3',
+      reporterUid: 'u3',
+      reason: 'spam' as const,
+      excerpt: 'Duplicate link post',
+      status: 'dismissed' as const,
+      createdAt: 1400,
+      updatedAt: 1500,
+    },
+    {
+      id: 'anonymousComment_ac2_u4',
+      targetType: 'anonymousComment' as const,
+      targetId: 'ac2',
+      postId: 'ap4',
+      reporterUid: 'u4',
+      reason: 'harassment' as const,
+      excerpt: 'Targeted insult reply',
+      status: 'pending' as const,
+      createdAt: 1600,
+      updatedAt: 1600,
+    },
+  ];
+
   const stats = computePlatformOverviewStats({
     profiles,
     ordinaryPostsCount: 14,
@@ -261,15 +312,18 @@ test('computePlatformOverviewStats aggregates all real member, post, marketplace
     listings,
     opportunities,
     events,
+    reports,
     nowMs: now,
   });
 
   assert.equal(stats.totalMembers, 6);
+  assert.equal(stats.activeMembers, 5);
   assert.equal(stats.verifiedMembers, 2);
   assert.equal(stats.moderators, 1);
   assert.equal(stats.ordinaryMembers, 2);
   assert.equal(stats.supremeAdmins, 1);
   assert.equal(stats.suspendedMembers, 1);
+  assert.equal(stats.totalActivePosts, 23);
   assert.equal(stats.publishedOrdinaryPosts, 14);
   assert.equal(stats.publishedAnonymousPosts, 9);
   assert.equal(stats.totalMarketplaceListings, 5);
@@ -282,6 +336,16 @@ test('computePlatformOverviewStats aggregates all real member, post, marketplace
   assert.equal(stats.activeOpportunities, 1);
   assert.equal(stats.totalEvents, 3);
   assert.equal(stats.upcomingEvents, 1);
+  assert.equal(stats.totalFlaggedReports, 4);
+  assert.equal(stats.pendingFlaggedReports, 2);
+  assert.equal(stats.removedFlaggedReports, 1);
+  assert.equal(stats.dismissedFlaggedReports, 1);
+  assert.equal(stats.flaggedReportsByReason.harassment, 2);
+  assert.equal(stats.flaggedReportsByReason.privacy_leak, 1);
+  assert.equal(stats.flaggedReportsByReason.spam, 1);
+  assert.equal(stats.flaggedReportsByReason.hate_speech, 0);
+  assert.equal(stats.flaggedReportsByTarget.anonymousPost, 2);
+  assert.equal(stats.flaggedReportsByTarget.anonymousComment, 2);
 });
 
 test('validateOpportunityFormInput and validateCampusEventFormInput reject invalid URLs, short copy, or bad dates', () => {

@@ -41,6 +41,13 @@ import { extractTimestampMs } from '../../utils/contextualSearch';
 import { ProfileBadgesRow } from '../RoleBadge';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
+export type ContentSubTab =
+  | 'ordinary_posts'
+  | 'anonymous_posts'
+  | 'post_comments'
+  | 'anonymous_comments'
+  | 'anonymous_reports';
+
 interface AdminContentTabProps {
   ordinaryPosts: AdminCommunityPostItem[];
   anonymousPosts: AnonymousPost[];
@@ -52,17 +59,11 @@ interface AdminContentTabProps {
   actorRole: UserRole;
   isFullAdmin: boolean;
   canRevealAnonymous?: boolean;
+  initialSubTab?: ContentSubTab;
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
   onReload: () => void;
 }
-
-type ContentSubTab =
-  | 'ordinary_posts'
-  | 'anonymous_posts'
-  | 'post_comments'
-  | 'anonymous_comments'
-  | 'anonymous_reports';
 
 function formatShortTime(value: unknown): string {
   const ms = extractTimestampMs(value);
@@ -86,11 +87,18 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
   actorRole,
   isFullAdmin,
   canRevealAnonymous = false,
+  initialSubTab = 'ordinary_posts',
   onSuccess,
   onError,
   onReload,
 }) => {
-  const [subTab, setSubTab] = useState<ContentSubTab>('ordinary_posts');
+  const [subTab, setSubTab] = useState<ContentSubTab>(initialSubTab);
+  const lastInitialSubTabRef = React.useRef<ContentSubTab>(initialSubTab);
+  React.useEffect(() => {
+    if (lastInitialSubTabRef.current === initialSubTab) return;
+    lastInitialSubTabRef.current = initialSubTab;
+    setSubTab(initialSubTab);
+  }, [initialSubTab]);
   const [searchQuery, setSearchQuery] = useState('');
   const [reasonNote, setReasonNote] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);

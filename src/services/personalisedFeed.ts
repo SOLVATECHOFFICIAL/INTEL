@@ -161,7 +161,13 @@ async function fetchPublicDiscoveryPools(): Promise<{
         anonPageRes.status === 'fulfilled' ? anonPageRes.value.items : [],
       fetchedAt: Date.now(),
     };
-    cachedDiscoveryPools = pools;
+    if (
+      eventsRes.status === 'fulfilled' ||
+      oppsRes.status === 'fulfilled' ||
+      anonPageRes.status === 'fulfilled'
+    ) {
+      cachedDiscoveryPools = pools;
+    }
     return pools;
   });
 }

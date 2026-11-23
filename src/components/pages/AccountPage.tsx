@@ -152,6 +152,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   // Section B: Account Security state
   const [signingOut, setSigningOut] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
+  const [refreshingVerification, setRefreshingVerification] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -334,12 +335,33 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     try {
       await requestEmailVerification(user);
       setStatusMessage(
-        'Verification email sent. Check your inbox and refresh once verified.'
+        'Verification email sent. Check your inbox and click "I Verified — Refresh" once done.'
       );
     } catch (error) {
       setErrorMessage(mapFirebaseAuthError(error));
     } finally {
       setSendingVerification(false);
+    }
+  };
+
+  const handleRefreshVerification = async () => {
+    if (refreshingVerification) return;
+    setRefreshingVerification(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      await user.reload();
+      await user.getIdToken(true);
+      await refreshAccountState();
+      setStatusMessage(
+        user.emailVerified
+          ? 'Email verified! Your Firebase session permissions are now updated.'
+          : 'Your email still appears unverified in Firebase Auth. Please click the verification link in your inbox first.'
+      );
+    } catch (error) {
+      setErrorMessage(mapFirebaseAuthError(error));
+    } finally {
+      setRefreshingVerification(false);
     }
   };
 
@@ -630,18 +652,29 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             <div className="flex items-start gap-2.5">
               <Mail className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                Your email address is not yet verified. Verify your email to
-                unlock verified-member and administrative privileges.
+                Your email address is not yet verified. Verify your email and
+                refresh your session to unlock verified-member and
+                administrative privileges.
               </span>
             </div>
-            <button
-              type="button"
-              onClick={handleResendVerification}
-              disabled={sendingVerification}
-              className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844] disabled:opacity-60"
-            >
-              {sendingVerification ? 'Sending...' : 'Resend verification'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void handleRefreshVerification()}
+                disabled={refreshingVerification}
+                className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-lg border border-amber-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#0B1A2E] whitespace-nowrap hover:bg-amber-100/60 disabled:opacity-60"
+              >
+                {refreshingVerification ? 'Refreshing...' : 'I Verified — Refresh'}
+              </button>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={sendingVerification}
+                className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844] disabled:opacity-60"
+              >
+                {sendingVerification ? 'Sending...' : 'Resend verification'}
+              </button>
+            </div>
           </div>
         )}
 

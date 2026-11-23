@@ -14,7 +14,7 @@ import {
   type FieldValue,
   type WriteBatch,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -55,7 +55,10 @@ import {
   type OpportunityFormInput,
   type PlatformOverviewStats,
 } from '../utils/adminPermissions';
-import { toPublicProfileProjection } from '../utils/authValidation';
+import {
+  canRevealAnonymousAuthor,
+  toPublicProfileProjection,
+} from '../utils/authValidation';
 import { validateTrustedContactWhatsapp } from '../utils/trustedDirectory';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
@@ -196,6 +199,7 @@ export interface AdminOverviewBundle {
   stats: PlatformOverviewStats;
   recentAudits: UnifiedAuditEntry[];
   pendingListings: MarketplaceListing[];
+  pendingReports: AnonymousReport[];
 }
 
 export async function fetchPlatformOverviewData(input: {
@@ -203,6 +207,8 @@ export async function fetchPlatformOverviewData(input: {
 }): Promise<AdminOverviewBundle> {
   const isFullAdmin =
     input.actorRole === 'owner' || input.actorRole === 'supreme_admin';
+  const canReadAnonAudits =
+    isFullAdmin && canRevealAnonymousAuthor(auth.currentUser);
 
   try {
     const usersQuery = query(
@@ -218,6 +224,7 @@ export async function fetchPlatformOverviewData(input: {
       listingsSnap,
       oppsSnap,
       eventsSnap,
+      reportsSnap,
       badgeLogs,
       adminLogs,
       anonLogs,
@@ -247,10 +254,19 @@ export async function fetchPlatformOverviewData(input: {
               limit(250)
             )
       ),
-      getDocs(query(collection(db, COLLECTION_NAMES.events), limit(250))),
+      getDocs(
+        isFullAdmin
+          ? query(collection(db, COLLECTION_NAMES.events), limit(250))
+          : query(
+              collection(db, COLLECTION_NAMES.events),
+              where('published', '==', true),
+              limit(250)
+            )
+      ),
+      getDocs(query(collection(db, COLLECTION_NAMES.anonymousReports), limit(250))),
       isFullAdmin ? fetchBadgeAuditLogs(15).catch(() => []) : Promise.resolve([]),
       isFullAdmin ? fetchAdminAuditLogs(15).catch(() => []) : Promise.resolve([]),
-      isFullAdmin ? fetchAnonymousAuditLogs(10).catch(() => []) : Promise.resolve([]),
+      canReadAnonAudits ? fetchAnonymousAuditLogs(10).catch(() => []) : Promise.resolve([]),
     ]);
 
     // Always exclude hidden project-owner accounts from public-facing member metrics
@@ -263,6 +279,7 @@ export async function fetchPlatformOverviewData(input: {
     );
     const opportunities = oppsSnap.docs.map((item) => item.data() as Opportunity);
     const events = eventsSnap.docs.map((item) => item.data() as CampusEvent);
+    const reports = reportsSnap.docs.map((item) => item.data() as AnonymousReport);
 
     const stats = computePlatformOverviewStats({
       profiles: visibleProfiles,
@@ -271,6 +288,7 @@ export async function fetchPlatformOverviewData(input: {
       listings,
       opportunities,
       events,
+      reports,
     });
 
     const unifiedAudits: UnifiedAuditEntry[] = [
@@ -304,10 +322,15 @@ export async function fetchPlatformOverviewData(input: {
       listings.filter((item) => item.approvalStatus === 'pending_approval')
     ).slice(0, 10);
 
+    const pendingReports = sortByCreatedAtDesc(
+      reports.filter((item) => item.status === 'pending')
+    ).slice(0, 10);
+
     return {
       stats,
       recentAudits: unifiedAudits,
       pendingListings,
+      pendingReports,
     };
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.users);
@@ -684,8 +707,8 @@ export async function fetchAdminCommunityContentBundle(): Promise<{
         )
       ),
       getDocs(
-        query(collection(db, COLLECTION_NAMES.anonymousReports), limit(100))
-      ).catch(() => null),
+        query(collection(db, COLLECTION_NAMES.anonymousReports), limit(250))
+      ),
     ]);
 
     const rawPosts = sortByCreatedAtDesc(
@@ -2652,10 +2675,13 @@ export async function fetchAdminAuditLogs(maxItems = 80): Promise<AdminAuditLog[
 export async function fetchUnifiedAuditLogFeed(
   maxItems = 100
 ): Promise<UnifiedAuditEntry[]> {
+  const canReadAnonAudits = canRevealAnonymousAuthor(auth.currentUser);
   const [badgeLogs, adminLogs, anonLogs] = await Promise.all([
     fetchBadgeAuditLogs(maxItems),
     fetchAdminAuditLogs(maxItems),
-    fetchAnonymousAuditLogs(maxItems),
+    canReadAnonAudits
+      ? fetchAnonymousAuditLogs(maxItems).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   return [

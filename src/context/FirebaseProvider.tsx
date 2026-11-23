@@ -110,6 +110,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   const uidToUsernameCacheRef = useRef<Map<string, string>>(new Map());
   const oldestNotificationCursorRef =
     useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const hasLoadedOlderNotificationsRef = useRef(false);
   const syncedBackgroundUidRef = useRef<string | null>(null);
 
   const notifications = useMemo(
@@ -162,6 +163,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         setNotificationPrefs(DEFAULT_NOTIFICATION_PREFS);
         setInterestCategories([]);
         oldestNotificationCursorRef.current = null;
+        hasLoadedOlderNotificationsRef.current = false;
         syncedBackgroundUidRef.current = null;
         setFollowingUsernames(new Set());
         setFollowerUsernames(new Set());
@@ -173,6 +175,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         setNotificationsStatus('loading');
         setOlderNotifications([]);
         oldestNotificationCursorRef.current = null;
+        hasLoadedOlderNotificationsRef.current = false;
         setHasMoreNotifications(false);
         setNotificationError(null);
       }
@@ -225,7 +228,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       user.uid,
       (snapshot) => {
         setLiveNotifications(snapshot.items);
-        if (olderNotifications.length === 0) {
+        if (!hasLoadedOlderNotificationsRef.current) {
           oldestNotificationCursorRef.current = snapshot.oldestDoc;
           setHasMoreNotifications(snapshot.hasMore);
         }
@@ -259,8 +262,6 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       unsubscribeNotifications();
       unsubscribeFollows();
     };
-    // Intentionally omitting olderNotifications.length to keep real-time listeners stable
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authReady, user]);
 
   useEffect(() => {
@@ -453,6 +454,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         oldestNotificationCursorRef.current,
         30
       );
+      if (page.items.length > 0) {
+        hasLoadedOlderNotificationsRef.current = true;
+      }
       setOlderNotifications((prev) => mergeNotifications(prev, page.items));
       oldestNotificationCursorRef.current = page.oldestDoc;
       setHasMoreNotifications(page.hasMore);

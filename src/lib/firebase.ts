@@ -11,6 +11,7 @@ import {
   persistentSingleTabManager,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { COLLECTION_NAMES } from '../types/database';
 import {
   hasValidFirebaseConfig,
   isTransientFirestoreConnectionError,
@@ -138,7 +139,7 @@ export async function testConnection(): Promise<ConnectionCheckResult> {
 
   try {
     await runWithFirestoreConnectionRetry(
-      () => getDocFromServer(doc(db, 'test', 'connection')),
+      () => getDocFromServer(doc(db, COLLECTION_NAMES.platformSettings, 'global')),
       { maxAttempts: 2, baseDelayMs: 500 }
     );
     return { connected: true };
@@ -149,7 +150,6 @@ export async function testConnection(): Promise<ConnectionCheckResult> {
         offlineError: 'Unable to reach Firestore right now.',
       };
     }
-    // Permission denied on nonexistent test/connection doc means server responded cleanly.
     return { connected: true };
   }
 }

@@ -10,6 +10,7 @@ import {
   Crown,
   FileText,
   Loader2,
+  Mail,
   RefreshCw,
   Settings,
   ShieldAlert,
@@ -19,6 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
+import { requestEmailVerification } from '../../services/auth';
 import {
   fetchAdminCommunityContentBundle,
   fetchAdminMarketplaceDirectory,
@@ -57,6 +59,8 @@ import {
   type AdminDashboardSectionId,
 } from '../../utils/adminPermissions';
 import {
+  DESIGNATED_SUPREME_ADMIN_EMAILS,
+  PERMANENT_OWNER_EMAIL,
   canAccessAdminDashboard,
   canAccessFullAdminDashboard,
   canRevealAnonymousAuthor,
@@ -64,11 +68,12 @@ import {
   getAccountTierDisplayLabel,
   isPermanentOwnerUser,
   isUndergroundSupremeAdminUser,
+  mapFirebaseAuthError,
 } from '../../utils/authValidation';
 import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { AdminAuditLogTab } from '../admin/AdminAuditLogTab';
 import { AdminBadgesTab } from '../admin/AdminBadgesTab';
-import { AdminContentTab } from '../admin/AdminContentTab';
+import { AdminContentTab, type ContentSubTab } from '../admin/AdminContentTab';
 import { AdminEventsTab } from '../admin/AdminEventsTab';
 import { AdminMarketplaceTab } from '../admin/AdminMarketplaceTab';
 import { AdminMembersTab } from '../admin/AdminMembersTab';
@@ -118,7 +123,22 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
     refreshAccountState,
   } = useFirebase();
 
-  const hasAccess = canAccessAdminDashboard(effectiveTier, isSuspended);
+  const isEmailVerified = Boolean(user?.emailVerified);
+  const normalizedUserEmail = user?.email?.trim().toLowerCase() ?? '';
+  const hasPrivilegedEmailOrRole = Boolean(
+    user &&
+      (normalizedUserEmail === PERMANENT_OWNER_EMAIL ||
+        (DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
+          normalizedUserEmail
+        ) ||
+        roleRecord?.role === 'owner' ||
+        roleRecord?.role === 'supreme_admin' ||
+        roleRecord?.role === 'moderator')
+  );
+  const hasAccess =
+    isEmailVerified && canAccessAdminDashboard(effectiveTier, isSuspended);
+  const needsEmailVerificationForAdmin =
+    Boolean(user) && !isEmailVerified && !isSuspended && hasPrivilegedEmailOrRole;
   const isFullAdmin = canAccessFullAdminDashboard(effectiveTier, isSuspended);
   const isOwnerEmail = isPermanentOwnerUser(user);
   const needsOwnerBootstrap =
@@ -127,6 +147,8 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const visibleSections = getVisibleAdminSections(effectiveTier, isSuspended);
   const [requestedSection, setRequestedSection] =
     useState<AdminDashboardSectionId>('overview');
+  const [contentInitialSubTab, setContentInitialSubTab] =
+    useState<ContentSubTab>('ordinary_posts');
 
   const activeSection: AdminDashboardSectionId = canActorAccessAdminSection(
     effectiveTier,
@@ -142,6 +164,10 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
 
   const [bootstrappingOwner, setBootstrappingOwner] = useState(false);
   const [togglingBadgeVisibility, setTogglingBadgeVisibility] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [refreshingSession, setRefreshingSession] = useState(false);
+  const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isUndergroundAdmin = isUndergroundSupremeAdminUser(user);
@@ -221,8 +247,16 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const currentLoadKey = `${activeSection}:${actorRole}:${memberSearchQuery}:${refreshToken}`;
   const loadingSection = hasAccess && loadedKey !== currentLoadKey;
 
-  const selectSection = (nextId: AdminDashboardSectionId) => {
+  const selectSection = (
+    nextId: AdminDashboardSectionId,
+    options?: { contentSubTab?: ContentSubTab }
+  ) => {
     setErrorMessage(null);
+    if (options?.contentSubTab) {
+      setContentInitialSubTab(options.contentSubTab);
+    } else if (nextId === 'content') {
+      setContentInitialSubTab('ordinary_posts');
+    }
     setRequestedSection(nextId);
   };
 
@@ -363,6 +397,138 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
             returnRoute="admin"
             onRequireAuth={onRequireAuth}
           />
+        </div>
+      </section>
+    );
+  }
+
+  if (needsEmailVerificationForAdmin) {
+    const handleResendAdminVerification = async () => {
+      if (resendingVerification) return;
+      setResendingVerification(true);
+      setVerificationError(null);
+      setVerificationFeedback(null);
+      try {
+        await requestEmailVerification(user);
+        setVerificationFeedback(
+          `Verification link sent to ${user.email || 'your email'}. Open the link in your inbox, then click "I Verified — Refresh Session".`
+        );
+      } catch (err) {
+        setVerificationError(mapFirebaseAuthError(err));
+      } finally {
+        setResendingVerification(false);
+      }
+    };
+
+    const handleRefreshVerifiedClaim = async () => {
+      if (refreshingSession) return;
+      setRefreshingSession(true);
+      setVerificationError(null);
+      setVerificationFeedback(null);
+      try {
+        await user.reload();
+        await user.getIdToken(true);
+        await refreshAccountState();
+        if (!user.emailVerified) {
+          setVerificationFeedback(
+            'Your email address still shows as unverified in Firebase Auth. Please click the verification link in your inbox first.'
+          );
+        } else {
+          setVerificationFeedback('Verified session refreshed.');
+          reloadCurrentSection();
+        }
+      } catch (err) {
+        setVerificationError(mapFirebaseAuthError(err));
+      } finally {
+        setRefreshingSession(false);
+      }
+    };
+
+    return (
+      <section
+        aria-labelledby="admin-verify-heading"
+        className="min-w-0 flex-1 rounded-2xl border border-amber-200 bg-white p-5 sm:p-6"
+      >
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back
+          </button>
+        )}
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+            <Mail className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1
+              id="admin-verify-heading"
+              className="font-display text-xl font-bold text-[#0B1A2E]"
+            >
+              Verify Email to Unlock Firestore Admin Permissions
+            </h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+              Firestore Security Rules require{' '}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-[#0B1A2E]">
+                email_verified == true
+              </code>{' '}
+              in your auth token before allowing any Moderator, Supreme Admin, or
+              Owner queries or moderation writes. Verify{' '}
+              <strong>{user.email}</strong> and refresh your session to enter the
+              dashboard without permission errors.
+            </p>
+
+            {verificationFeedback && (
+              <div
+                role="status"
+                className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-900"
+              >
+                {verificationFeedback}
+              </div>
+            )}
+
+            {verificationError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+              >
+                {verificationError}
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                disabled={refreshingSession}
+                onClick={() => void handleRefreshVerifiedClaim()}
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] disabled:opacity-60 sm:text-sm"
+              >
+                {refreshingSession ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                )}
+                I Verified — Refresh Session
+              </button>
+
+              <button
+                type="button"
+                disabled={resendingVerification}
+                onClick={() => void handleResendAdminVerification()}
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50 disabled:opacity-60 sm:text-sm"
+              >
+                {resendingVerification ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Mail className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                )}
+                Resend Verification Link
+              </button>
+            </div>
+          </div>
         </div>
       </section>
     );
@@ -717,6 +883,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               actorRole={actorRole}
               isFullAdmin={isFullAdmin}
               canRevealAnonymous={canRevealAnonymousAuthor(user)}
+              initialSubTab={contentInitialSubTab}
               onSuccess={(msg) => {
                 setErrorMessage(null);
                 setStatusMessage(msg);
