@@ -431,7 +431,22 @@ export async function createCommunityPostWithMedia(input: {
   try {
     await batch.commit();
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+    const isPermDenied =
+      isFirebaseErrorCode(error, 'permission-denied') ||
+      isFirebaseErrorCode(error, 'firestore/permission-denied') ||
+      (error instanceof Error && /insufficient permissions/i.test(error.message));
+
+    if (isPermDenied && auth.currentUser?.uid === input.ownerUID) {
+      try {
+        await auth.currentUser.reload();
+        await auth.currentUser.getIdToken(true);
+        await batch.commit();
+      } catch (retryError) {
+        handleFirestoreError(retryError, OperationType.CREATE, path);
+      }
+    } else {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
   }
 
   for (const att of effectiveAttachments) {

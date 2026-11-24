@@ -34,6 +34,7 @@ import {
   saveHomeFeedSessionSnapshot,
   type ForYouDiscoveryBundle,
 } from '../services/personalisedFeed';
+import { requestEmailVerification } from '../services/auth';
 import {
   fetchSinglePublishedPostWithAuthor,
   fetchViewerLikedPostIds,
@@ -56,7 +57,10 @@ import {
 import {
   canCreateAnonymousEntry,
   canPublishOrdinaryPostStrict,
+  hasPostingRolePendingEmailVerification,
+  isAccountSuspended,
   isDesignatedSupremeAdminUser,
+  resolveEffectiveAccountTier,
   toPublicProfileProjection,
 } from '../utils/authValidation';
 import {
@@ -127,6 +131,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 }) => {
   const {
     authReady,
+    accountSyncReady,
     user,
     profile,
     roleRecord,
@@ -134,6 +139,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     isSuspended,
     interestCategories,
     followingUsernames,
+    refreshVerificationStatus,
   } = useFirebase();
 
   const viewerKey = user?.uid ?? 'guest';
@@ -207,11 +213,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     kind:
       | 'guest'
       | 'ordinary_restricted'
+      | 'email_verification_required'
       | 'anonymous_published'
       | 'ordinary_published'
       | 'suspended';
     message?: string;
+    pendingAction?: 'write' | 'photo';
   } | null>(null);
+  const [verifyingComposerAction, setVerifyingComposerAction] = useState(false);
+  const [resendingVerificationEmail, setResendingVerificationEmail] =
+    useState(false);
   const [composerModal, setComposerModal] = useState<{
     mode: 'ordinary' | 'anonymous';
     ordinaryType?: OrdinaryPostType;
@@ -873,7 +884,9 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     effectiveTier === 'guest' ? 'member' : effectiveTier
   ) as UserRole;
 
-  const handleComposerAction = (action: 'write' | 'photo' | 'anonymous') => {
+  const handleComposerAction = async (
+    action: 'write' | 'photo' | 'anonymous'
+  ) => {
     setComposerFeedback(null);
 
     if (!user) {
@@ -898,6 +911,76 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     }
 
     if (!canPublishOrdinary) {
+      if (!accountSyncReady || !user.emailVerified) {
+        setVerifyingComposerAction(true);
+        try {
+          const snapshot = await refreshVerificationStatus();
+          const freshUser = snapshot.user;
+          const freshTier = resolveEffectiveAccountTier(
+            freshUser,
+            snapshot.roleRecord
+          );
+          const freshSuspended = isAccountSuspended(snapshot.profile);
+
+          if (freshSuspended) {
+            setComposerFeedback({
+              kind: 'suspended',
+              message:
+                'Your account is currently suspended and cannot publish or interact with campus posts.',
+            });
+            return;
+          }
+
+          if (
+            canPublishOrdinaryPostStrict({
+              user: freshUser,
+              tier: freshTier,
+              profile: snapshot.profile,
+              roleRecord: snapshot.roleRecord,
+              suspended: freshSuspended,
+            })
+          ) {
+            setComposerModal({
+              mode: 'ordinary',
+              ordinaryType: action === 'photo' ? 'photo' : 'text',
+            });
+            return;
+          }
+
+          if (
+            hasPostingRolePendingEmailVerification({
+              user: freshUser,
+              profile: snapshot.profile,
+              roleRecord: snapshot.roleRecord,
+            })
+          ) {
+            setComposerFeedback({
+              kind: 'email_verification_required',
+              pendingAction: action,
+              message:
+                'Your account holds campus posting privileges, but Firebase requires a verified email address before publishing updates or photos.',
+            });
+            return;
+          }
+        } finally {
+          setVerifyingComposerAction(false);
+        }
+      } else if (
+        hasPostingRolePendingEmailVerification({
+          user,
+          profile,
+          roleRecord,
+        })
+      ) {
+        setComposerFeedback({
+          kind: 'email_verification_required',
+          pendingAction: action,
+          message:
+            'Your account holds campus posting privileges, but Firebase requires a verified email address before publishing updates or photos.',
+        });
+        return;
+      }
+
       setComposerFeedback({
         kind: 'ordinary_restricted',
         message:
@@ -910,6 +993,69 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       mode: 'ordinary',
       ordinaryType: action === 'photo' ? 'photo' : 'text',
     });
+  };
+
+  const handleRefreshComposerVerification = async () => {
+    if (verifyingComposerAction) return;
+    const targetAction = composerFeedback?.pendingAction ?? 'write';
+    setVerifyingComposerAction(true);
+    try {
+      const snapshot = await refreshVerificationStatus();
+      const freshTier = resolveEffectiveAccountTier(
+        snapshot.user,
+        snapshot.roleRecord
+      );
+      const freshSuspended = isAccountSuspended(snapshot.profile);
+      if (
+        canPublishOrdinaryPostStrict({
+          user: snapshot.user,
+          tier: freshTier,
+          profile: snapshot.profile,
+          roleRecord: snapshot.roleRecord,
+          suspended: freshSuspended,
+        })
+      ) {
+        setComposerFeedback(null);
+        setComposerModal({
+          mode: 'ordinary',
+          ordinaryType: targetAction === 'photo' ? 'photo' : 'text',
+        });
+      } else {
+        setComposerFeedback((prev) => ({
+          kind: 'email_verification_required',
+          pendingAction: prev?.pendingAction ?? targetAction,
+          message:
+            'Email verification has not synced yet. Open the verification link sent to your inbox, then tap Refresh again.',
+        }));
+      }
+    } finally {
+      setVerifyingComposerAction(false);
+    }
+  };
+
+  const handleResendComposerVerification = async () => {
+    if (resendingVerificationEmail || !user) return;
+    setResendingVerificationEmail(true);
+    try {
+      await requestEmailVerification(user);
+      setComposerFeedback((prev) => ({
+        kind: 'email_verification_required',
+        pendingAction: prev?.pendingAction ?? 'write',
+        message:
+          'Verification email sent! Check your inbox or spam folder, click the link, then tap "I\'ve Verified — Refresh".',
+      }));
+    } catch (error) {
+      setComposerFeedback((prev) => ({
+        kind: 'email_verification_required',
+        pendingAction: prev?.pendingAction ?? 'write',
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : 'Could not send verification email right now. Please wait a moment and retry.',
+      }));
+    } finally {
+      setResendingVerificationEmail(false);
+    }
   };
 
   const renderOrdinaryPostCard = ({ post, author }: CommunityPostWithAuthor) => {
@@ -1089,18 +1235,26 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         <div className="p-4 sm:p-5">
           <button
             type="button"
-            onClick={() => handleComposerAction('write')}
-            className="flex min-h-[48px] w-full items-center rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-sky-50/50 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-[#1E88E5]/40 hover:from-sky-50/70 hover:to-blue-50/60"
+            disabled={verifyingComposerAction}
+            onClick={() => void handleComposerAction('write')}
+            className="flex min-h-[48px] w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-sky-50/50 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-[#1E88E5]/40 hover:from-sky-50/70 hover:to-blue-50/60 disabled:opacity-70"
           >
-            What&apos;s happening on campus?
+            <span>What&apos;s happening on campus?</span>
+            {verifyingComposerAction && (
+              <Loader2
+                className="h-4 w-4 shrink-0 animate-spin text-[#1E88E5]"
+                aria-hidden="true"
+              />
+            )}
           </button>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
-                onClick={() => handleComposerAction('write')}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E]"
+                disabled={verifyingComposerAction}
+                onClick={() => void handleComposerAction('write')}
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E] disabled:opacity-60"
               >
                 <PenSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 Text Post
@@ -1108,8 +1262,9 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleComposerAction('photo')}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E]"
+                disabled={verifyingComposerAction}
+                onClick={() => void handleComposerAction('photo')}
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E] disabled:opacity-60"
               >
                 <ImagePlus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 Photo Post
@@ -1134,7 +1289,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             {/* Visibly separate Anonymous action */}
             <button
               type="button"
-              onClick={() => handleComposerAction('anonymous')}
+              onClick={() => void handleComposerAction('anonymous')}
               className="lasued-accent-gradient inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
             >
               <MessageSquare className="h-4 w-4 text-sky-200" aria-hidden="true" />
@@ -1160,6 +1315,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               className={`mt-4 flex flex-col justify-between gap-3 rounded-xl border p-3.5 text-sm sm:flex-row sm:items-center ${
                 composerFeedback.kind === 'suspended'
                   ? 'border-red-200 bg-red-50 text-red-900'
+                  : composerFeedback.kind === 'email_verification_required'
+                  ? 'border-amber-200 bg-amber-50 text-amber-950'
                   : composerFeedback.kind === 'anonymous_published' ||
                     composerFeedback.kind === 'ordinary_published'
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
@@ -1178,6 +1335,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     className={`mt-0.5 h-4 w-4 shrink-0 ${
                       composerFeedback.kind === 'suspended'
                         ? 'text-red-700'
+                        : composerFeedback.kind === 'email_verification_required'
+                        ? 'text-amber-700'
                         : 'text-[#1E88E5]'
                     }`}
                     aria-hidden="true"
@@ -1185,6 +1344,30 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 )}
                 <span>{composerFeedback.message}</span>
               </div>
+              {composerFeedback.kind === 'email_verification_required' && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={verifyingComposerAction}
+                    onClick={() => void handleRefreshComposerVerification()}
+                    className="inline-flex min-h-[38px] items-center justify-center rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844] disabled:opacity-60"
+                  >
+                    {verifyingComposerAction
+                      ? 'Checking...'
+                      : "I've Verified — Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resendingVerificationEmail}
+                    onClick={() => void handleResendComposerVerification()}
+                    className="inline-flex min-h-[38px] items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 whitespace-nowrap hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {resendingVerificationEmail
+                      ? 'Sending...'
+                      : 'Resend Verification Email'}
+                  </button>
+                </div>
+              )}
               {composerFeedback.kind === 'anonymous_published' && (
                 <button
                   type="button"

@@ -43,6 +43,22 @@ const PERSISTENT_CACHE_MAX_ENTRIES = 180;
 
 const managedObjectUrls = new Set<string>();
 const pendingObjectUrlRevokes = new Map<string, number>();
+const revokedObjectUrls = new Set<string>();
+
+function rememberRevokedUrl(url: string): void {
+  if (!url) return;
+  revokedObjectUrls.add(url);
+  if (revokedObjectUrls.size > 400) {
+    const oldest = revokedObjectUrls.values().next().value;
+    if (oldest) {
+      revokedObjectUrls.delete(oldest);
+    }
+  }
+}
+
+export function isMediaUrlRevoked(url?: string | null): boolean {
+  return Boolean(url && revokedObjectUrls.has(url));
+}
 
 function scheduleRevokeManagedUrl(url: string): void {
   if (
@@ -58,6 +74,7 @@ function scheduleRevokeManagedUrl(url: string): void {
   const revoke = () => {
     pendingObjectUrlRevokes.delete(url);
     managedObjectUrls.delete(url);
+    rememberRevokedUrl(url);
     try {
       URL.revokeObjectURL(url);
     } catch {
@@ -357,9 +374,30 @@ export function getCachedMediaImageDataUrl(
   if (!scopedKey) return null;
   const hit = l1MediaCache.get(scopedKey);
   if (hit) {
+    if (isMediaUrlRevoked(hit)) {
+      l1MediaCache.delete(scopedKey);
+      return null;
+    }
     perfMetrics.recordHit('media_l1');
   }
   return hit;
+}
+
+export function invalidateStaleMediaUrl(
+  imageId: string,
+  staleSrc?: string | null,
+  options?: MediaCacheKeyOptions
+): void {
+  if (staleSrc) {
+    rememberRevokedUrl(staleSrc);
+  }
+  if (!isValidFirestoreId(imageId)) return;
+  const scopedKey = buildScopedMediaCacheKey(imageId, options);
+  if (!scopedKey) return;
+  const cached = l1MediaCache.get(scopedKey);
+  if (cached && (!staleSrc || cached === staleSrc || isMediaUrlRevoked(cached))) {
+    l1MediaCache.delete(scopedKey);
+  }
 }
 
 /**
@@ -375,7 +413,12 @@ export async function readCachedMediaL2Url(
   if (!scopedKey) return null;
 
   const l1 = l1MediaCache.get(scopedKey);
-  if (l1) return l1;
+  if (l1) {
+    if (!isMediaUrlRevoked(l1)) {
+      return l1;
+    }
+    l1MediaCache.delete(scopedKey);
+  }
 
   const pendingL2 = inFlightL2Reads.get(scopedKey);
   if (pendingL2) return pendingL2;
@@ -384,7 +427,7 @@ export async function readCachedMediaL2Url(
     .then((hit) => {
       if (!hit || isMarkedDeleted(imageId)) return null;
       const already = l1MediaCache.get(scopedKey);
-      if (already) {
+      if (already && !isMediaUrlRevoked(already)) {
         if (already !== hit.src) scheduleRevokeManagedUrl(hit.src);
         return already;
       }
@@ -510,8 +553,11 @@ export async function fetchMediaImageDataUrl(
     }
     const cached = l1MediaCache.get(scopedKey);
     if (cached) {
-      perfMetrics.recordHit('media_l1');
-      return cached;
+      if (!isMediaUrlRevoked(cached)) {
+        perfMetrics.recordHit('media_l1');
+        return cached;
+      }
+      l1MediaCache.delete(scopedKey);
     }
   }
 

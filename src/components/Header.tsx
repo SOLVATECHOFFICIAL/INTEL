@@ -1,9 +1,9 @@
 import React from 'react';
-import { Bell, Menu, Search } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
 import { formatUnreadBadgeCount } from '../utils/pwa';
-import { getSearchScopeFromRoute, isFeedRoute } from '../utils/urlRouting';
+import { isFeedRoute } from '../utils/urlRouting';
 import { BrandLogo } from './BrandLogo';
 import { AvatarMedia } from './media/FirestoreImage';
 
@@ -41,7 +41,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { user, profile, unreadNotificationsCount } = useFirebase();
   const unreadBadgeLabel = formatUnreadBadgeCount(unreadNotificationsCount);
-  const currentSearchScope = getSearchScopeFromRoute(activeRoute);
 
   const isNavItemActive = (itemRoute: ActiveRoute) => {
     if (itemRoute === 'for-you') {
@@ -53,32 +52,16 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-40 max-w-full border-b border-slate-200/90 bg-white/95 shadow-[0_2px_14px_-6px_rgba(11,26,46,0.08)] backdrop-blur-md">
       <div aria-hidden="true" className="lasued-action-gradient h-[2px] w-full" />
-      <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 md:h-16 md:gap-6">
-        {/* Left: Brand Logo + Desktop Search Trigger */}
-        <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
+      <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-5 md:h-16 md:gap-5">
+        {/* Left: Brand Logo */}
+        <div className="flex min-w-0 flex-1 items-center lg:flex-initial">
           <button
             type="button"
             onClick={() => onNavigate('for-you')}
             aria-label="LASUED Intel home"
-            className="inline-flex min-h-[44px] shrink-0 items-center rounded-lg focus-visible:outline-[#1E88E5]"
+            className="inline-flex min-h-[44px] min-w-0 max-w-full items-center overflow-hidden rounded-lg focus-visible:outline-[#1E88E5]"
           >
             <BrandLogo size="sm" showWordmark />
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              onNavigate('search', { searchScope: currentSearchScope })
-            }
-            aria-label="Search LASUED Intel"
-            className={`hidden min-h-[40px] shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors xl:inline-flex ${
-              activeRoute === 'search'
-                ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:text-[#0B1A2E]'
-            }`}
-          >
-            <Search className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Search</span>
           </button>
         </div>
 
@@ -113,23 +96,8 @@ export const Header: React.FC<HeaderProps> = ({
           })}
         </nav>
 
-        {/* Right: Notifications & Account Controls (Desktop) + Mobile Quick Actions */}
+        {/* Right: Notifications & Account Controls + Mobile Drawer Toggle */}
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {/* Mobile / tablet / compact laptop Search trigger */}
-          <button
-            type="button"
-            onClick={() =>
-              onNavigate('search', { searchScope: currentSearchScope })
-            }
-            aria-label="Search"
-            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors xl:hidden ${
-              activeRoute === 'search'
-                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'text-slate-700 hover:bg-slate-100 hover:text-[#0B1A2E]'
-            }`}
-          >
-            <Search className="h-5 w-5" aria-hidden="true" />
-          </button>
 
           {/* Desktop Notifications */}
           <button

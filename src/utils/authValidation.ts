@@ -368,12 +368,19 @@ export function isUndergroundSupremeAdminUser(user: User | null): boolean {
   );
 }
 
-export function isDesignatedSupremeAdminUser(user: User | null): boolean {
-  if (!user || !user.emailVerified || !user.email) return false;
+export function hasDesignatedSupremeAdminEmailMatch(
+  user: Pick<User, 'email'> | null
+): boolean {
+  if (!user?.email) return false;
   const normalized = user.email.trim().toLowerCase();
   return (DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
     normalized
   );
+}
+
+export function isDesignatedSupremeAdminUser(user: User | null): boolean {
+  if (!user || !user.emailVerified || !user.email) return false;
+  return hasDesignatedSupremeAdminEmailMatch(user);
 }
 
 export function canRevealAnonymousAuthor(user: User | null): boolean {
@@ -534,6 +541,32 @@ export function canPublishOrdinaryPostStrict(input: {
     return false;
   }
   return input.profile.badge === input.roleRecord.badge;
+}
+
+export function hasPostingRolePendingEmailVerification(input: {
+  user: Pick<User, 'email' | 'emailVerified'> | null;
+  profile: PublicUserProfile | null;
+  roleRecord: UserRoleRecord | null;
+}): boolean {
+  if (!input.user || input.user.emailVerified === true) {
+    return false;
+  }
+  if (input.profile?.accountStatus === 'suspended') {
+    return false;
+  }
+  if (hasDesignatedSupremeAdminEmailMatch(input.user)) {
+    return true;
+  }
+  const role = input.roleRecord?.role;
+  const badge = input.profile?.badge;
+  return (
+    role === 'verified' ||
+    role === 'moderator' ||
+    role === 'supreme_admin' ||
+    badge === 'verified' ||
+    badge === 'moderator' ||
+    badge === 'supreme_admin'
+  );
 }
 
 export function canCreateAnonymousEntry(

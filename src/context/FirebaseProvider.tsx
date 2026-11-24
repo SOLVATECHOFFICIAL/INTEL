@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { User } from 'firebase/auth';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
-import { testConnection } from '../lib/firebase';
+import { auth, testConnection } from '../lib/firebase';
 import { clearViewerScopedMediaCache } from '../services/mediaStorage';
 import { notifyViewerSessionReset } from '../services/cacheInvalidation';
 import { clearSearchBundleCache } from '../services/searchDiscovery';
@@ -69,7 +69,10 @@ import {
   type NotificationPreferences,
 } from '../utils/notifications';
 import { normalizeInterestList } from '../utils/feedRanking';
-import { FirebaseContext } from './firebaseContext';
+import {
+  FirebaseContext,
+  type SyncedAccountSnapshot,
+} from './firebaseContext';
 
 interface FirebaseProviderProps {
   children: ReactNode;
@@ -78,8 +81,11 @@ interface FirebaseProviderProps {
 export function FirebaseProvider({ children }: FirebaseProviderProps) {
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [, setAuthUserVersion] = useState(0);
   const [profile, setProfile] = useState<PublicUserProfile | null>(null);
   const [roleRecord, setRoleRecord] = useState<UserRoleRecord | null>(null);
+  const [roleSyncedUid, setRoleSyncedUid] = useState<string | null>(null);
+  const [profileSyncedUid, setProfileSyncedUid] = useState<string | null>(null);
   const [liveNotifications, setLiveNotifications] = useState<NotificationItem[]>(
     []
   );
@@ -169,6 +175,8 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         void notifyViewerSessionReset(previousUid);
         setProfile(null);
         setRoleRecord(null);
+        setRoleSyncedUid(null);
+        setProfileSyncedUid(null);
         setLiveNotifications([]);
         setOlderNotifications([]);
         setNotificationsStatus('ready');
@@ -191,6 +199,8 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
           void ensureDesignatedSupremeAdminAccountState(nextUser);
         }
         if (previousUid !== nextUser.uid) {
+          setRoleSyncedUid(null);
+          setProfileSyncedUid(null);
           seenLiveNotifIdsRef.current = new Set();
           notifBaselineReadyForUidRef.current = null;
           setForegroundNotificationToast(null);
@@ -232,12 +242,14 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
 
     const unsubscribeRole = subscribeUserRoleRecord(user.uid, (record) => {
       setRoleRecord(record);
+      setRoleSyncedUid(user.uid);
     });
 
     const unsubscribeProfile = subscribePublicMemberProfile(
       user.uid,
       (nextProfile) => {
         setProfile(nextProfile);
+        setProfileSyncedUid(user.uid);
         if (nextProfile?.username) {
           uidToUsernameCacheRef.current.set(
             nextProfile.uid,
@@ -326,14 +338,17 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   }, [authReady, user, profile, notificationsStatus, liveNotifications]);
 
   const refreshAccountState = useCallback(async () => {
-    if (!user) return;
+    const activeUser = auth.currentUser ?? user;
+    if (!activeUser) return;
     const [nextProfile, nextRole, nextPrivate] = await Promise.all([
-      fetchPublicMemberProfile(user.uid),
-      fetchUserRoleRecord(user.uid),
-      fetchPrivateUserData(user.uid).catch(() => null),
+      fetchPublicMemberProfile(activeUser.uid),
+      fetchUserRoleRecord(activeUser.uid),
+      fetchPrivateUserData(activeUser.uid).catch(() => null),
     ]);
     setProfile(nextProfile);
     setRoleRecord(nextRole);
+    setProfileSyncedUid(activeUser.uid);
+    setRoleSyncedUid(activeUser.uid);
     if (nextPrivate?.notificationPrefs) {
       setNotificationPrefs(
         normalizeNotificationPrefs(nextPrivate.notificationPrefs)
@@ -345,6 +360,86 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       );
     }
   }, [user]);
+
+  const refreshVerificationStatus = useCallback(async (): Promise<SyncedAccountSnapshot> => {
+    const current = auth.currentUser ?? user;
+    if (!current) {
+      return {
+        verified: false,
+        user: null,
+        profile: null,
+        roleRecord: null,
+      };
+    }
+
+    await current.reload().catch(() => undefined);
+    const reloaded = auth.currentUser ?? current;
+    if (reloaded.emailVerified) {
+      await reloaded.getIdToken(true).catch(() => undefined);
+      if (isDesignatedSupremeAdminUser(reloaded)) {
+        await ensureDesignatedSupremeAdminAccountState(reloaded).catch(
+          () => undefined
+        );
+      }
+    }
+
+    const [nextProfile, nextRole, nextPrivate] = await Promise.all([
+      fetchPublicMemberProfile(reloaded.uid),
+      fetchUserRoleRecord(reloaded.uid),
+      fetchPrivateUserData(reloaded.uid).catch(() => null),
+    ]);
+
+    setUser(reloaded);
+    setAuthUserVersion((prev) => prev + 1);
+    setProfile(nextProfile);
+    setRoleRecord(nextRole);
+    setProfileSyncedUid(reloaded.uid);
+    setRoleSyncedUid(reloaded.uid);
+    if (nextPrivate?.notificationPrefs) {
+      setNotificationPrefs(
+        normalizeNotificationPrefs(nextPrivate.notificationPrefs)
+      );
+    }
+    if (Array.isArray(nextPrivate?.interestCategories)) {
+      setInterestCategories(
+        normalizeInterestList(nextPrivate.interestCategories)
+      );
+    }
+
+    return {
+      verified: reloaded.emailVerified === true,
+      user: reloaded,
+      profile: nextProfile,
+      roleRecord: nextRole,
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!authReady || !user || user.emailVerified) {
+      return;
+    }
+
+    let lastCheckedAt = 0;
+    const maybeRefresh = () => {
+      const now = Date.now();
+      if (now - lastCheckedAt < 2000) return;
+      lastCheckedAt = now;
+      void refreshVerificationStatus().catch(() => undefined);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        maybeRefresh();
+      }
+    };
+
+    window.addEventListener('focus', maybeRefresh);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', maybeRefresh);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [authReady, user, refreshVerificationStatus]);
 
   const markNotificationReadOptimistic = useCallback(
     async (notificationId: string) => {
@@ -720,6 +815,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     [user, profile, followingUsernames, pendingFollowUsernames]
   );
 
+  const accountSyncReady =
+    authReady &&
+    (!user || (roleSyncedUid === user.uid && profileSyncedUid === user.uid));
   const effectiveTier = resolveEffectiveAccountTier(user, roleRecord);
   const isSuspended = isAccountSuspended(profile);
 
@@ -727,6 +825,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     <FirebaseContext.Provider
       value={{
         authReady,
+        accountSyncReady,
         user,
         profile,
         roleRecord,
@@ -757,6 +856,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         updateInterestCategoriesOptimistic,
         clearNotificationError,
         refreshAccountState,
+        refreshVerificationStatus,
       }}
     >
       {children}

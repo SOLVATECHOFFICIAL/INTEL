@@ -3,7 +3,9 @@ import { ImageOff, RefreshCw } from 'lucide-react';
 import {
   fetchMediaImageDataUrl,
   getCachedMediaImageDataUrl,
+  invalidateStaleMediaUrl,
   isImageSrcPredecoded,
+  isMediaUrlRevoked,
   readCachedMediaL2Url,
 } from '../../services/mediaStorage';
 import type { MediaCacheKeyOptions } from '../../utils/mediaCache';
@@ -58,6 +60,7 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
     count: number;
   }>({ forKey: '', count: 0 });
   const autoRetriedKeyRef = useRef<string | null>(null);
+  const recoveredErrorKeysRef = useRef<Set<string>>(new Set());
   const onImageLoadedRef = useRef(onImageLoaded);
   useEffect(() => {
     onImageLoadedRef.current = onImageLoaded;
@@ -67,21 +70,32 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
   const scopeUid = cacheScope?.viewerUid ?? null;
   const activeKey = imageId ? `${scopeKind}:${scopeUid ?? 'pub'}:${imageId}` : '';
 
-  const cachedSrc = imageId
+  const rawCachedSrc = imageId
     ? getCachedMediaImageDataUrl(imageId, {
         scope: scopeKind,
         viewerUid: scopeUid,
       })
     : null;
-  const matchedL2 = activeKey && l2State?.forKey === activeKey ? l2State.src : null;
+  const cachedSrc =
+    rawCachedSrc && !isMediaUrlRevoked(rawCachedSrc) ? rawCachedSrc : null;
+  const matchedL2 =
+    activeKey &&
+    l2State?.forKey === activeKey &&
+    !isMediaUrlRevoked(l2State.src)
+      ? l2State.src
+      : null;
   const matchedAsync =
     activeKey && asyncState?.forKey === activeKey ? asyncState : null;
+  const safeAsyncSrc =
+    matchedAsync?.src && !isMediaUrlRevoked(matchedAsync.src)
+      ? matchedAsync.src
+      : null;
 
   const candidateSrc =
     directSrc ||
     cachedSrc ||
     matchedL2 ||
-    matchedAsync?.src ||
+    safeAsyncSrc ||
     fallbackUrl ||
     null;
 
@@ -245,6 +259,14 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
   const handleManualRetry = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!activeKey) return;
+    recoveredErrorKeysRef.current.delete(activeKey);
+    if (imageId) {
+      invalidateStaleMediaUrl(imageId, candidateSrc, {
+        scope: scopeKind,
+        viewerUid: scopeUid,
+      });
+    }
+    setL2State((prev) => (prev?.forKey === activeKey ? null : prev));
     setBrokenSrc(null);
     setAsyncState(null);
     setRetryState((prev) => ({
@@ -280,6 +302,30 @@ export const FirestoreImage: React.FC<FirestoreImageProps> = ({
             }}
             onError={() => {
               setLoadedSrc(null);
+              if (
+                imageId &&
+                activeKey &&
+                !directSrc &&
+                !recoveredErrorKeysRef.current.has(activeKey)
+              ) {
+                recoveredErrorKeysRef.current.add(activeKey);
+                invalidateStaleMediaUrl(imageId, activeSrc, {
+                  scope: scopeKind,
+                  viewerUid: scopeUid,
+                });
+                setL2State((prev) =>
+                  prev?.forKey === activeKey ? null : prev
+                );
+                setAsyncState((prev) =>
+                  prev?.forKey === activeKey ? null : prev
+                );
+                setBrokenSrc(null);
+                setRetryState((prev) => ({
+                  forKey: activeKey,
+                  count: prev.forKey === activeKey ? prev.count + 1 : 1,
+                }));
+                return;
+              }
               setBrokenSrc(activeSrc);
             }}
             className={`${className} transition-opacity duration-150 ${

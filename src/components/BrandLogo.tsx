@@ -21,11 +21,11 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   const [imageError, setImageError] = useState(false);
 
   return (
-    <span className="inline-flex items-center gap-2.5 whitespace-nowrap shrink-0">
+    <span className="inline-flex min-w-0 max-w-full items-center gap-2 sm:gap-2.5">
       {imageError ? (
         <span
           aria-hidden="true"
-          className={`flex items-center justify-center bg-[#0B1A2E] font-display text-sm font-extrabold tracking-tight text-white ring-1 ring-[#1E88E5]/40 ${SIZE_CLASSES[size]}`}
+          className={`flex shrink-0 items-center justify-center bg-[#0B1A2E] font-display text-sm font-extrabold tracking-tight text-white ring-1 ring-[#1E88E5]/40 ${SIZE_CLASSES[size]}`}
         >
           {BRAND.monogram}
         </span>
@@ -44,7 +44,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 
       {showWordmark && (
         <span
-          className={`font-display text-base font-bold tracking-tight sm:text-lg ${
+          className={`truncate font-display text-base font-bold tracking-tight sm:text-lg ${
             inverted ? 'text-white' : 'text-[#0B1A2E]'
           }`}
         >

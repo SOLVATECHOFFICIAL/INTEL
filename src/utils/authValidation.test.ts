@@ -13,6 +13,8 @@ import {
   canRevealAnonymousAuthor,
   DESIGNATED_SUPREME_ADMIN_EMAILS,
   formatFirestoreOrAppError,
+  hasDesignatedSupremeAdminEmailMatch,
+  hasPostingRolePendingEmailVerification,
   isAccountSuspended,
   isDesignatedSupremeAdminUser,
   isProfileAccessibleByDirectInteraction,
@@ -684,5 +686,82 @@ test('Prompt 20 designated Supreme Admins, anonymous reveal restriction, and und
       'ug_admin'
     ),
     true
+  );
+});
+
+test('hasDesignatedSupremeAdminEmailMatch & hasPostingRolePendingEmailVerification distinguish unverified admins/badges from standard members', () => {
+  const unverifiedPublicAdmin = {
+    email: PUBLIC_SUPREME_ADMIN_EMAIL,
+    emailVerified: false,
+  } as User;
+  const unverifiedMember = {
+    email: 'student@lasued.edu.ng',
+    emailVerified: false,
+  } as User;
+  const verifiedMember = {
+    email: 'verified@lasued.edu.ng',
+    emailVerified: true,
+  } as User;
+
+  assert.equal(hasDesignatedSupremeAdminEmailMatch(unverifiedPublicAdmin), true);
+  assert.equal(hasDesignatedSupremeAdminEmailMatch(unverifiedMember), false);
+
+  assert.equal(
+    hasPostingRolePendingEmailVerification({
+      user: unverifiedPublicAdmin,
+      profile: null,
+      roleRecord: null,
+    }),
+    true
+  );
+  assert.equal(
+    hasPostingRolePendingEmailVerification({
+      user: unverifiedMember,
+      profile: null,
+      roleRecord: {
+        uid: 'm1',
+        role: 'verified',
+        badge: 'verified',
+        isPermanentOwner: false,
+        updatedAt: null,
+      },
+    }),
+    true
+  );
+  assert.equal(
+    hasPostingRolePendingEmailVerification({
+      user: unverifiedMember,
+      profile: null,
+      roleRecord: {
+        uid: 'm2',
+        role: 'member',
+        badge: 'none',
+        isPermanentOwner: false,
+        updatedAt: null,
+      },
+    }),
+    false
+  );
+  assert.equal(
+    hasPostingRolePendingEmailVerification({
+      user: verifiedMember,
+      profile: {
+        uid: 'm3',
+        memberId: 'LI-M3',
+        fullName: 'Verified Student',
+        username: 'verified_student',
+        showWhatsappPublicly: false,
+        publicWhatsapp: '',
+        badge: 'verified',
+        accountStatus: 'active',
+        isHiddenFromDirectory: false,
+        followersCount: 0,
+        followingCount: 0,
+        createdAt: null,
+        updatedAt: null,
+      },
+      roleRecord: null,
+    }),
+    false
   );
 });

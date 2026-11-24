@@ -674,6 +674,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   const previewGridItems: GridPhotoItem[] = attachments.map((item) => ({
     imageId: item.imageId,
     directSrc: item.previewUrl || undefined,
+    width: item.compressed?.width ?? item.existingMeta?.width,
+    height: item.compressed?.height ?? item.existingMeta?.height,
   }));
 
   const activeTextTheme = getTextPostBackgroundTheme(textBackgroundStyle);
@@ -711,9 +713,10 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             <p className="mt-0.5 text-xs text-slate-600">
               {mode === 'anonymous'
                 ? 'Identity, original filenames, and camera EXIF metadata are stripped automatically.'
-                : `Publishing as ${actorName || 'Member'}${
-                    actorUsername ? ` (@${actorUsername})` : ''
-                  }`}
+                : `Publishing as ${
+                    actorName ||
+                    (actorRole === 'supreme_admin' ? 'Supreme Admin' : 'Member')
+                  }${actorUsername ? ` (@${actorUsername})` : ''}`}
             </p>
           </div>
 
@@ -1152,7 +1155,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                 Tap any photo to inspect
                               </span>
                             </div>
-                            <div className="mx-auto max-w-[300px]">
+                            <div className="mx-auto w-full max-w-lg">
                               <SquareImageGrid
                                 items={previewGridItems}
                                 postLabel="Photo post preview"
@@ -1469,7 +1472,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                   Tap any photo to zoom
                                 </span>
                               </div>
-                              <div className="mx-auto max-w-[300px]">
+                              <div className="mx-auto w-full max-w-lg">
                                 <SquareImageGrid
                                   items={previewGridItems}
                                   postLabel="Anonymous photo post preview"

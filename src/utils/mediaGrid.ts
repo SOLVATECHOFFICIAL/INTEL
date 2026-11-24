@@ -5,6 +5,8 @@ export interface GridPhotoItem {
   caption?: string;
   directSrc?: string;
   fallbackUrl?: string;
+  width?: number;
+  height?: number;
 }
 
 export function mediaMetaToGridItems(
@@ -17,5 +19,7 @@ export function mediaMetaToGridItems(
     .map((item) => ({
       imageId: item.imageId,
       caption: item.caption,
+      width: item.width,
+      height: item.height,
     }));
 }

@@ -22,14 +22,23 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
   const count = photos.length;
   if (count === 0) return null;
 
+  const singlePhoto = count === 1 ? photos[0] : null;
+  const isSinglePortrait = Boolean(
+    singlePhoto?.width &&
+      singlePhoto?.height &&
+      singlePhoto.height > singlePhoto.width * 1.15
+  );
+
   const gridContainerClass =
     count === 1
-      ? 'grid grid-cols-1 max-w-xl'
+      ? isSinglePortrait
+        ? 'grid w-full max-w-md grid-cols-1'
+        : 'grid w-full max-w-2xl grid-cols-1'
       : count === 2
-      ? 'grid grid-cols-2 gap-1.5'
+      ? 'grid w-full max-w-2xl grid-cols-2 gap-1.5'
       : count === 3
-      ? 'grid grid-cols-3 grid-rows-2 gap-1.5'
-      : 'grid grid-cols-2 gap-1.5';
+      ? 'grid w-full max-w-2xl grid-cols-3 grid-rows-2 gap-1.5 aspect-[3/2]'
+      : 'grid w-full max-w-2xl grid-cols-2 gap-1.5';
 
   return (
     <div
@@ -39,12 +48,20 @@ export const SquareImageGrid: React.FC<SquareImageGridProps> = ({
       {photos.map((photo, index) => {
         const spanClass =
           count === 3 && index === 0 ? 'col-span-2 row-span-2' : '';
+        const tileAspectClass =
+          count === 1
+            ? isSinglePortrait
+              ? 'aspect-[4/5] max-h-[460px]'
+              : 'aspect-[4/3] sm:aspect-[16/10] max-h-[440px]'
+            : count === 3
+            ? 'h-full'
+            : 'aspect-[4/3] sm:aspect-square';
         const visibleCaption = showPerPhotoCaptions ? photo.caption : undefined;
 
         return (
           <div
             key={photo.imageId}
-            className={`group relative aspect-square w-full overflow-hidden rounded-lg bg-[#0B1A2E] ${spanClass}`}
+            className={`group relative ${tileAspectClass} w-full overflow-hidden rounded-lg bg-[#0B1A2E] ${spanClass}`}
           >
             <button
               type="button"

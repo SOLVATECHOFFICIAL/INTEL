@@ -12,8 +12,16 @@ import {
   type NotificationPreferences,
 } from '../utils/notifications';
 
+export interface SyncedAccountSnapshot {
+  verified: boolean;
+  user: User | null;
+  profile: PublicUserProfile | null;
+  roleRecord: UserRoleRecord | null;
+}
+
 export interface FirebaseContextValue {
   authReady: boolean;
+  accountSyncReady: boolean;
   user: User | null;
   profile: PublicUserProfile | null;
   roleRecord: UserRoleRecord | null;
@@ -48,10 +56,12 @@ export interface FirebaseContextValue {
   ) => Promise<void>;
   clearNotificationError: () => void;
   refreshAccountState: () => Promise<void>;
+  refreshVerificationStatus: () => Promise<SyncedAccountSnapshot>;
 }
 
 export const FirebaseContext = createContext<FirebaseContextValue>({
   authReady: false,
+  accountSyncReady: false,
   user: null,
   profile: null,
   roleRecord: null,
@@ -82,6 +92,12 @@ export const FirebaseContext = createContext<FirebaseContextValue>({
   updateInterestCategoriesOptimistic: async () => {},
   clearNotificationError: () => {},
   refreshAccountState: async () => {},
+  refreshVerificationStatus: async () => ({
+    verified: false,
+    user: null,
+    profile: null,
+    roleRecord: null,
+  }),
 });
 
 export function useFirebase(): FirebaseContextValue {
