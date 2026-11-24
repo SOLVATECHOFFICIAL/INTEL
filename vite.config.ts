@@ -91,6 +91,7 @@ export default defineConfig({
       manifestFilename: 'manifest.webmanifest',
       includeAssets: [
         'apple-touch-icon.png',
+        'og-share.png',
         'pwa-192x192.png',
         'pwa-512x512.png',
         'pwa-maskable-512x512.png',

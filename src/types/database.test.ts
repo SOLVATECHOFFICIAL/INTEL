@@ -52,25 +52,19 @@ test('media URL guard rejects Base64 data URIs and oversized URLs', () => {
   );
 });
 
-test('role and badge hierarchy matches Part 5 & Part 6 specification', () => {
+test('role and badge hierarchy matches strict two-admin specification', () => {
   assert.equal(canRolePublishCommunityFeed('member'), false);
   assert.equal(canRolePublishCommunityFeed('verified'), true);
   assert.equal(canRolePublishCommunityFeed('moderator'), true);
   assert.equal(canRolePublishCommunityFeed('supreme_admin'), true);
-  assert.equal(canRolePublishCommunityFeed('owner'), true);
 
-  // Moderator conflict rule: cannot delete Verified, Moderator, Supreme Admin, or Owner
+  // Moderator conflict rule: cannot delete Verified, Moderator, or Supreme Admin
   assert.equal(canModeratorDeleteTargetRole('member'), true);
   assert.equal(canModeratorDeleteTargetRole('verified'), false);
   assert.equal(canModeratorDeleteTargetRole('moderator'), false);
   assert.equal(canModeratorDeleteTargetRole('supreme_admin'), false);
-  assert.equal(canModeratorDeleteTargetRole('owner'), false);
 
-  // Customer Supreme Admin cannot demote/alter Permanent Owner, other Supreme Admins, or themselves
-  assert.equal(
-    canActorUpdateTargetRoleRecord('supreme_admin', true, 'owner'),
-    false
-  );
+  // Only designated Supreme Admins can update Verified/Moderator/Member role records, never another Supreme Admin or themselves
   assert.equal(
     canActorUpdateTargetRoleRecord('supreme_admin', false, 'supreme_admin'),
     false
@@ -109,20 +103,11 @@ test('role and badge hierarchy matches Part 5 & Part 6 specification', () => {
     false
   );
   assert.equal(
-    canActorUpdateTargetRoleRecord('owner', false, 'verified', 'supreme_admin', 'owner_1', 'user_2'),
-    true
-  );
-  assert.equal(
-    canActorUpdateTargetRoleRecord('owner', true, 'owner', 'verified', 'owner_1', 'owner_1'),
-    false
-  );
-  assert.equal(
     canActorUpdateTargetRoleRecord('moderator', false, 'member', 'verified', 'mod_1', 'user_2'),
     false
   );
 
   // Strictly 3 badges + none
-  assert.equal(resolveBadgeForRole('owner'), 'supreme_admin');
   assert.equal(resolveBadgeForRole('supreme_admin'), 'supreme_admin');
   assert.equal(resolveBadgeForRole('moderator'), 'moderator');
   assert.equal(resolveBadgeForRole('verified'), 'verified');

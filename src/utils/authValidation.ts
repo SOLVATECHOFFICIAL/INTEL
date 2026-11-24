@@ -436,10 +436,11 @@ export function resolveEffectiveAccountTier(
   if (isDesignatedSupremeAdminUser(user)) {
     return 'supreme_admin';
   }
+  const rawRole = (roleRecord as { role?: string } | null)?.role;
   if (
     !roleRecord ||
     roleRecord.isPermanentOwner ||
-    roleRecord.role === 'owner' ||
+    rawRole === 'owner' ||
     roleRecord.role === 'supreme_admin'
   ) {
     return 'member';
@@ -548,7 +549,6 @@ export function getAccountTierDisplayLabel(tier: EffectiveAccountTier): string {
     case 'guest':
       return 'Guest Visitor';
     case 'member':
-    case 'owner':
       return 'Member';
     case 'verified':
       return 'Verified Member';

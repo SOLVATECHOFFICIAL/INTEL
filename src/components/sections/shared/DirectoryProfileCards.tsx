@@ -59,11 +59,22 @@ export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
             {member.level ? ` · ${member.level}` : ''}
           </p>
           <p className="mt-0.5 text-[11px] font-medium text-slate-500 tabular-nums">
-            {member.followersCount} followers · {member.followingCount} following
-            {hydratingStats && (
-              <span className="ml-1.5 font-normal text-slate-400">
-                · Updating...
+            {hydratingStats &&
+            (member.followersCount ?? 0) === 0 &&
+            (member.followingCount ?? 0) === 0 ? (
+              <span className="font-normal text-slate-400">
+                Loading follower stats...
               </span>
+            ) : (
+              <>
+                {member.followersCount} followers · {member.followingCount}{' '}
+                following
+                {hydratingStats && (
+                  <span className="ml-1.5 font-normal text-slate-400">
+                    · Updating...
+                  </span>
+                )}
+              </>
             )}
           </p>
         </div>

@@ -88,11 +88,14 @@ import {
 import {
   createSafeMemberNotification,
   fetchPublicProfileProjectionsByUids,
+  resolveUserUidsByUsernames,
 } from './firestoreFoundation';
 import {
   buildCommentNotificationId,
+  buildMentionNotificationId,
   buildReactionNotificationId,
   buildReplyNotificationId,
+  extractMentionedUsernames,
   shouldEmitActivityNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
@@ -133,6 +136,47 @@ export interface RevealedAuthorResult {
   authorUid: string;
   authorRole: UserRole;
   profile: PublicProfileProjection | null;
+}
+
+async function emitPublicMentionNotifications(input: {
+  sourceId: string;
+  text: string;
+  actorUid: string;
+  excludeUids?: readonly (string | null | undefined)[];
+  title: string;
+  targetPath: string;
+  targetImageId?: string;
+}): Promise<void> {
+  try {
+    const usernames = extractMentionedUsernames(input.text);
+    if (usernames.length === 0) return;
+    const excludeSet = new Set<string>([input.actorUid]);
+    for (const uid of input.excludeUids ?? []) {
+      if (uid && isValidFirestoreId(uid)) {
+        excludeSet.add(uid);
+      }
+    }
+    const recipients = await resolveUserUidsByUsernames(usernames, excludeSet);
+    if (recipients.length === 0) return;
+
+    const excerpt = summarizeNotificationExcerpt(input.text, 140);
+    await Promise.allSettled(
+      recipients.map((recipient) =>
+        createSafeMemberNotification({
+          id: buildMentionNotificationId(input.sourceId, recipient.uid),
+          recipientUid: recipient.uid,
+          eventType: 'mention',
+          title: input.title,
+          body: excerpt || undefined,
+          targetPath: input.targetPath,
+          actorUid: input.actorUid,
+          targetImageId: input.targetImageId,
+        })
+      )
+    );
+  } catch {
+    // Non-blocking mention notifications
+  }
 }
 
 function buildOrderedMediaItems(
@@ -405,6 +449,19 @@ export async function createCommunityPostWithMedia(input: {
     updatedAt: Date.now(),
   };
   notifyCommunityPostCreated(createdPost);
+
+  const mentionText = [cleanTitle, cleanBody].filter(Boolean).join(' ');
+  if (mentionText) {
+    void emitPublicMentionNotifications({
+      sourceId: postId,
+      text: mentionText,
+      actorUid: input.ownerUID,
+      title: 'You were mentioned in a campus post',
+      targetPath: `/?view=for-you&postId=${postId}`,
+      targetImageId: mediaItems[0]?.imageId,
+    });
+  }
+
   return createdPost;
 }
 
@@ -1908,6 +1965,16 @@ export async function addPostComment(input: {
           targetImageId: postImageId,
         });
       }
+
+      void emitPublicMentionNotifications({
+        sourceId: commentId,
+        text: cleanBody,
+        actorUid: input.actorUid,
+        excludeUids: [parentOwnerUid, postOwnerUid],
+        title: 'Someone mentioned you in a comment',
+        targetPath,
+        targetImageId: postImageId,
+      });
     }
 
     if (input.kind === 'posts') {
@@ -2341,6 +2408,16 @@ export async function addMarketplaceListingComment(input: {
         targetImageId: listingImageId,
       });
     }
+
+    void emitPublicMentionNotifications({
+      sourceId: commentId,
+      text: trimmed,
+      actorUid: input.actorUid,
+      excludeUids: [parentOwnerUid, sellerUid],
+      title: `You were mentioned on "${summarizeNotificationExcerpt(listingTitle, 60)}"`,
+      targetPath,
+      targetImageId: listingImageId,
+    });
 
     notifyMarketplaceListingCommentMutated(input.listingId, nextCount);
 

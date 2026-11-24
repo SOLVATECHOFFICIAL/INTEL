@@ -14,13 +14,16 @@ import {
 } from '../../api/_lib/siteOrigin';
 
 test('public routes are marked index, follow and build clean canonical URLs', () => {
-  const origin = 'https://lasued-intel-demo.vercel.app';
+  const origin = 'https://lasued-intel.vercel.app';
   const home = normalizeRouteDestination({ route: 'for-you' });
   const homeMeta = resolvePageSeoMetadata(home, origin);
   assert.equal(homeMeta.robots, 'index, follow');
   assert.equal(homeMeta.canonicalUrl, `${origin}/`);
   assert.equal(homeMeta.ogUrl, `${origin}/`);
-  assert.equal(homeMeta.ogImage, `${origin}/pwa-512x512.png`);
+  assert.equal(homeMeta.ogImage, `${origin}/og-share.png`);
+  assert.equal(homeMeta.twitterCard, 'summary_large_image');
+  assert.equal(homeMeta.ogImageWidth, '1200');
+  assert.equal(homeMeta.ogImageHeight, '630');
   assert.match(homeMeta.title, /LASUED Intel/);
 
   const marketplace = normalizeRouteDestination({ route: 'marketplace' });

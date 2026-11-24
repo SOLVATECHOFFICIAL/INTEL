@@ -148,6 +148,12 @@ export const WebPushNotificationButton: React.FC<
         <span>{isEnabling ? 'Enabling...' : 'Enable Notifications'}</span>
       </button>
 
+      {status === 'ready_to_enable' && (
+        <p className="text-[11px] leading-relaxed text-slate-600">
+          Browser permission lets LASUED Intel deliver instant alerts for replies, @mentions, followers, marketplace updates, and campus announcements even when this tab is closed.
+        </p>
+      )}
+
       {errorMessage && (
         <p role="alert" className="text-xs font-medium text-red-700">
           {errorMessage}

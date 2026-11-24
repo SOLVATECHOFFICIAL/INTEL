@@ -55,7 +55,7 @@ service cloud.firestore {
     function isDesignatedSupremeAdminEmail() {
       return isVerifiedEmailUser() &&
         ('email' in request.auth.token) &&
-        request.auth.token.email.lower() in [
+        request.auth.token.email.trim().lower() in [
           'lasuedintel@gmail.com',
           'awoyinfasolomon1@gmail.com'
         ];
@@ -64,26 +64,15 @@ service cloud.firestore {
     function isUndergroundSupremeAdminEmail() {
       return isVerifiedEmailUser() &&
         ('email' in request.auth.token) &&
-        request.auth.token.email.lower() == 'awoyinfasolomon1@gmail.com';
+        request.auth.token.email.trim().lower() == 'awoyinfasolomon1@gmail.com';
     }
 
     function isAuthorizedAnonymousRevealAdmin() {
       return isDesignatedSupremeAdminEmail();
     }
 
-    function isPermanentOwner() {
-      return isVerifiedEmailUser() && (
-        (('email' in request.auth.token) && request.auth.token.email.lower() == 'estheriawoyinfa52@gmail.com') ||
-        (hasRoleDoc(request.auth.uid) && roleDoc(request.auth.uid).role == 'owner' && roleDoc(request.auth.uid).isPermanentOwner == true)
-      );
-    }
-
-    function isSupremeAdminOrOwner() {
-      return isPermanentOwner() || isDesignatedSupremeAdminEmail() || (
-        isVerifiedEmailUser() &&
-        hasRoleDoc(request.auth.uid) &&
-        roleDoc(request.auth.uid).role == 'supreme_admin'
-      );
+    function isSupremeAdmin() {
+      return isDesignatedSupremeAdminEmail();
     }
 
     function isModerator() {
@@ -99,41 +88,32 @@ service cloud.firestore {
     }
 
     function currentRoleString() {
-      return isPermanentOwner()
-        ? 'owner'
-        : (isDesignatedSupremeAdminEmail()
-            ? 'supreme_admin'
-            : (hasRoleDoc(request.auth.uid) &&
-                'role' in roleDoc(request.auth.uid) &&
-                roleDoc(request.auth.uid).role in ['owner', 'supreme_admin', 'moderator', 'verified', 'member']
-                  ? roleDoc(request.auth.uid).role
-                  : 'member'));
-    }
-
-    function isTargetPermanentOwner(uid) {
-      return hasRoleDoc(uid) && (
-        roleDoc(uid).isPermanentOwner == true || roleDoc(uid).role == 'owner'
-      );
+      return isDesignatedSupremeAdminEmail()
+        ? 'supreme_admin'
+        : (hasRoleDoc(request.auth.uid) &&
+            'role' in roleDoc(request.auth.uid) &&
+            roleDoc(request.auth.uid).role in ['moderator', 'verified', 'member']
+              ? roleDoc(request.auth.uid).role
+              : 'member');
     }
 
     function isValidPublishRoleAndBadge(uid) {
-      return isPermanentOwner() || isDesignatedSupremeAdminEmail() || (
+      return isDesignatedSupremeAdminEmail() || (
         exists(/databases/$(database)/documents/users/$(uid)) &&
         get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active' &&
         hasRoleDoc(uid) &&
-        roleDoc(uid).role in ['supreme_admin', 'moderator', 'verified'] &&
-        roleDoc(uid).badge in ['supreme_admin', 'moderator', 'verified'] &&
-        ((roleDoc(uid).role == 'supreme_admin' && roleDoc(uid).badge == 'supreme_admin') ||
-          (roleDoc(uid).role == 'moderator' && roleDoc(uid).badge == 'moderator') ||
+        roleDoc(uid).role in ['moderator', 'verified'] &&
+        roleDoc(uid).badge in ['moderator', 'verified'] &&
+        ((roleDoc(uid).role == 'moderator' && roleDoc(uid).badge == 'moderator') ||
           (roleDoc(uid).role == 'verified' && roleDoc(uid).badge == 'verified')) &&
-        (roleDoc(uid).role == 'supreme_admin' || get(/databases/$(database)/documents/users/$(uid)).data.badge == roleDoc(uid).badge)
+        get(/databases/$(database)/documents/users/$(uid)).data.badge == roleDoc(uid).badge
       );
     }
 
     function canPublishFeed() {
       return isActiveSignedInUser() &&
         isValidPublishRoleAndBadge(request.auth.uid) &&
-        (isSupremeAdminOrOwner() || isModerator() || isVerifiedMember());
+        (isSupremeAdmin() || isModerator() || isVerifiedMember());
     }
 
     function isReservedUsername(username) {
@@ -329,7 +309,7 @@ service cloud.firestore {
 
     function isRoleBadgeConsistent(role, badge) {
       return (
-        ((role == 'owner' || role == 'supreme_admin') && badge == 'supreme_admin') ||
+        (role == 'supreme_admin' && badge == 'supreme_admin') ||
         (role == 'moderator' && badge == 'moderator') ||
         (role == 'verified' && badge == 'verified') ||
         (role == 'member' && badge == 'none')
@@ -347,11 +327,11 @@ service cloud.firestore {
         ]) &&
         data.uid == userId &&
         isValidId(data.uid) &&
-        data.role in ['owner', 'supreme_admin', 'moderator', 'verified', 'member'] &&
+        data.role in ['supreme_admin', 'moderator', 'verified', 'member'] &&
         data.badge in ['none', 'verified', 'moderator', 'supreme_admin'] &&
         (!('isVerified' in data) || data.isVerified is bool) &&
         isRoleBadgeConsistent(data.role, data.badge) &&
-        data.isPermanentOwner is bool &&
+        data.isPermanentOwner == false &&
         data.isHiddenFromDirectory is bool &&
         isOptionalShortString(data, 'grantedBy', 128) &&
         data.updatedAt is timestamp;
@@ -378,13 +358,13 @@ service cloud.firestore {
           'grant_supreme_admin', 'remove_supreme_admin',
           'suspend_account', 'restore_account'
         ] &&
-        data.previousRole in ['owner', 'supreme_admin', 'moderator', 'verified', 'member'] &&
+        data.previousRole in ['supreme_admin', 'moderator', 'verified', 'member'] &&
         data.previousBadge in ['none', 'verified', 'moderator', 'supreme_admin'] &&
-        data.nextRole in ['owner', 'supreme_admin', 'moderator', 'verified', 'member'] &&
+        data.nextRole in ['supreme_admin', 'moderator', 'verified', 'member'] &&
         data.nextBadge in ['none', 'verified', 'moderator', 'supreme_admin'] &&
         isRoleBadgeConsistent(data.nextRole, data.nextBadge) &&
         isValidId(data.performedByUid) &&
-        data.performedByRole in ['owner', 'supreme_admin'] &&
+        data.performedByRole == 'supreme_admin' &&
         isOptionalShortString(data, 'reason', 500) &&
         data.createdAt is timestamp;
     }
@@ -416,7 +396,7 @@ service cloud.firestore {
         isValidId(data.targetId) &&
         isOptionalShortString(data, 'targetLabel', 180) &&
         isValidId(data.performedByUid) &&
-        data.performedByRole in ['owner', 'supreme_admin', 'moderator'] &&
+        data.performedByRole in ['supreme_admin', 'moderator'] &&
         isOptionalShortString(data, 'details', 500) &&
         data.createdAt is timestamp;
     }
@@ -448,7 +428,7 @@ service cloud.firestore {
         data.id == postId &&
         isValidId(data.id) &&
         isValidId(data.ownerUID) &&
-        data.authorRole in ['owner', 'supreme_admin', 'moderator', 'verified'] &&
+        data.authorRole in ['supreme_admin', 'moderator', 'verified'] &&
         (!('postType' in data) || data.postType in ['text', 'photo']) &&
         data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
         isOptionalShortString(data, 'title', 180) &&
@@ -592,7 +572,7 @@ service cloud.firestore {
         data.excerpt is string && data.excerpt.size() <= 240 &&
         data.status in ['pending', 'reviewed_removed', 'dismissed'] &&
         isOptionalShortString(data, 'reviewedByUid', 128) &&
-        (!('reviewedByRole' in data) || data.reviewedByRole in ['owner', 'supreme_admin', 'moderator']) &&
+        (!('reviewedByRole' in data) || data.reviewedByRole in ['supreme_admin', 'moderator']) &&
         isOptionalShortString(data, 'resolutionNote', 500) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
@@ -605,7 +585,7 @@ service cloud.firestore {
         isValidId(data.entryId) &&
         data.entryType in ['anonymousPosts', 'anonymousComments'] &&
         isValidId(data.authorUid) &&
-        data.authorRole in ['owner', 'supreme_admin', 'moderator', 'verified', 'member'] &&
+        data.authorRole in ['supreme_admin', 'moderator', 'verified', 'member'] &&
         data.createdAt is timestamp;
     }
 
@@ -805,7 +785,7 @@ service cloud.firestore {
         isValidId(data.id) &&
         isValidId(data.recipientUid) &&
         data.eventType in [
-          'follow', 'comment', 'reply', 'anonymous_reply', 'reaction',
+          'follow', 'comment', 'reply', 'mention', 'anonymous_reply', 'reaction',
           'marketplace_approved', 'marketplace_rejected', 'marketplace_expired',
           'new_opportunity', 'new_event', 'badge_change', 'account_change', 'announcement'
         ] &&
@@ -900,13 +880,6 @@ service cloud.firestore {
                 getAfter(/databases/$(database)/documents/usernames/$(incoming().username)).data.ownerUID == request.auth.uid)
             )
           ) ||
-          // Underground Supreme Admin toggles their own badge visibility (ON/OFF) without altering real permissions
-          (isActiveSignedInUser() &&
-            isOwnerOf(userId) &&
-            isUndergroundSupremeAdminEmail() &&
-            incoming().badge in ['none', 'supreme_admin'] &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'updatedAt'])
-          ) ||
           // Atomic follow/unfollow followersCount update on target user
           (isSignedIn() &&
             request.auth.uid != userId &&
@@ -932,21 +905,22 @@ service cloud.firestore {
               (existing().followingCount > 0 && incoming().followingCount == existing().followingCount - 1)
             )
           ) ||
-          // Trusted Administrator governance updates (strictly protects Owner & prevents non-owner admin peer/self modification)
-          ((isPermanentOwner() || (
-              isSupremeAdminOrOwner() &&
-              userId != request.auth.uid &&
-              !isTargetPermanentOwner(userId) &&
-              existing().badge != 'supreme_admin' &&
-              existing().isHiddenFromDirectory == false &&
-              incoming().badge in ['none', 'verified', 'moderator']
-            )) &&
+          // Designated Supreme Admin governance updates (protects peer & Underground Supreme Admin; only assigns Verified/Moderator/Member)
+          (isSupremeAdmin() &&
+            userId != request.auth.uid &&
+            existing().badge != 'supreme_admin' &&
+            existing().isHiddenFromDirectory == false &&
+            (!hasRoleDoc(userId) || roleDoc(userId).role != 'supreme_admin') &&
+            incoming().badge in ['none', 'verified', 'moderator'] &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'badge', 'isVerified', 'accountStatus', 'isHiddenFromDirectory', 'updatedAt'
             ])
           )
         );
-      allow delete: if isValidId(userId) && isOwnerOf(userId) && !isTargetPermanentOwner(userId);
+      allow delete: if isValidId(userId) &&
+        isOwnerOf(userId) &&
+        !isDesignatedSupremeAdminEmail() &&
+        (!hasRoleDoc(userId) || roleDoc(userId).role != 'supreme_admin');
     }
 
     match /privateUserData/{userId} {
@@ -956,14 +930,19 @@ service cloud.firestore {
         isValidId(userId) &&
         isOwnerOf(userId) &&
         isValidPrivateUser(incoming(), userId) &&
+        (!isUndergroundSupremeAdminEmail() || !('showSupremeAdminBadge' in incoming()) || incoming().showSupremeAdminBadge == false) &&
         incoming().updatedAt == request.time;
       allow update: if isActiveSignedInUser() &&
         isValidId(userId) &&
         isOwnerOf(userId) &&
         isValidPrivateUser(incoming(), userId) &&
+        (!isUndergroundSupremeAdminEmail() || !('showSupremeAdminBadge' in incoming()) || incoming().showSupremeAdminBadge == false) &&
         incoming().uid == existing().uid &&
         incoming().updatedAt == request.time;
-      allow delete: if isValidId(userId) && isOwnerOf(userId) && !isTargetPermanentOwner(userId);
+      allow delete: if isValidId(userId) &&
+        isOwnerOf(userId) &&
+        !isDesignatedSupremeAdminEmail() &&
+        (!hasRoleDoc(userId) || roleDoc(userId).role != 'supreme_admin');
 
       // Strictly owner-only private history pointers for anonymous posts (NEVER public or readable by other members)
       match /anonymousHistory/{postId} {
@@ -1011,49 +990,53 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
-    // 2. Role & Badge Registry (Zero Self-Escalation + Permanent Owner Shield)
+    // 2. Role & Badge Registry (Strict Two-Admin Lock + Zero Self-Escalation)
     // -------------------------------------------------------------------------
     match /userRoles/{userId} {
       allow get: if isValidId(userId) && (
         isOwnerOf(userId) ||
         isUndergroundSupremeAdminEmail() ||
-        (isSupremeAdminOrOwner() && (resource == null || existing().isHiddenFromDirectory == false))
+        (isSupremeAdmin() && (resource == null || existing().isHiddenFromDirectory == false))
       );
-      allow list: if isSupremeAdminOrOwner() && (existing().isHiddenFromDirectory == false || isUndergroundSupremeAdminEmail());
+      allow list: if isSupremeAdmin() && (existing().isHiddenFromDirectory == false || isUndergroundSupremeAdminEmail());
       allow create: if isValidId(userId) &&
         isValidUserRole(incoming(), userId) &&
+        incoming().isPermanentOwner == false &&
         incoming().updatedAt == request.time && (
-          (isPermanentOwner() && incoming().uid == request.auth.uid && incoming().role == 'owner' && incoming().isPermanentOwner == true) ||
-          (isDesignatedSupremeAdminEmail() && incoming().uid == request.auth.uid && incoming().role == 'supreme_admin' && incoming().badge == 'supreme_admin' && incoming().isPermanentOwner == false && incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail()) ||
-          (isSupremeAdminOrOwner() && incoming().isPermanentOwner == false && (
-            (userId != request.auth.uid && incoming().role in ['member', 'verified', 'moderator']) ||
-            (isPermanentOwner() && incoming().role == 'supreme_admin')
-          ))
+          (isDesignatedSupremeAdminEmail() &&
+            incoming().uid == request.auth.uid &&
+            incoming().role == 'supreme_admin' &&
+            incoming().badge == 'supreme_admin' &&
+            incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail()) ||
+          (isSupremeAdmin() &&
+            userId != request.auth.uid &&
+            incoming().isHiddenFromDirectory == false &&
+            incoming().role in ['member', 'verified', 'moderator'])
         );
       allow update: if isValidId(userId) &&
         isValidUserRole(incoming(), userId) &&
         incoming().uid == existing().uid &&
+        incoming().isPermanentOwner == false &&
         incoming().updatedAt == request.time && (
-          (isPermanentOwner() && (
-            (userId == request.auth.uid && incoming().role == 'owner' && incoming().isPermanentOwner == true) ||
-            (!isTargetPermanentOwner(userId) && incoming().isPermanentOwner == false)
-          )) ||
-          (isSupremeAdminOrOwner() &&
+          (isDesignatedSupremeAdminEmail() &&
+            userId == request.auth.uid &&
+            incoming().role == 'supreme_admin' &&
+            incoming().badge == 'supreme_admin' &&
+            incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail()) ||
+          (isSupremeAdmin() &&
             userId != request.auth.uid &&
-            !isTargetPermanentOwner(userId) &&
             existing().role != 'supreme_admin' &&
-            incoming().isPermanentOwner == false &&
-            incoming().role in ['member', 'verified', 'moderator']
-          )
+            incoming().isHiddenFromDirectory == false &&
+            incoming().role in ['member', 'verified', 'moderator'])
         );
-      allow delete: if isPermanentOwner() && isValidId(userId) && !isTargetPermanentOwner(userId);
+      allow delete: if isSupremeAdmin() && isValidId(userId) && existing().role != 'supreme_admin';
     }
 
     match /badgeAuditLogs/{logId} {
-      // Strictly Supreme Admin or Permanent Owner; immutable internal audit log
-      allow get, list: if isSupremeAdminOrOwner();
+      // Strictly Designated Supreme Admins; immutable internal audit log
+      allow get, list: if isSupremeAdmin();
       allow create: if isValidId(logId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidBadgeAuditLog(incoming(), logId) &&
         incoming().performedByUid == request.auth.uid &&
         incoming().performedByRole == currentRoleString() &&
@@ -1062,15 +1045,15 @@ service cloud.firestore {
     }
 
     match /adminAuditLogs/{logId} {
-      // Readable ONLY by Supreme Admin or Permanent Owner; immutable log entries
-      allow get, list: if isSupremeAdminOrOwner();
+      // Readable ONLY by Designated Supreme Admins; immutable log entries
+      allow get, list: if isSupremeAdmin();
       allow create: if isValidId(logId) &&
         isActiveSignedInUser() &&
         isValidAdminAuditLog(incoming(), logId) &&
         incoming().performedByUid == request.auth.uid &&
         incoming().performedByRole == currentRoleString() &&
         incoming().createdAt == request.time && (
-          isSupremeAdminOrOwner() ||
+          isSupremeAdmin() ||
           (isModerator() && incoming().action in [
             'marketplace_approved', 'marketplace_rejected',
             'post_deleted', 'anonymous_post_deleted',
@@ -1098,7 +1081,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly(['isPrimary', 'redirectToUsername', 'updatedAt']);
-      allow delete: if isSignedIn() && (existing().ownerUID == request.auth.uid || isPermanentOwner());
+      allow delete: if isSignedIn() && (existing().ownerUID == request.auth.uid || isSupremeAdmin());
     }
 
     // -------------------------------------------------------------------------
@@ -1108,9 +1091,9 @@ service cloud.firestore {
       allow get: if isValidId(postId) && (
         resource == null ||
         existing().status == 'published' ||
-        isSupremeAdminOrOwner()
+        isSupremeAdmin()
       );
-      allow list: if existing().status == 'published' || isSupremeAdminOrOwner();
+      allow list: if existing().status == 'published' || isSupremeAdmin();
       allow create: if isValidId(postId) &&
         canPublishFeed() &&
         isValidTypedCommunityPost(incoming(), postId) &&
@@ -1121,7 +1104,7 @@ service cloud.firestore {
         incoming().likesCount == 0 &&
         incoming().commentsCount == 0 &&
         (!('viewsCount' in incoming()) || incoming().viewsCount == 0) &&
-        (isSupremeAdminOrOwner() || (incoming().isOfficial == false && incoming().isPinned == false)) &&
+        (isSupremeAdmin() || (incoming().isOfficial == false && incoming().isPinned == false)) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(postId) &&
@@ -1140,7 +1123,7 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'category', 'backgroundStyle', 'mediaUrls', 'mediaItems', 'updatedAt'])
           ) ||
           // Supreme Admin or Permanent Owner governance edits
-          (isSupremeAdminOrOwner() &&
+          (isSupremeAdmin() &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['isOfficial', 'isPinned', 'status', 'title', 'body', 'mediaItems', 'updatedAt'])
           ) ||
@@ -1178,7 +1161,7 @@ service cloud.firestore {
         );
       allow delete: if isValidId(postId) && isActiveSignedInUser() && isVerifiedEmailUser() && (
         existing().ownerUID == request.auth.uid ||
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))
       );
     }
@@ -1235,7 +1218,7 @@ service cloud.firestore {
         );
       allow delete: if isValidId(commentId) && isActiveSignedInUser() && (
         existing().ownerUID == request.auth.uid ||
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member')) ||
         (exists(/databases/$(database)/documents/posts/$(existing().postId)) &&
           !existsAfter(/databases/$(database)/documents/posts/$(existing().postId))) ||
@@ -1281,13 +1264,13 @@ service cloud.firestore {
         (resource != null && (
           existing().targetCollection in ['posts', 'events', 'postComments'] ||
           (isSignedIn() && existing().ownerUID == request.auth.uid) ||
-          isSupremeAdminOrOwner()
+          isSupremeAdmin()
         ))
       );
       allow list: if existing().targetCollection == 'posts' ||
         existing().targetCollection in ['events', 'postComments'] ||
         (isSignedIn() && existing().ownerUID == request.auth.uid) ||
-        isSupremeAdminOrOwner();
+        isSupremeAdmin();
       allow create: if isValidId(reactionId) &&
         isActiveSignedInUser() &&
         incoming().keys().hasAll(['targetCollection', 'targetId', 'ownerUID', 'reactionType', 'createdAt']) &&
@@ -1321,7 +1304,7 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if isValidId(reactionId) && isActiveSignedInUser() && (
         existing().ownerUID == request.auth.uid ||
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         (existing().targetCollection == 'posts' &&
           exists(/databases/$(database)/documents/posts/$(existing().targetId)) &&
           !existsAfter(/databases/$(database)/documents/posts/$(existing().targetId))) ||
@@ -1405,7 +1388,7 @@ service cloud.firestore {
           )
         );
       allow delete: if isValidId(postId) && isActiveSignedInUser() && (
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         (exists(/databases/$(database)/documents/anonymousIdentityMappings/$(postId)) && (
           get(/databases/$(database)/documents/anonymousIdentityMappings/$(postId)).data.authorUid == request.auth.uid ||
           (isModerator() && get(/databases/$(database)/documents/anonymousIdentityMappings/$(postId)).data.authorRole == 'member')
@@ -1459,7 +1442,7 @@ service cloud.firestore {
           )
         );
       allow delete: if isValidId(commentId) && isActiveSignedInUser() && (
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         (exists(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)) && (
           get(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)).data.authorUid == request.auth.uid ||
           (isModerator() && get(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)).data.authorRole == 'member')
@@ -1488,7 +1471,7 @@ service cloud.firestore {
         );
       allow update: if false;
       allow delete: if isValidId(entryId) && (
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         (isActiveSignedInUser() && existing().entryType == 'anonymousPosts' &&
           exists(/databases/$(database)/documents/anonymousPosts/$(entryId)) &&
           !existsAfter(/databases/$(database)/documents/anonymousPosts/$(entryId))) ||
@@ -1518,12 +1501,12 @@ service cloud.firestore {
       allow get: if isValidId(reportId) && (
         (resource == null && isSignedIn()) ||
         (resource != null && (
-          isSupremeAdminOrOwner() ||
+          isSupremeAdmin() ||
           isModerator() ||
           (isSignedIn() && existing().reporterUid == request.auth.uid)
         ))
       );
-      allow list: if isSupremeAdminOrOwner() ||
+      allow list: if isSupremeAdmin() ||
         isModerator() ||
         (isSignedIn() && existing().reporterUid == request.auth.uid);
       allow create: if isValidId(reportId) &&
@@ -1547,7 +1530,7 @@ service cloud.firestore {
       allow update: if isValidId(reportId) &&
         isActiveSignedInUser() &&
         isValidAnonymousReport(incoming(), reportId) &&
-        (isSupremeAdminOrOwner() || isModerator()) &&
+        (isSupremeAdmin() || isModerator()) &&
         existing().status == 'pending' &&
         incoming().id == existing().id &&
         incoming().targetType == existing().targetType &&
@@ -1564,7 +1547,7 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly([
           'status', 'reviewedByUid', 'reviewedByRole', 'resolutionNote', 'updatedAt'
         ]);
-      allow delete: if isValidId(reportId) && isSupremeAdminOrOwner();
+      allow delete: if isValidId(reportId) && isSupremeAdmin();
     }
 
     // -------------------------------------------------------------------------
@@ -1598,12 +1581,12 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/marketplaceListings/$(incoming().targetId)).data.ownerUID == request.auth.uid)
           )) ||
           (incoming().targetCollection == 'trustedContacts' &&
-            isSupremeAdminOrOwner() && (
+            isSupremeAdmin() && (
               exists(/databases/$(database)/documents/trustedContacts/$(incoming().targetId)) ||
               existsAfter(/databases/$(database)/documents/trustedContacts/$(incoming().targetId))
             )) ||
           (incoming().targetCollection == 'events' &&
-            isSupremeAdminOrOwner() && (
+            isSupremeAdmin() && (
               exists(/databases/$(database)/documents/events/$(incoming().targetId)) ||
               existsAfter(/databases/$(database)/documents/events/$(incoming().targetId))
             ))
@@ -1612,11 +1595,11 @@ service cloud.firestore {
       allow delete: if isValidId(imageId) && isActiveSignedInUser() && (
         (existing().targetCollection != 'anonymousPosts' && (
           existing().ownerUID == request.auth.uid ||
-          isSupremeAdminOrOwner() ||
+          isSupremeAdmin() ||
           (existing().targetCollection == 'posts' && isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))
         )) ||
         (existing().targetCollection == 'anonymousPosts' && (
-          isSupremeAdminOrOwner() ||
+          isSupremeAdmin() ||
           (exists(/databases/$(database)/documents/anonymousIdentityMappings/$(existing().targetId)) && (
             get(/databases/$(database)/documents/anonymousIdentityMappings/$(existing().targetId)).data.authorUid == request.auth.uid ||
             (isModerator() && get(/databases/$(database)/documents/anonymousIdentityMappings/$(existing().targetId)).data.authorRole == 'member')
@@ -1654,12 +1637,12 @@ service cloud.firestore {
         resource == null ||
         existing().status == 'active' ||
         (isSignedIn() && existing().ownerUID == request.auth.uid) ||
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         isModerator()
       );
       allow list: if existing().status == 'active' ||
         (isSignedIn() && existing().ownerUID == request.auth.uid) ||
-        isSupremeAdminOrOwner() ||
+        isSupremeAdmin() ||
         isModerator();
       allow create: if isValidId(listingId) &&
         isActiveSignedInUser() &&
@@ -1714,7 +1697,7 @@ service cloud.firestore {
             )
           ) ||
           // Moderator (ordinary members only) or Supreme Admin approves or rejects pending listing (blocks double approval!)
-          ((isSupremeAdminOrOwner() ||
+          ((isSupremeAdmin() ||
             (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))) &&
             incoming().updatedAt == request.time &&
             existing().approvalStatus == 'pending_approval' &&
@@ -1724,13 +1707,13 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['approvalStatus', 'status', 'visibility', 'approvedByUid', 'approvedAt', 'expiresAt', 'updatedAt'])
           ) ||
           // Supreme Admin state override
-          (isSupremeAdminOrOwner() &&
+          (isSupremeAdmin() &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['status', 'visibility', 'updatedAt']))
         );
       allow delete: if isValidId(listingId) && isActiveSignedInUser() && (
         existing().ownerUID == request.auth.uid ||
-        isSupremeAdminOrOwner()
+        isSupremeAdmin()
       );
     }
 
@@ -1740,18 +1723,18 @@ service cloud.firestore {
     match /trustedContacts/{contactId} {
       allow get, list: if true;
       allow create: if isValidId(contactId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidTrustedContact(incoming(), contactId) &&
         incoming().createdByUid == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(contactId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidTrustedContact(incoming(), contactId) &&
         incoming().createdByUid == existing().createdByUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time;
-      allow delete: if isValidId(contactId) && isSupremeAdminOrOwner();
+      allow delete: if isValidId(contactId) && isSupremeAdmin();
     }
 
     // -------------------------------------------------------------------------
@@ -1761,33 +1744,33 @@ service cloud.firestore {
       allow get: if isValidId(opportunityId) && (
         resource == null ||
         existing().status in ['active', 'expired'] ||
-        isSupremeAdminOrOwner()
+        isSupremeAdmin()
       );
-      allow list: if existing().status in ['active', 'expired'] || isSupremeAdminOrOwner();
+      allow list: if existing().status in ['active', 'expired'] || isSupremeAdmin();
       allow create: if isValidId(opportunityId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidOpportunity(incoming(), opportunityId) &&
         incoming().ownerUID == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(opportunityId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidOpportunity(incoming(), opportunityId) &&
         incoming().ownerUID == existing().ownerUID &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time;
-      allow delete: if isValidId(opportunityId) && isSupremeAdminOrOwner();
+      allow delete: if isValidId(opportunityId) && isSupremeAdmin();
     }
 
     match /events/{eventId} {
       allow get: if isValidId(eventId) && (
         resource == null ||
         isEventPublished(existing()) ||
-        isSupremeAdminOrOwner()
+        isSupremeAdmin()
       );
-      allow list: if isEventPublished(existing()) || isSupremeAdminOrOwner();
+      allow list: if isEventPublished(existing()) || isSupremeAdmin();
       allow create: if isValidId(eventId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidCampusEvent(incoming(), eventId) &&
         incoming().ownerUID == request.auth.uid &&
         incoming().createdAt == request.time &&
@@ -1799,7 +1782,7 @@ service cloud.firestore {
         incoming().ownerUID == existing().ownerUID &&
         incoming().createdAt == existing().createdAt && (
           // Supreme Admin or Permanent Owner manages event details, publishing, status, or notification state
-          (isSupremeAdminOrOwner() &&
+          (isSupremeAdmin() &&
             incoming().updatedAt == request.time) ||
           // Atomic like / unlike sync with postReactions for published events
           (isEventPublished(existing()) &&
@@ -1826,7 +1809,7 @@ service cloud.firestore {
               ('commentsCount' in existing() && incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
             ))
         );
-      allow delete: if isValidId(eventId) && isSupremeAdminOrOwner();
+      allow delete: if isValidId(eventId) && isSupremeAdmin();
     }
 
     // -------------------------------------------------------------------------
@@ -1842,7 +1825,7 @@ service cloud.firestore {
         isValidNotification(incoming(), notificationId) &&
         incoming().isRead == false &&
         incoming().createdAt == request.time && (
-          isSupremeAdminOrOwner() ||
+          isSupremeAdmin() ||
           (isModerator() && incoming().eventType in ['marketplace_approved', 'marketplace_rejected']) ||
           (isActiveSignedInUser() &&
             incoming().eventType == 'follow' &&
@@ -1851,7 +1834,7 @@ service cloud.firestore {
             !exists(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + incoming().recipientUid)) &&
             existsAfter(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + incoming().recipientUid))) ||
           (isActiveSignedInUser() &&
-            incoming().eventType in ['reaction', 'comment', 'reply'] &&
+            incoming().eventType in ['reaction', 'comment', 'reply', 'mention'] &&
             incoming().recipientUid != request.auth.uid &&
             incoming().actorUid == request.auth.uid &&
             exists(/databases/$(database)/documents/users/$(incoming().recipientUid))) ||
@@ -1883,22 +1866,22 @@ service cloud.firestore {
     match /polls/{pollId} {
       allow get, list: if true;
       allow create, update: if isValidId(pollId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidCampusPoll(incoming(), pollId) &&
         incoming().ownerUID == request.auth.uid &&
         (resource == null ? incoming().createdAt == request.time : incoming().createdAt == existing().createdAt);
-      allow delete: if isValidId(pollId) && isSupremeAdminOrOwner();
+      allow delete: if isValidId(pollId) && isSupremeAdmin();
     }
 
     match /platformSettings/{settingId} {
       allow get: if isValidId(settingId);
-      allow list: if isSupremeAdminOrOwner();
+      allow list: if isSupremeAdmin();
       allow create, update: if isValidId(settingId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         isValidPlatformSetting(incoming(), settingId) &&
         incoming().updatedByUid == request.auth.uid &&
         incoming().updatedAt == request.time;
-      allow delete: if isPermanentOwner() && isValidId(settingId);
+      allow delete: if isSupremeAdmin() && isValidId(settingId);
     }
 
     // -------------------------------------------------------------------------
@@ -1929,11 +1912,11 @@ service cloud.firestore {
       allow get: if isValidId(updateId) && (
         resource == null ||
         existing().published == true ||
-        isSupremeAdminOrOwner()
+        isSupremeAdmin()
       );
-      allow list: if existing().published == true || isSupremeAdminOrOwner();
+      allow list: if existing().published == true || isSupremeAdmin();
       allow create, update: if isValidId(updateId) &&
-        isSupremeAdminOrOwner() &&
+        isSupremeAdmin() &&
         incoming().keys().hasAll(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
         incoming().keys().hasOnly(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
         incoming().id == updateId &&
@@ -1946,7 +1929,7 @@ service cloud.firestore {
           ? (incoming().createdByUid == request.auth.uid && incoming().createdAt == request.time)
           : (incoming().createdByUid == existing().createdByUid && incoming().createdAt == existing().createdAt)) &&
         incoming().updatedAt == request.time;
-      allow delete: if isValidId(updateId) && isSupremeAdminOrOwner();
+      allow delete: if isValidId(updateId) && isSupremeAdmin();
     }
   }
 }

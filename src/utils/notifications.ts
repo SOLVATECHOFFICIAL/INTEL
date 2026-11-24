@@ -22,6 +22,7 @@ export type NotificationPrefKey =
   | 'likes'
   | 'comments'
   | 'replies'
+  | 'mentions'
   | 'anonymous_replies'
   | 'followers'
   | 'marketplace'
@@ -35,6 +36,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
   likes: true,
   comments: true,
   replies: true,
+  mentions: true,
   anonymous_replies: true,
   followers: true,
   marketplace: true,
@@ -65,6 +67,11 @@ export const NOTIFICATION_PREFERENCE_OPTIONS: readonly NotificationPreferenceOpt
       key: 'replies',
       label: 'Replies',
       description: 'Notify when someone replies to your comment thread.',
+    },
+    {
+      key: 'mentions',
+      label: 'Mentions (@username)',
+      description: 'Notify when someone mentions your @username in a public post or comment.',
     },
     {
       key: 'anonymous_replies',
@@ -160,6 +167,8 @@ export function mapEventTypeToPrefKey(
       return 'comments';
     case 'reply':
       return 'replies';
+    case 'mention':
+      return 'mentions';
     case 'anonymous_reply':
       return 'anonymous_replies';
     case 'follow':
@@ -198,6 +207,7 @@ export function getNotificationCategoryGroup(
     case 'reaction':
     case 'comment':
     case 'reply':
+    case 'mention':
     case 'anonymous_reply':
       return 'interactions';
     case 'follow':
@@ -227,6 +237,8 @@ export function getNotificationTypeLabel(
       return 'Comment';
     case 'reply':
       return 'Reply';
+    case 'mention':
+      return 'Mention';
     case 'anonymous_reply':
       return 'Anonymous Reply';
     case 'follow':
@@ -276,6 +288,31 @@ export function buildCommentNotificationId(commentId: string): string {
 
 export function buildReplyNotificationId(commentId: string): string {
   return `rpl_${sanitizeIdPart(commentId, 118)}`;
+}
+
+export function buildMentionNotificationId(
+  sourceId: string,
+  recipientUid: string
+): string {
+  return `mnt_${sanitizeIdPart(sourceId, 58)}_${sanitizeIdPart(recipientUid, 58)}`;
+}
+
+export function extractMentionedUsernames(
+  text: string | undefined | null,
+  maxMentions = 8
+): string[] {
+  if (!text) return [];
+  const matches = text.matchAll(/(?:^|[^a-zA-Z0-9_])@([a-zA-Z0-9_]{3,32})\b/g);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const match of matches) {
+    const candidate = match[1]?.toLowerCase();
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    result.push(candidate);
+    if (result.length >= maxMentions) break;
+  }
+  return result;
 }
 
 export function buildAnonymousReplyNotificationId(commentId: string): string {

@@ -122,7 +122,7 @@ function sortByCreatedAtDesc<T extends { createdAt: unknown }>(items: T[]): T[] 
   });
 }
 
-function getAuditActorRole(_role: UserRole): 'supreme_admin' {
+function getAuditActorRole(): 'supreme_admin' {
   return 'supreme_admin';
 }
 
@@ -166,8 +166,9 @@ export async function fetchAdminMemberDirectory(
     const mapped: AdminManagedMember[] = profiles
       .map((profile) => {
         const roleRecord = roleMap.get(profile.uid) ?? null;
+        const rawRole = (roleRecord as { role?: string } | null)?.role;
         const isStaleLegacyOwner = Boolean(
-          roleRecord?.isPermanentOwner || roleRecord?.role === 'owner'
+          roleRecord?.isPermanentOwner || rawRole === 'owner'
         );
         const effectiveRole: UserRole = isStaleLegacyOwner
           ? 'member'
@@ -209,7 +210,6 @@ export async function fetchAdminMemberDirectory(
       });
 
     const rankOrder: Record<UserRole, number> = {
-      owner: 4,
       supreme_admin: 0,
       moderator: 1,
       verified: 2,
@@ -267,11 +267,13 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
       const existingRole = roleSnap.exists()
         ? (roleSnap.data() as UserRoleRecord)
         : null;
-      const rawPreviousRole: UserRole = existingRole?.role ?? 'member';
+      const rawPreviousRole = (existingRole as { role?: string } | null)?.role;
       const isStaleLegacyOwner = Boolean(
         existingRole?.isPermanentOwner || rawPreviousRole === 'owner'
       );
-      const previousRole: UserRole = isStaleLegacyOwner ? 'member' : rawPreviousRole;
+      const previousRole: UserRole = isStaleLegacyOwner
+        ? 'member'
+        : (existingRole?.role ?? 'member');
       const previousBadge = isStaleLegacyOwner
         ? 'none'
         : (existingRole?.badge ?? targetProfile.badge ?? 'none');
@@ -297,7 +299,7 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
 
       const nextBadge = resolveBadgeForRole(input.nextRole);
       const action = resolveBadgeAuditAction(previousRole, input.nextRole);
-      const performedByRole = getAuditActorRole(input.actorRole);
+      const performedByRole = getAuditActorRole();
 
       const nextRolePayload = {
         uid: input.targetUid,
@@ -449,7 +451,7 @@ export async function toggleModeratorVerifiedStatusAtomically(input: {
         nextRole: 'moderator',
         nextBadge: 'moderator',
         performedByUid: input.actorUid,
-        performedByRole: getAuditActorRole(input.actorRole),
+        performedByRole: getAuditActorRole(),
         createdAt: serverTimestamp(),
       };
       if (cleanReason) {
@@ -533,11 +535,11 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
       const existingRole = roleSnap.exists()
         ? (roleSnap.data() as UserRoleRecord)
         : null;
-      const rawCurrentRole: UserRole = existingRole?.role ?? 'member';
+      const rawCurrentRole = (existingRole as { role?: string } | null)?.role;
       const currentRole: UserRole =
         existingRole?.isPermanentOwner || rawCurrentRole === 'owner'
           ? 'member'
-          : rawCurrentRole;
+          : (existingRole?.role ?? 'member');
       const currentBadge = resolveBadgeForRole(currentRole);
 
       if (
@@ -577,7 +579,7 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
         nextRole: currentRole,
         nextBadge: currentBadge,
         performedByUid: input.actorUid,
-        performedByRole: getAuditActorRole(input.actorRole),
+        performedByRole: getAuditActorRole(),
         createdAt: serverTimestamp(),
       };
       if (cleanReason) {

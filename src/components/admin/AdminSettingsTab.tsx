@@ -130,8 +130,8 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
           Platform governance is permanently locked by Firebase Security Rules to
           only the two designated Supreme Admin accounts (Public Supreme Admin
           and Underground Supreme Admin). Peer Supreme Admins cannot be demoted,
-          suspended, or deleted, and additional Supreme Admin or legacy owner
-          roles cannot be assigned.
+          suspended, or deleted, and additional Supreme Admin roles cannot be
+          assigned.
         </p>
       </div>
 

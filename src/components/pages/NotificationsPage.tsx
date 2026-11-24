@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  AtSign,
   Bell,
   Briefcase,
   Calendar,
@@ -76,6 +77,11 @@ function renderNotificationTypeVisual(eventType: NotificationEventType) {
       return {
         bgClass: 'bg-[#1E88E5]/10 text-[#1E88E5] border-[#1E88E5]/25',
         Icon: CornerDownRight,
+      };
+    case 'mention':
+      return {
+        bgClass: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+        Icon: AtSign,
       };
     case 'anonymous_reply':
       return {

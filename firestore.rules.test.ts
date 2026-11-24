@@ -94,8 +94,14 @@ test('anonymous identity protection and moderator conflict rules are enforced in
   );
 });
 
-test('permanent owner shield, badge audit log immutability, role-badge sync, and marketplace no-double-approval rules are enforced', () => {
-  assert.match(rulesText, /!isTargetPermanentOwner\(userId\)/);
+test('two-admin lock, no legacy owner escalation, badge audit log immutability, role-badge sync, and marketplace no-double-approval rules are enforced', () => {
+  assert.doesNotMatch(rulesText, /function isPermanentOwner/);
+  assert.doesNotMatch(rulesText, /function isTargetPermanentOwner/);
+  assert.doesNotMatch(rulesText, /function isSupremeAdminOrOwner/);
+  assert.doesNotMatch(rulesText, /estheriawoyinfa52/i);
+  assert.match(rulesText, /function isSupremeAdmin\(\)/);
+  assert.match(rulesText, /request\.auth\.token\.email\.trim\(\)\.lower\(\)/);
+  assert.match(rulesText, /data\.isPermanentOwner == false/);
   assert.match(rulesText, /function isRoleBadgeConsistent\(role, badge\)/);
   assert.match(rulesText, /userId != request\.auth\.uid/);
   assert.match(rulesText, /match \/badgeAuditLogs\/\{logId\}/);
@@ -150,7 +156,7 @@ test('Prompt 6 adminAuditLogs immutability, scoped moderator boundaries, and col
     rulesText.indexOf('match /adminAuditLogs/{logId}'),
     rulesText.indexOf('match /usernames/{username}')
   );
-  assert.match(adminLogBlock, /allow get, list: if isSupremeAdminOrOwner\(\);/);
+  assert.match(adminLogBlock, /allow get, list: if isSupremeAdmin\(\);/);
   assert.match(adminLogBlock, /allow update, delete: if false;/);
   assert.match(
     adminLogBlock,
@@ -192,7 +198,7 @@ test('Prompt 6 adminAuditLogs immutability, scoped moderator boundaries, and col
   assert.match(rulesText, /'marketplaceSubmissionsOpen'/);
   assert.match(rulesText, /'anonymousPostingOpen'/);
   assert.match(rulesText, /'newRegistrationsOpen'/);
-  assert.match(settingsBlock, /allow delete: if isPermanentOwner\(\)/);
+  assert.match(settingsBlock, /allow delete: if isSupremeAdmin\(\)/);
 });
 
 test('Prompt 7 ordinary feed rules enforce role/badge sync, two separate post formats, and target post existence for interactions', () => {
@@ -242,7 +248,7 @@ test('isActiveAccount and currentRoleString guard missing fields safely without 
   );
   assert.match(
     rulesText,
-    /function currentRoleString\(\) \{\s*return isPermanentOwner\(\)\s*\? 'owner'\s*: \(isDesignatedSupremeAdminEmail\(\)\s*\? 'supreme_admin'\s*: \(hasRoleDoc\(request\.auth\.uid\) &&\s*'role' in roleDoc\(request\.auth\.uid\) &&/
+    /function currentRoleString\(\) \{\s*return isDesignatedSupremeAdminEmail\(\)\s*\? 'supreme_admin'\s*: \(hasRoleDoc\(request\.auth\.uid\) &&\s*'role' in roleDoc\(request\.auth\.uid\) &&/
   );
   assert.match(
     rulesText,
@@ -290,7 +296,7 @@ test('Prompt 8 anonymous community rules enforce strict text vs photo formats, c
   assert.match(reportsBlock, /isValidAnonymousReport\(incoming\(\), reportId\)/);
   assert.match(
     reportsBlock,
-    /reportId == data\.targetType \+ '_' \+ data\.targetId \+ '_' \+ data\.reporterUid|isSupremeAdminOrOwner\(\) \|\| isModerator\(\)/
+    /reportId == data\.targetType \+ '_' \+ data\.targetId \+ '_' \+ data\.reporterUid|isSupremeAdmin\(\) \|\| isModerator\(\)/
   );
   assert.doesNotMatch(
     rulesText.slice(
@@ -313,7 +319,7 @@ test('Prompt 10 follow notifications and Trusted Circle media/category rules are
   );
   assert.match(
     rulesText,
-    /incoming\(\)\.targetCollection == 'trustedContacts' &&\s*isSupremeAdminOrOwner\(\)/
+    /incoming\(\)\.targetCollection == 'trustedContacts' &&\s*isSupremeAdmin\(\)/
   );
   assert.match(rulesText, /'officially_verified'/);
   assert.match(rulesText, /'community_recommended'/);
@@ -340,11 +346,11 @@ test('Task 11 opportunities rules enforce 9 categories, unpublished draft isolat
   );
   assert.match(
     oppMatchBlock,
-    /existing\(\)\.status in \['active', 'expired'\] \|\| isSupremeAdminOrOwner\(\)/
+    /existing\(\)\.status in \['active', 'expired'\] \|\| isSupremeAdmin\(\)/
   );
   assert.match(
     oppMatchBlock,
-    /allow list: if existing\(\)\.status in \['active', 'expired'\] \|\| isSupremeAdminOrOwner\(\);/
+    /allow list: if existing\(\)\.status in \['active', 'expired'\] \|\| isSupremeAdmin\(\);/
   );
 });
 
@@ -378,13 +384,13 @@ test('Task 12 events rules enforce 10 categories, draft isolation, mediaImages, 
     rulesText.indexOf('match /events/{eventId}'),
     rulesText.indexOf('// 10. Notifications')
   );
-  assert.match(eventMatchBlock, /isEventPublished\(existing\(\)\) \|\| isSupremeAdminOrOwner\(\)/);
+  assert.match(eventMatchBlock, /isEventPublished\(existing\(\)\) \|\| isSupremeAdmin\(\)/);
   assert.match(eventMatchBlock, /'events_' \+ eventId \+ '_' \+ request\.auth\.uid/);
   assert.match(eventMatchBlock, /hasOnly\(\['commentsCount'\]\)/);
 
   assert.match(
     rulesText,
-    /incoming\(\)\.targetCollection == 'events' &&\s*isSupremeAdminOrOwner\(\)/
+    /incoming\(\)\.targetCollection == 'events' &&\s*isSupremeAdmin\(\)/
   );
   assert.match(
     rulesText,
@@ -410,7 +416,7 @@ test('Task 13 notification rules enforce actor isolation, zero-actor anonymous r
   );
   assert.match(
     notifBlock,
-    /incoming\(\)\.eventType in \['reaction', 'comment', 'reply'\]/
+    /incoming\(\)\.eventType in \['reaction', 'comment', 'reply', 'mention'\]/
   );
   assert.match(notifBlock, /incoming\(\)\.actorUid == request\.auth\.uid/);
   assert.match(notifBlock, /incoming\(\)\.recipientUid != request\.auth\.uid/);
@@ -436,6 +442,7 @@ test('Prompt 20 designated Supreme Admins, underground privacy, compulsory Trust
     rulesText.indexOf('match /anonymousHistory/{postId}')
   );
   assert.match(privateBlock, /allow get: if isValidId\(userId\) && isOwnerOf\(userId\);/);
+  assert.match(privateBlock, /data\.showSupremeAdminBadge == false/);
   assert.doesNotMatch(privateBlock, /isPermanentOwner\(\)/);
 
   const trustFn = rulesText.slice(
@@ -456,8 +463,8 @@ test('Prompt 20 designated Supreme Admins, underground privacy, compulsory Trust
 
   const mktUpdatesStart = rulesText.indexOf('match /marketplaceUpdates/{updateId}');
   const mktUpdatesBlock = rulesText.slice(mktUpdatesStart);
-  assert.match(mktUpdatesBlock, /allow create, update: if isValidId\(updateId\) &&[\s\S]*isSupremeAdminOrOwner\(\)/);
-  assert.match(mktUpdatesBlock, /allow delete: if isValidId\(updateId\) && isSupremeAdminOrOwner\(\);/);
+  assert.match(mktUpdatesBlock, /allow create, update: if isValidId\(updateId\) &&[\s\S]*isSupremeAdmin\(\)/);
+  assert.match(mktUpdatesBlock, /allow delete: if isValidId\(updateId\) && isSupremeAdmin\(\);/);
 });
 
 test('Audit fixes enforce resource==null reads, unfollow decrements on suspended targets, and hardened marketplace seller lifecycle', () => {

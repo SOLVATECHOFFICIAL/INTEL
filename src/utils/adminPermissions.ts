@@ -130,8 +130,7 @@ export function getVisibleAdminSections(
     suspended ||
     tier === 'guest' ||
     tier === 'member' ||
-    tier === 'verified' ||
-    tier === 'owner'
+    tier === 'verified'
   ) {
     return [];
   }

@@ -68,7 +68,6 @@ test('getVisibleAdminSections enforces strict 10-section vs 3-section vs 0-secti
   assert.deepEqual(getVisibleAdminSections('verified', false), []);
   assert.deepEqual(getVisibleAdminSections('moderator', true), []);
   assert.deepEqual(getVisibleAdminSections('supreme_admin', true), []);
-  assert.deepEqual(getVisibleAdminSections('owner', true), []);
 
   const moderatorSections = getVisibleAdminSections('moderator', false).map(
     (s) => s.id
@@ -91,9 +90,6 @@ test('getVisibleAdminSections enforces strict 10-section vs 3-section vs 0-secti
     'audit-log',
     'settings',
   ]);
-
-  const ownerSections = getVisibleAdminSections('owner', false).map((s) => s.id);
-  assert.equal(ownerSections.length, 10);
 
   assert.equal(canActorAccessAdminSection('moderator', false, 'marketplace'), true);
   assert.equal(canActorAccessAdminSection('moderator', false, 'members'), false);
@@ -147,12 +143,11 @@ test('moderation boundary helpers prevent moderators from altering privileged se
     true
   );
 
-  // Listing deletion reserved for Supreme Admin / Owner only
+  // Listing deletion reserved for Supreme Admin only
   assert.equal(canActorDeleteMarketplaceListing('moderator'), false);
   assert.equal(canActorDeleteMarketplaceListing('verified'), false);
   assert.equal(canActorDeleteMarketplaceListing('member'), false);
   assert.equal(canActorDeleteMarketplaceListing('supreme_admin'), true);
-  assert.equal(canActorDeleteMarketplaceListing('owner'), true);
 
   // Comment deletion hierarchy
   assert.equal(canActorDeleteCommentByBadge('moderator', 'none'), true);
@@ -161,7 +156,7 @@ test('moderation boundary helpers prevent moderators from altering privileged se
   assert.equal(canActorDeleteCommentByBadge('moderator', 'moderator'), false);
   assert.equal(canActorDeleteCommentByBadge('moderator', 'supreme_admin'), false);
   assert.equal(canActorDeleteCommentByBadge('supreme_admin', 'verified'), true);
-  assert.equal(canActorDeleteCommentByBadge('owner', 'supreme_admin'), true);
+  assert.equal(canActorDeleteCommentByBadge('supreme_admin', 'supreme_admin'), true);
 });
 
 test('computePlatformOverviewStats aggregates all real member, post, marketplace bucket, opportunity, and event counts accurately', () => {

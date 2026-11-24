@@ -1,4 +1,4 @@
-const FALLBACK_ORIGIN = 'https://lasuedintel.app';
+const FALLBACK_ORIGIN = 'https://lasued-intel.vercel.app';
 
 export function normalizeOriginCandidate(raw?: string | null): string | null {
   if (!raw || typeof raw !== 'string') return null;

@@ -20,6 +20,10 @@ export interface PageSeoMetadata {
   ogDescription: string;
   ogUrl: string;
   ogImage: string;
+  ogImageWidth: string;
+  ogImageHeight: string;
+  ogImageType: string;
+  ogImageAlt: string;
   twitterCard: 'summary' | 'summary_large_image';
   twitterTitle: string;
   twitterDescription: string;
@@ -83,7 +87,7 @@ export function resolveCanonicalUrl(
   dest: NormalizedRouteDestination,
   baseOrigin: string
 ): string {
-  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasuedintel.app';
+  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasued-intel.vercel.app';
 
   if (dest.route === 'for-you' && !dest.postId) {
     return buildPublicAppUrl('/', safeOrigin);
@@ -272,13 +276,13 @@ export function resolvePageSeoMetadata(
   dest: NormalizedRouteDestination,
   baseOrigin: string
 ): PageSeoMetadata {
-  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasuedintel.app';
+  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasued-intel.vercel.app';
   const canonicalUrl = resolveCanonicalUrl(dest, safeOrigin);
   const robots: RobotsDirective = isIndexableDestination(dest)
     ? 'index, follow'
     : 'noindex, nofollow';
   const copy = resolveRouteCopy(dest);
-  const ogImage = buildPublicImageUrl('/pwa-512x512.png', safeOrigin);
+  const ogImage = buildPublicImageUrl('/og-share.png', safeOrigin);
 
   const jsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
@@ -318,7 +322,11 @@ export function resolvePageSeoMetadata(
     ogDescription: copy.description,
     ogUrl: canonicalUrl,
     ogImage,
-    twitterCard: 'summary',
+    ogImageWidth: '1200',
+    ogImageHeight: '630',
+    ogImageType: 'image/png',
+    ogImageAlt: `${BRAND.name} — ${BRAND.tagline}`,
+    twitterCard: 'summary_large_image',
     twitterTitle: copy.title,
     twitterDescription: copy.description,
     twitterImage: ogImage,
@@ -387,6 +395,11 @@ export function applyDocumentSeoMetadata(meta: PageSeoMetadata): void {
   upsertMetaByProperty('og:description', meta.ogDescription);
   upsertMetaByProperty('og:url', meta.ogUrl);
   upsertMetaByProperty('og:image', meta.ogImage);
+  upsertMetaByProperty('og:image:secure_url', meta.ogImage);
+  upsertMetaByProperty('og:image:type', meta.ogImageType);
+  upsertMetaByProperty('og:image:width', meta.ogImageWidth);
+  upsertMetaByProperty('og:image:height', meta.ogImageHeight);
+  upsertMetaByProperty('og:image:alt', meta.ogImageAlt);
   upsertMetaByName('twitter:card', meta.twitterCard);
   upsertMetaByName('twitter:title', meta.twitterTitle);
   upsertMetaByName('twitter:description', meta.twitterDescription);

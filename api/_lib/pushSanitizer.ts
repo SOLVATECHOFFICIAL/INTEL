@@ -37,19 +37,19 @@ export function isValidHttpsPushEndpoint(endpoint: unknown): endpoint is string 
 
 export function normalizeVapidSubject(rawSubject?: string | null): string {
   const trimmed = typeof rawSubject === 'string' ? rawSubject.trim() : '';
-  if (!trimmed) return 'mailto:admin@lasuedintel.app';
+  if (!trimmed) return 'mailto:lasuedintel@gmail.com';
   if (/^(mailto:|https:\/\/)/i.test(trimmed)) {
     return trimmed;
   }
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
     return `mailto:${trimmed}`;
   }
-  return 'mailto:admin@lasuedintel.app';
+  return 'mailto:lasuedintel@gmail.com';
 }
 
 export function sanitizeInternalTargetPath(
   rawPath: unknown,
-  allowedOrigin = 'https://lasuedintel.app'
+  allowedOrigin = 'https://lasued-intel.vercel.app'
 ): string {
   if (typeof rawPath !== 'string') {
     return '/?view=notifications';
@@ -78,6 +78,8 @@ export function mapEventTypeToPrefKey(eventType: string): string | null {
       return 'comments';
     case 'reply':
       return 'replies';
+    case 'mention':
+      return 'mentions';
     case 'anonymous_reply':
       return 'anonymous_replies';
     case 'follow':

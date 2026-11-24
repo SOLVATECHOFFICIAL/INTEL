@@ -458,7 +458,6 @@ export async function ensureDesignatedSupremeAdminAccountState(
           uid: user.uid,
           patch: {
             badge: expectedPublicBadge,
-            isHiddenFromDirectory: isUnderground,
           },
         });
       }
@@ -597,6 +596,12 @@ export async function updateMemberAccountProfileAndUsername(
           : true;
 
       if (!existingPublic) {
+        const currentAuthUser = auth.currentUser?.uid === uid ? auth.currentUser : null;
+        const initialBadge: BadgeType = isPublicSupremeAdminUser(currentAuthUser)
+          ? 'supreme_admin'
+          : 'none';
+        const initialHidden = isUndergroundSupremeAdminUser(currentAuthUser);
+
         const createPayload: Record<string, unknown> = {
           uid,
           memberId: `LI-${uid.slice(0, 12)}`,
@@ -606,9 +611,9 @@ export async function updateMemberAccountProfileAndUsername(
           level: cleanLevel,
           publicWhatsapp: cleanWhatsapp,
           showWhatsappPublicly: nextShowWhatsappPublicly,
-          badge: 'none' satisfies BadgeType,
+          badge: initialBadge,
           accountStatus: 'active',
-          isHiddenFromDirectory: false,
+          isHiddenFromDirectory: initialHidden,
           followersCount: 0,
           followingCount: 0,
           createdAt: serverTimestamp(),
@@ -2355,7 +2360,8 @@ export async function createSafeMemberNotification(input: {
   const requiresActor =
     input.eventType === 'reaction' ||
     input.eventType === 'comment' ||
-    input.eventType === 'reply';
+    input.eventType === 'reply' ||
+    input.eventType === 'mention';
 
   if (requiresActor) {
     if (
@@ -2878,3 +2884,59 @@ export async function createAnonymousPostAtomically(
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
+
+export async function resolveUserUidsByUsernames(
+  usernames: readonly string[],
+  excludeUids: ReadonlySet<string> = new Set()
+): Promise<Array<{ username: string; uid: string }>> {
+  const normalized = Array.from(
+    new Set(
+      usernames
+        .map((u) => u.trim().toLowerCase())
+        .filter((u) => /^[a-z0-9_]{3,32}$/.test(u))
+    )
+  ).slice(0, 8);
+
+  if (normalized.length === 0) return [];
+
+  const resolved: Array<{ username: string; uid: string }> = [];
+  const seenUids = new Set<string>(excludeUids);
+
+  await Promise.all(
+    normalized.map(async (username) => {
+      try {
+        let currentKey = username;
+        for (let hop = 0; hop < 3; hop += 1) {
+          const snap = await getDoc(
+            doc(db, COLLECTION_NAMES.usernames, currentKey)
+          );
+          if (!snap.exists()) break;
+          const data = snap.data() as {
+            uid?: string;
+            redirectToUsername?: string;
+          };
+          if (data.uid && isValidFirestoreId(data.uid)) {
+            if (!seenUids.has(data.uid)) {
+              seenUids.add(data.uid);
+              resolved.push({ username, uid: data.uid });
+            }
+            break;
+          }
+          if (
+            data.redirectToUsername &&
+            /^[a-z0-9_]{3,32}$/.test(data.redirectToUsername.toLowerCase())
+          ) {
+            currentKey = data.redirectToUsername.toLowerCase();
+            continue;
+          }
+          break;
+        }
+      } catch {
+        // Non-blocking mention lookup
+      }
+    })
+  );
+
+  return resolved;
+}
+

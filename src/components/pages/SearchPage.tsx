@@ -620,7 +620,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         if (persisted) {
           setSuggestionSeed(persisted);
           if (
-            Date.now() - persisted.fetchedAt > 10_000 &&
+            Date.now() - persisted.fetchedAt > 5_000 &&
             persisted.members.length > 0 &&
             (typeof navigator === 'undefined' || navigator.onLine !== false)
           ) {

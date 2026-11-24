@@ -87,7 +87,7 @@
       "type": "object",
       "properties": {
         "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "role": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
+        "role": { "type": "string", "enum": ["supreme_admin", "moderator", "verified", "member"] },
         "badge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
         "isVerified": { "type": "boolean" },
         "isPermanentOwner": { "type": "boolean" },
@@ -113,12 +113,12 @@
     },
     "CommunityPost": {
       "title": "CommunityPost",
-      "description": "Ordinary community feed post (For You, Following, Latest) with two strictly separate formats: styled text-only ('text') or 1-4 photo gallery with one shared top caption ('photo'). Publishable only by verified, moderator, supreme_admin, or owner. Image metadata stored here; Base64 bytes live in /mediaImages/{imageId}.",
+      "description": "Ordinary community feed post (For You, Following, Latest) with two strictly separate formats: styled text-only ('text') or 1-4 photo gallery with one shared top caption ('photo'). Publishable only by verified, moderator, or designated supreme_admin accounts. Image metadata stored here; Base64 bytes live in /mediaImages/{imageId}.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "authorRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified"] },
+        "authorRole": { "type": "string", "enum": ["supreme_admin", "moderator", "verified"] },
         "postType": { "type": "string", "enum": ["text", "photo"] },
         "category": { "type": "string", "minLength": 2, "maxLength": 64 },
         "title": { "type": "string", "maxLength": 180 },
@@ -244,7 +244,7 @@
         "excerpt": { "type": "string", "maxLength": 240 },
         "status": { "type": "string", "enum": ["pending", "reviewed_removed", "dismissed"] },
         "reviewedByUid": { "type": "string", "maxLength": 128 },
-        "reviewedByRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator"] },
+        "reviewedByRole": { "type": "string", "enum": ["supreme_admin", "moderator"] },
         "resolutionNote": { "type": "string", "maxLength": 500 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -253,13 +253,13 @@
     },
     "AnonymousIdentityMapping": {
       "title": "AnonymousIdentityMapping",
-      "description": "Strictly isolated mapping linking an anonymous post/comment ID to real author UID and role. Readable ONLY by Supreme Admin or Owner.",
+      "description": "Strictly isolated mapping linking an anonymous post/comment ID to real author UID and role. Readable ONLY by the two designated Supreme Admin accounts.",
       "type": "object",
       "properties": {
         "entryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "entryType": { "type": "string", "enum": ["anonymousPosts", "anonymousComments"] },
         "authorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "authorRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
+        "authorRole": { "type": "string", "enum": ["supreme_admin", "moderator", "verified", "member"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["entryId", "entryType", "authorUid", "authorRole", "createdAt"]
@@ -412,7 +412,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "recipientUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "eventType": { "type": "string", "enum": ["follow", "comment", "reply", "anonymous_reply", "reaction", "marketplace_approved", "marketplace_rejected", "marketplace_expired", "new_opportunity", "new_event", "badge_change", "account_change", "announcement"] },
+        "eventType": { "type": "string", "enum": ["follow", "comment", "reply", "mention", "anonymous_reply", "reaction", "marketplace_approved", "marketplace_rejected", "marketplace_expired", "new_opportunity", "new_event", "badge_change", "account_change", "announcement"] },
         "title": { "type": "string", "minLength": 1, "maxLength": 160 },
         "body": { "type": "string", "maxLength": 500 },
         "targetPath": { "type": "string", "maxLength": 256 },
@@ -479,7 +479,7 @@
     },
     "BadgeAuditLog": {
       "title": "BadgeAuditLog",
-      "description": "Immutable internal audit log recording every badge/role assignment, promotion, demotion, removal, and account suspension action by Supreme Admin or Owner.",
+      "description": "Immutable internal audit log recording every badge/role assignment, promotion, demotion, removal, and account suspension action by a designated Supreme Admin.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -501,12 +501,12 @@
             "restore_account"
           ]
         },
-        "previousRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
+        "previousRole": { "type": "string", "enum": ["supreme_admin", "moderator", "verified", "member"] },
         "previousBadge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
-        "nextRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator", "verified", "member"] },
+        "nextRole": { "type": "string", "enum": ["supreme_admin", "moderator", "verified", "member"] },
         "nextBadge": { "type": "string", "enum": ["none", "verified", "moderator", "supreme_admin"] },
         "performedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "performedByRole": { "type": "string", "enum": ["owner", "supreme_admin"] },
+        "performedByRole": { "type": "string", "enum": ["supreme_admin"] },
         "reason": { "type": "string", "maxLength": 500 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -553,7 +553,7 @@
         "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "targetLabel": { "type": "string", "maxLength": 180 },
         "performedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "performedByRole": { "type": "string", "enum": ["owner", "supreme_admin", "moderator"] },
+        "performedByRole": { "type": "string", "enum": ["supreme_admin", "moderator"] },
         "details": { "type": "string", "maxLength": 500 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -607,7 +607,7 @@
     },
     "/userRoles/{userId}": {
       "schema": { "$ref": "#/entities/UserRoleRecord" },
-      "description": "Trusted role and badge registry governing owner, supreme_admin, moderator, verified, and member permissions."
+      "description": "Trusted role and badge registry governing supreme_admin, moderator, verified, and member permissions."
     },
     "/usernames/{username}": {
       "schema": { "$ref": "#/entities/UsernameReservation" },
@@ -615,7 +615,7 @@
     },
     "/posts/{postId}": {
       "schema": { "$ref": "#/entities/CommunityPost" },
-      "description": "Main community feed posts (For You, Following, Latest) authored by Verified, Moderator, Supreme Admin, or Owner."
+      "description": "Main community feed posts (For You, Following, Latest) authored by Verified, Moderator, or Supreme Admin."
     },
     "/postComments/{commentId}": {
       "schema": { "$ref": "#/entities/PostComment" },
@@ -639,7 +639,7 @@
     },
     "/anonymousIdentityMappings/{entryId}": {
       "schema": { "$ref": "#/entities/AnonymousIdentityMapping" },
-      "description": "Private mapping of anonymous post/comment IDs to author UID and role; readable only by Supreme Admin / Owner."
+      "description": "Private mapping of anonymous post/comment IDs to author UID and role; readable only by designated Supreme Admins."
     },
     "/anonymousAuditLogs/{auditId}": {
       "schema": { "$ref": "#/entities/AnonymousAuditLog" },
@@ -687,11 +687,11 @@
     },
     "/badgeAuditLogs/{logId}": {
       "schema": { "$ref": "#/entities/BadgeAuditLog" },
-      "description": "Immutable internal audit trail of all badge/role changes performed by Supreme Admin or Permanent Owner."
+      "description": "Immutable internal audit trail of all badge/role changes performed by designated Supreme Admins."
     },
     "/adminAuditLogs/{logId}": {
       "schema": { "$ref": "#/entities/AdminAuditLog" },
-      "description": "Immutable administrative and moderation audit trail readable only by Supreme Admin or Permanent Owner."
+      "description": "Immutable administrative and moderation audit trail readable only by designated Supreme Admins."
     },
     "/postViews/{viewId}": {
       "schema": { "$ref": "#/entities/PostViewRecord" },

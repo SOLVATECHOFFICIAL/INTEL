@@ -1,4 +1,4 @@
-const DEFAULT_FALLBACK_PUBLIC_ORIGIN = 'https://lasuedintel.app';
+const DEFAULT_FALLBACK_PUBLIC_ORIGIN = 'https://lasued-intel.vercel.app';
 
 export function normalizePublicOrigin(raw?: string | null): string | null {
   if (!raw || typeof raw !== 'string') return null;
@@ -52,7 +52,7 @@ export function buildPublicAppUrl(
 }
 
 export function buildPublicImageUrl(
-  relativeAssetPath = '/pwa-512x512.png',
+  relativeAssetPath = '/og-share.png',
   originOverride?: string
 ): string {
   return buildPublicAppUrl(relativeAssetPath, originOverride);

@@ -1,5 +1,4 @@
 export type UserRole =
-  | 'owner'
   | 'supreme_admin'
   | 'moderator'
   | 'verified'
@@ -100,6 +99,7 @@ export type NotificationEventType =
   | 'follow'
   | 'comment'
   | 'reply'
+  | 'mention'
   | 'anonymous_reply'
   | 'reaction'
   | 'marketplace_approved'
@@ -368,7 +368,7 @@ export interface BadgeAuditLog {
   nextRole: UserRole;
   nextBadge: BadgeType;
   performedByUid: string;
-  performedByRole: 'owner' | 'supreme_admin';
+  performedByRole: 'supreme_admin';
   reason?: string;
   createdAt: unknown;
 }
@@ -408,7 +408,7 @@ export interface AdminAuditLog {
   targetId: string;
   targetLabel?: string;
   performedByUid: string;
-  performedByRole: 'owner' | 'supreme_admin' | 'moderator';
+  performedByRole: 'supreme_admin' | 'moderator';
   details?: string;
   createdAt: unknown;
 }
@@ -550,7 +550,7 @@ export interface AnonymousReport {
   excerpt: string;
   status: AnonymousReportStatus;
   reviewedByUid?: string;
-  reviewedByRole?: 'owner' | 'supreme_admin' | 'moderator';
+  reviewedByRole?: 'supreme_admin' | 'moderator';
   resolutionNote?: string;
   createdAt: unknown;
   updatedAt: unknown;
@@ -1268,7 +1268,6 @@ export function validateTrustedContactPayload(contact: TrustedContact): void {
 
 export function resolveBadgeForRole(role: UserRole): BadgeType {
   switch (role) {
-    case 'owner':
     case 'supreme_admin':
       return 'supreme_admin';
     case 'moderator':
@@ -1347,10 +1346,7 @@ export function canActorUpdateTargetRoleRecord(
   if (currentTargetRole === 'supreme_admin') {
     return false;
   }
-  if (
-    nextTargetRole &&
-    (nextTargetRole === 'owner' || nextTargetRole === 'supreme_admin')
-  ) {
+  if (nextTargetRole && nextTargetRole === 'supreme_admin') {
     return false;
   }
   return true;

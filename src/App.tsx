@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Wifi, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bell, Wifi, WifiOff, X } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
 import { HomeFeedWorkspace } from './components/HomeFeedWorkspace';
@@ -12,6 +12,7 @@ import { useFirebase } from './context/firebaseContext';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { verifyStoredPushSubscriptionForUser } from './services/webPush';
 import { getPublicSiteBaseUrl } from './config/site';
+import { resolveNotificationDestination } from './utils/notifications';
 import { parseNotificationTargetUrl } from './utils/pwa';
 import {
   applyDocumentSeoMetadata,
@@ -125,7 +126,15 @@ function readBrowserHistoryState(state: unknown): StoredBrowserHistoryState {
 }
 
 export function App() {
-  const { authReady, user, refreshAccountState } = useFirebase();
+  const {
+    authReady,
+    user,
+    isSuspended,
+    foregroundNotificationToast,
+    dismissForegroundNotificationToast,
+    markNotificationReadOptimistic,
+    refreshAccountState,
+  } = useFirebase();
   const { isOnline, justReconnected, syncErrorMessage, clearSyncError } =
     useNetworkStatus();
 
@@ -716,6 +725,14 @@ export function App() {
     };
   }, [handleNavigate, user?.uid]);
 
+  useEffect(() => {
+    if (!foregroundNotificationToast) return;
+    const timer = window.setTimeout(() => {
+      dismissForegroundNotificationToast();
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [foregroundNotificationToast, dismissForegroundNotificationToast]);
+
   const handleReplaceCurrentDestination = useCallback(
     (patch: Partial<Omit<RouteDestination, 'route'>>) => {
       const currentEntry =
@@ -1184,6 +1201,60 @@ export function App() {
       </main>
 
       <Footer onNavigate={handleNavigate} />
+
+      {foregroundNotificationToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="foreground-notification-toast"
+          className="fixed right-4 bottom-20 z-50 w-[min(calc(100vw-2rem),24rem)] rounded-2xl border border-[#1E88E5]/30 bg-white p-3.5 shadow-2xl sm:right-6 sm:bottom-6"
+        >
+          <div className="flex items-start gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                const item = foregroundNotificationToast;
+                if (!item.isRead && !isSuspended) {
+                  void markNotificationReadOptimistic(item.id);
+                }
+                const dest = resolveNotificationDestination(item);
+                dismissForegroundNotificationToast();
+                if (dest) {
+                  handleNavigate(dest.route, dest.options);
+                } else {
+                  handleNavigate('notifications');
+                }
+              }}
+              className="flex min-w-0 flex-1 items-start gap-3 text-left"
+            >
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
+                <Bell className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-bold text-[#0B1A2E] sm:text-sm">
+                  {foregroundNotificationToast.title}
+                </span>
+                {foregroundNotificationToast.body && (
+                  <span className="mt-0.5 line-clamp-2 block text-xs text-slate-600">
+                    {foregroundNotificationToast.body}
+                  </span>
+                )}
+                <span className="mt-1 block text-[11px] font-semibold text-[#1E88E5]">
+                  Open alert
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss notification toast"
+              onClick={dismissForegroundNotificationToast}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <MobileBottomNav
         activeRoute={activeRoute}

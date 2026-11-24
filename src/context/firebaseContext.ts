@@ -21,6 +21,8 @@ export interface FirebaseContextValue {
   isSuspended: boolean;
   unreadNotificationsCount: number;
   notifications: NotificationItem[];
+  foregroundNotificationToast: NotificationItem | null;
+  dismissForegroundNotificationToast: () => void;
   notificationsStatus: 'loading' | 'ready' | 'error';
   hasMoreNotifications: boolean;
   loadingOlderNotifications: boolean;
@@ -56,6 +58,8 @@ export const FirebaseContext = createContext<FirebaseContextValue>({
   isSuspended: false,
   unreadNotificationsCount: 0,
   notifications: [],
+  foregroundNotificationToast: null,
+  dismissForegroundNotificationToast: () => {},
   notificationsStatus: 'loading',
   hasMoreNotifications: false,
   loadingOlderNotifications: false,

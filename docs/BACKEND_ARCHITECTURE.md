@@ -5,12 +5,13 @@
 - **Vite Asset Handling**: `vite.config.ts` copies root `lasued-intel.webp` into `dist/lasued-intel.webp` during production builds without duplicating or moving the source file.
 - **Brand Identity (`src/config/brand.ts`)**: Navy `#0B1A2E`, Bright Blue `#1E88E5`, White `#FFFFFF`, Tagline `"Your Campus. Your Information. Your Community."`.
 
-## 2. Role & Badge Permission Matrix
+## 2. Role & Badge Permission Matrix (Strict Two-Admin Architecture)
 
-| Capability | Visitor | Member | Verified (Green) | Moderator (Red) | Supreme Admin (Purple) | Permanent Owner |
+| Capability | Visitor | Member | Verified (Green) | Moderator (Red) | Underground Supreme Admin | Public Supreme Admin (Purple) |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| Public directory & badge visibility | — | Public | Public (`verified`) | Public (`moderator`) | **Hidden (`none`)** | Public (`supreme_admin`) |
 | Browse public feeds, marketplace, trusted contacts, opportunities, events | Yes | Yes | Yes | Yes | Yes | Yes |
-| Like, comment, reply, follow, save posts | No | Yes | Yes | Yes | Yes | Yes |
+| Like, comment, reply, mention, follow, save posts | No | Yes | Yes | Yes | Yes | Yes |
 | Publish anonymous posts & replies (`The Unfiltered`) | No | Yes | Yes | Yes | Yes | Yes |
 | Publish ordinary community feed updates (`posts`) | No | No | Yes | Yes | Yes | Yes |
 | Pin official updates / manage `opportunities` & `events` | No | No | No | No | Yes | Yes |
@@ -20,32 +21,28 @@
 | Delete/moderate Verified or Moderator content (incl. anonymous) | No | No | No | **No** | Yes | Yes |
 | Reveal anonymous author identity & view `anonymousAuditLogs` | No | No | No | **No** | Yes | Yes |
 | Grant/revoke Verified & Moderator badges | No | No | No | No | Yes | Yes |
-| Manage Customer Supreme Admin or protect/alter Owner | No | No | No | No | **Cannot alter Owner** | Yes |
+| Modify or demote peer Supreme Admin | No | No | No | No | **No** | **No** |
 
 ## 3. Firestore Collection Architecture (`firebase-blueprint.json`)
 - **`users/{userId}`**: Public member profile (`uid`, `memberId`, `fullName`, `username`, `department`, `level`, `badge`, `isHiddenFromDirectory`, `showWhatsappPublicly`). No private email or unconsented phone number.
-- **`privateUserData/{userId}`**: Strictly owner-only private PII (`authEmail`, `phoneNumber`, `whatsappNumber`, `notificationPrefs`, `interestCategories`).
-- **`userRoles/{userId}`**: Database-enforced role and badge authority (`role`, `badge`, `isPermanentOwner`, `isHiddenFromDirectory`). Cannot be self-written or escalated by clients.
+- **`privateUserData/{userId}`**: Strictly owner-only private PII (`authEmail`, `phoneNumber`, `whatsappNumber`, `notificationPrefs`, `interestCategories`), plus subcollections `anonymousHistory/{postId}` and `pushSubscriptions/{subId}`.
+- **`userRoles/{userId}`**: Database-enforced role and badge authority (`role`, `badge`, `isPermanentOwner: false`, `isHiddenFromDirectory`). Cannot be self-written or escalated by clients; `supreme_admin` is restricted solely to `lasuedintel@gmail.com` and `awoyinfasolomon1@gmail.com`.
 - **`usernames/{username}`**: Lowercase unique username lock mapped 1:1 to `ownerUID`.
-- **`posts/{postId}` & `postComments/{commentId}`**: Ordinary community updates (For You, Following, Latest).
+- **`posts/{postId}` & `postComments/{commentId}`**: Ordinary community updates (For You, Following, Latest) plus comments/replies on posts, events, and active marketplace listings.
 - **`follows/{followId}` & `postReactions/{reactionId}` & `savedPosts/{savedId}`**: Public follows, reactions, and private bookmarks.
 - **`anonymousPosts/{postId}` & `anonymousComments/{commentId}`**: Public anonymous feed (`The Unfiltered`) containing **zero** author UID, email, phone, or profile identifiers.
-- **`anonymousIdentityMappings/{entryId}` & `anonymousAuditLogs/{auditId}`**: Strictly isolated identity mapping (`authorUid`, `authorRole`) and reveal audit log, readable only by Supreme Admin / Owner. `firestore.rules` performs server-side `get()` checks against `anonymousIdentityMappings` during `allow delete` on `anonymousPosts` and `anonymousComments` so Moderators are blocked from deleting Verified/Moderator anonymous posts without ever seeing their identity.
+- **`anonymousIdentityMappings/{entryId}` & `anonymousAuditLogs/{auditId}`**: Strictly isolated identity mapping (`authorUid`, `authorRole`) and reveal audit log, readable only by the two designated Supreme Admins. `firestore.rules` performs server-side `get()` checks against `anonymousIdentityMappings` during `allow delete` on `anonymousPosts` and `anonymousComments` so Moderators are blocked from deleting Verified/Moderator anonymous posts without ever seeing their identity.
 - **`marketplaceListings/{listingId}`**: Products, services, and accommodation with `approvalStatus`, `status`, `quantity`, and 7-day `expiresAt` timestamp. No payment or banking fields.
 - **`trustedContacts/{contactId}`**: Administrator-listed lecturer and student rep directory entries (`entryType: 'admin_listed_contact'`, `isUserAccount: false`).
-- **`opportunities/{opportunityId}`, `events/{eventId}`, `notifications/{notificationId}`, `polls/{pollId}`, `platformSettings/{settingId}`**.
+- **`opportunities/{opportunityId}`, `events/{eventId}`, `notifications/{notificationId}`, `polls/{pollId}`, `platformSettings/{settingId}`, `_serverPushDedup/{dedupId}`**.
 
-## 4. Trusted Server-Side Admin SDK & Starter Tier Constraints
-- The provisioned Firebase project (`mystical-tooling-2dtd0`) is a **Google-hosted Starter Tier project** (free tier, no paid billing enabled).
-- Per Google Cloud Starter Tier rules, server-side `firebase-admin` operations requiring project IAM (minting custom claims via `setCustomUserClaims()`, server-side Firestore bypass, or token revocation checks) are **not available** on Starter Tier projects because the AI Studio server service account cannot be granted IAM roles on Starter Tier projects.
-- **How security is enforced today**: All RBAC, owner protection, PII isolation, anonymous identity isolation, and Moderator conflict enforcement are enforced directly in **Cloud Firestore Security Rules (`firestore.rules`)** using verified Auth identity (`request.auth.token.email_verified == true`) and protected `/userRoles/{uid}` lookups.
-- **How server-side Admin SDK & Cascade Deletes work when upgraded**: A clean server-side interface blueprint is prepared in `src/lib/adminArchitecture.ts` (and documented for Cloud Functions / Node Admin SDK once you upgrade to a user-owned Blaze project or attach IAM to a project you own) for:
-  1. Custom claims synchronization (`role`, `badge`, `isPermanentOwner`).
-  2. Cascading deletion of `anonymousPosts` + `anonymousComments` + `postReactions` + `anonymousIdentityMappings`.
-  3. Audited Supreme Admin anonymous identity reveals writing atomically to `anonymousAuditLogs`.
-  4. Scheduled or background recommendation scoring (`For You`) and marketplace expiry sweeps.
+## 4. Web Push & Serverless API Architecture (`/api/push/*`)
+- **PWA + Web Push Service Worker (`src/sw.ts`)**: Compiled via VitePWA `injectManifest`, supporting offline caching plus background `push` and `notificationclick` deep linking without conflicting with the PWA lifecycle.
+- **`/api/push/config`**: Returns sanitized Web Push readiness (`configured`, `vapidPublicKey`) without exposing secrets.
+- **`/api/push/dispatch`**: Verifies Firebase Auth ID token (`checkRevoked: true`) or timing-safe `x-push-webhook-secret`, enforces caller authorization and notification preference checks, deduplicates via `_serverPushDedup`, delivers via `web-push`, and auto-prunes expired `404`/`410` subscriptions.
+- **`/api/push/broadcast`**: Verifies designated Supreme Admin status (`lasuedintel@gmail.com` or `awoyinfasolomon1@gmail.com` with `email_verified: true`) or `x-push-webhook-secret` before broadcasting campus events, opportunities, or announcements across subscribed devices.
 
-## 5. Manual Actions Required in Firebase Console
-1. **Enable Email/Password Sign-In**: Google Sign-In is configured automatically during provisioning. To enable Email & Password login/registration, open the Firebase Console -> **Authentication** -> **Sign-in method** -> enable **Email/Password**.
-2. **Permanent Owner Bootstrap**: Sign in once with the permanent owner Google/Email account (`estheriawoyinfa52@gmail.com`). That verified email is bootstrapped in `firestore.rules` with Owner authority so you can create your `/userRoles/{uid}` document (`role: 'owner'`, `isPermanentOwner: true`, `isHiddenFromDirectory: true`) and appoint the Customer Supreme Admin once their real email/UID is ready.
-3. **Optional Upgrade for Firebase Admin SDK**: Only if you later choose to enable Cloud Functions / Admin SDK IAM operations (such as custom claims or cascading server deletes), upgrade the project to a user-owned standard Google Cloud project with billing.
+## 5. Production Configuration Checklist
+1. **Firebase Authentication**: Confirm Email/Password and Google Sign-In are enabled and `https://lasued-intel.vercel.app` is listed under Authorized Domains in Firebase Console.
+2. **Firestore Rules & Indexes**: Deploy `firestore.rules` and `firestore.indexes.json` to project `mystical-tooling-2dtd0` (database `ai-studio-intel-5bda81a4-c388-4f50-b629-ca521ae04516`).
+3. **Two Designated Supreme Admins**: Only `lasuedintel@gmail.com` (Public Supreme Admin) and `awoyinfasolomon1@gmail.com` (Underground Supreme Admin, hidden from directory with `badge: 'none'`) carry Supreme Admin authority.

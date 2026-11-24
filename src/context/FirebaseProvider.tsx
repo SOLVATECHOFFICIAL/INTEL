@@ -58,6 +58,7 @@ import {
   applyOptimisticMarkAllRead,
   applyOptimisticMarkRead,
   computeUnreadNotificationsCount,
+  isNotificationAllowedByPrefs,
   mergeNotifications,
   normalizeNotificationPrefs,
   restoreDeletedNotification,
@@ -112,6 +113,17 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const hasLoadedOlderNotificationsRef = useRef(false);
   const syncedBackgroundUidRef = useRef<string | null>(null);
+  const seenLiveNotifIdsRef = useRef<Set<string>>(new Set());
+  const notifBaselineReadyForUidRef = useRef<string | null>(null);
+  const notificationPrefsRef = useRef<NotificationPreferences>(
+    DEFAULT_NOTIFICATION_PREFS
+  );
+  const [foregroundNotificationToast, setForegroundNotificationToast] =
+    useState<NotificationItem | null>(null);
+
+  useEffect(() => {
+    notificationPrefsRef.current = notificationPrefs;
+  }, [notificationPrefs]);
 
   const notifications = useMemo(
     () => mergeNotifications(liveNotifications, olderNotifications),
@@ -165,12 +177,20 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         oldestNotificationCursorRef.current = null;
         hasLoadedOlderNotificationsRef.current = false;
         syncedBackgroundUidRef.current = null;
+        seenLiveNotifIdsRef.current = new Set();
+        notifBaselineReadyForUidRef.current = null;
+        setForegroundNotificationToast(null);
         setFollowingUsernames(new Set());
         setFollowerUsernames(new Set());
         setPendingFollowUsernames(new Set());
       } else {
         if (isDesignatedSupremeAdminUser(nextUser)) {
           void ensureDesignatedSupremeAdminAccountState(nextUser);
+        }
+        if (previousUid !== nextUser.uid) {
+          seenLiveNotifIdsRef.current = new Set();
+          notifBaselineReadyForUidRef.current = null;
+          setForegroundNotificationToast(null);
         }
         setNotificationsStatus('loading');
         setOlderNotifications([]);
@@ -227,6 +247,25 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     const unsubscribeNotifications = subscribeUserNotifications(
       user.uid,
       (snapshot) => {
+        if (notifBaselineReadyForUidRef.current !== user.uid) {
+          seenLiveNotifIdsRef.current = new Set(
+            snapshot.items.map((item) => item.id)
+          );
+          notifBaselineReadyForUidRef.current = user.uid;
+        } else {
+          const incomingNew = snapshot.items.find(
+            (item) =>
+              !seenLiveNotifIdsRef.current.has(item.id) &&
+              !item.isRead &&
+              isNotificationAllowedByPrefs(item, notificationPrefsRef.current)
+          );
+          for (const item of snapshot.items) {
+            seenLiveNotifIdsRef.current.add(item.id);
+          }
+          if (incomingNew) {
+            setForegroundNotificationToast(incomingNew);
+          }
+        }
         setLiveNotifications(snapshot.items);
         if (!hasLoadedOlderNotificationsRef.current) {
           oldestNotificationCursorRef.current = snapshot.oldestDoc;
@@ -525,6 +564,10 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     setNotificationError(null);
   }, []);
 
+  const dismissForegroundNotificationToast = useCallback(() => {
+    setForegroundNotificationToast(null);
+  }, []);
+
   const getRelationshipState = useCallback(
     (targetUsername: string): FollowRelationshipState => {
       if (!user) {
@@ -637,6 +680,8 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         isSuspended,
         unreadNotificationsCount,
         notifications,
+        foregroundNotificationToast,
+        dismissForegroundNotificationToast,
         notificationsStatus,
         hasMoreNotifications,
         loadingOlderNotifications,

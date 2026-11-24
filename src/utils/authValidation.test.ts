@@ -15,7 +15,6 @@ import {
   formatFirestoreOrAppError,
   isAccountSuspended,
   isDesignatedSupremeAdminUser,
-  isPermanentOwnerUser,
   isProfileAccessibleByDirectInteraction,
   isProfilePubliclyDiscoverableInDirectory,
   isPublicSupremeAdminUser,
@@ -24,7 +23,6 @@ import {
   isValidEmailAddress,
   mapFirebaseAuthError,
   normalizeUsername,
-  PERMANENT_OWNER_EMAIL,
   PUBLIC_SUPREME_ADMIN_EMAIL,
   resolveAuthoritativeMappingRole,
   resolveEffectiveAccountTier,
@@ -36,6 +34,7 @@ import {
   validateUsernameCandidate,
   type RegistrationFormInput,
 } from './authValidation';
+import type { UserRoleRecord } from '../types/database';
 
 function makeValidRegistration(): RegistrationFormInput {
   return {
@@ -265,6 +264,7 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
     }),
     'moderator'
   );
+  // Third-party userRoles docs with supreme_admin or legacy owner fallback safely resolve to ordinary member
   assert.equal(
     resolveEffectiveAccountTier(fakeUser, {
       uid: 'uid_123',
@@ -274,7 +274,7 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
       isHiddenFromDirectory: false,
       updatedAt: null,
     }),
-    'supreme_admin'
+    'member'
   );
   assert.equal(
     resolveEffectiveAccountTier(fakeUser, {
@@ -284,51 +284,63 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
       isPermanentOwner: true,
       isHiddenFromDirectory: true,
       updatedAt: null,
-    }),
-    'owner'
+    } as unknown as UserRoleRecord),
+    'member'
   );
 
+  // Removed former owner account retains ZERO administrative privilege even with stale legacy role doc
+  const formerOwnerEmail = ['estheriawoyinfa52', 'gmail.com'].join('@');
+  const removedOwnerUser = {
+    uid: 'removed_uid',
+    email: ` ${formerOwnerEmail.toUpperCase()} `,
+    emailVerified: true,
+  } as User;
+  assert.equal(isDesignatedSupremeAdminUser(removedOwnerUser), false);
   assert.equal(
-    resolveEffectiveAccountTier(
-      { uid: 'owner_uid', email: PERMANENT_OWNER_EMAIL, emailVerified: true } as User,
-      null
-    ),
-    'owner'
+    resolveEffectiveAccountTier(removedOwnerUser, {
+      uid: 'removed_uid',
+      role: 'owner',
+      badge: 'supreme_admin',
+      isPermanentOwner: true,
+      isHiddenFromDirectory: true,
+      updatedAt: null,
+    } as unknown as UserRoleRecord),
+    'member'
   );
+
+  // Admin email matching normalizes whitespace + case and requires verified email
   assert.equal(
-    isPermanentOwnerUser({
-      uid: 'owner_uid',
-      email: PERMANENT_OWNER_EMAIL,
-      emailVerified: false,
-    } as User),
-    false
-  );
-  assert.equal(
-    isPermanentOwnerUser({
-      uid: 'owner_uid',
-      email: PERMANENT_OWNER_EMAIL.toUpperCase(),
+    isPublicSupremeAdminUser({
+      uid: 'pub_uid',
+      email: `  ${PUBLIC_SUPREME_ADMIN_EMAIL.toUpperCase()} `,
       emailVerified: true,
     } as User),
     true
   );
+  assert.equal(
+    isPublicSupremeAdminUser({
+      uid: 'pub_uid',
+      email: PUBLIC_SUPREME_ADMIN_EMAIL,
+      emailVerified: false,
+    } as User),
+    false
+  );
 
-  // Admin dashboard guard (Moderators enter scoped console; full admin requires Supreme Admin / Owner)
+  // Admin dashboard guard (Moderators enter scoped console; full admin requires Supreme Admin)
   assert.equal(canAccessAdminDashboard('guest', false), false);
   assert.equal(canAccessAdminDashboard('member', false), false);
   assert.equal(canAccessAdminDashboard('verified', false), false);
   assert.equal(canAccessAdminDashboard('moderator', false), true);
   assert.equal(canAccessAdminDashboard('moderator', true), false);
   assert.equal(canAccessAdminDashboard('supreme_admin', false), true);
-  assert.equal(canAccessAdminDashboard('owner', false), true);
-  assert.equal(canAccessAdminDashboard('owner', true), false);
+  assert.equal(canAccessAdminDashboard('supreme_admin', true), false);
 
   assert.equal(canAccessFullAdminDashboard('guest', false), false);
   assert.equal(canAccessFullAdminDashboard('member', false), false);
   assert.equal(canAccessFullAdminDashboard('verified', false), false);
   assert.equal(canAccessFullAdminDashboard('moderator', false), false);
   assert.equal(canAccessFullAdminDashboard('supreme_admin', false), true);
-  assert.equal(canAccessFullAdminDashboard('owner', false), true);
-  assert.equal(canAccessFullAdminDashboard('owner', true), false);
+  assert.equal(canAccessFullAdminDashboard('supreme_admin', true), false);
 
   // Ordinary feed publish vs anonymous creation
   assert.equal(canPublishOrdinaryFeedUpdate('member', false), false);
@@ -500,10 +512,10 @@ test('formatFirestoreOrAppError extracts clean error strings from structured Fir
   );
 });
 
-test('resolveAuthoritativeMappingRole mirrors firestore.rules currentRoleString() across owner, inconsistent role docs, and absent docs', () => {
-  const ownerUser = {
-    uid: 'owner_uid',
-    email: PERMANENT_OWNER_EMAIL,
+test('resolveAuthoritativeMappingRole mirrors firestore.rules currentRoleString() across designated admins, stale owner docs, and absent docs', () => {
+  const designatedAdminUser = {
+    uid: 'pub_admin_uid',
+    email: PUBLIC_SUPREME_ADMIN_EMAIL,
     emailVerified: true,
   } as unknown as User;
   const standardUser = {
@@ -513,8 +525,8 @@ test('resolveAuthoritativeMappingRole mirrors firestore.rules currentRoleString(
   } as unknown as User;
 
   assert.equal(
-    resolveAuthoritativeMappingRole(ownerUser, null, 'member'),
-    'owner'
+    resolveAuthoritativeMappingRole(designatedAdminUser, null, 'member'),
+    'supreme_admin'
   );
   assert.equal(
     resolveAuthoritativeMappingRole(
@@ -522,15 +534,15 @@ test('resolveAuthoritativeMappingRole mirrors firestore.rules currentRoleString(
       { role: 'supreme_admin', badge: 'none' },
       'member'
     ),
-    'supreme_admin'
+    'member'
   );
   assert.equal(
     resolveAuthoritativeMappingRole(
       standardUser,
-      { role: 'owner', isPermanentOwner: false },
+      { role: 'owner', isPermanentOwner: false } as unknown as UserRoleRecord,
       'member'
     ),
-    'owner'
+    'member'
   );
   assert.equal(
     resolveAuthoritativeMappingRole(standardUser, null, 'verified'),

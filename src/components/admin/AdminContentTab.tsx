@@ -958,7 +958,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               Supreme Admin Anonymous Safety Lookup
             </h3>
             <p className="text-xs text-purple-900/80">
-              Restricted strictly to Supreme Admins and the Platform Owner.
+              Restricted strictly to the two designated Supreme Admins.
               Moderators cannot access this control. Every lookup records an
               immutable entry in <code>anonymousAuditLogs</code>.
             </p>

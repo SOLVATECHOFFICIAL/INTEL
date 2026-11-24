@@ -11,9 +11,11 @@ import {
   buildCommentNotificationId,
   buildMarketplaceExpiredNotificationId,
   buildMarketplaceReviewNotificationId,
+  buildMentionNotificationId,
   buildReactionNotificationId,
   buildReplyNotificationId,
   computeUnreadNotificationsCount,
+  extractMentionedUsernames,
   filterNotifications,
   formatNotificationRelativeTime,
   isAnonymousNotificationLeakFree,
@@ -54,9 +56,20 @@ test('deterministic notification ID builders prevent duplicates and enforce Fire
     buildMarketplaceReviewNotificationId(longId, 'approved'),
     buildMarketplaceExpiredNotificationId(longId),
     buildAnnouncementNotificationId(longId, longId),
+    buildMentionNotificationId(longId, longId),
   ]) {
     assert.match(id, /^[a-zA-Z0-9_-]{1,128}$/);
   }
+});
+
+test('extractMentionedUsernames parses unique handles cleanly and ignores emails', () => {
+  assert.deepEqual(
+    extractMentionedUsernames(
+      'Shoutout to @Adaobi_01 and @chidi_law plus @adaobi_01 — email test@lasued.edu.ng stays ignored'
+    ),
+    ['adaobi_01', 'chidi_law']
+  );
+  assert.deepEqual(extractMentionedUsernames(''), []);
 });
 
 test('shouldEmitActivityNotification suppresses self-notifications and invalid IDs', () => {
