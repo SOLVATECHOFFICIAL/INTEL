@@ -62,6 +62,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
   const [coverBusy, setCoverBusy] = useState(false);
   const [coverProgress, setCoverProgress] =
     useState<UploadProgressState | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const hasSavedAvatar = Boolean(currentPhotoImageId || currentPhotoUrl);
   const hasSavedCover = Boolean(currentCoverImageId || currentCoverUrl);
@@ -73,6 +74,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
     event.target.value = '';
     if (!file || avatarBusy || isSuspended) return;
 
+    setLocalError(null);
     setAvatarBusy(true);
     setAvatarProgress({ percent: 15, label: 'Compressing profile photo...' });
     try {
@@ -81,12 +83,12 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
       setAvatarProgress(null);
     } catch (error) {
       setAvatarProgress(null);
-      onError(
-        formatFirestoreOrAppError(
-          error,
-          'Could not compress that profile photograph.'
-        )
+      const msg = formatFirestoreOrAppError(
+        error,
+        'Could not compress that profile photograph.'
       );
+      setLocalError(msg);
+      onError(msg);
     } finally {
       setAvatarBusy(false);
     }
@@ -161,6 +163,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
     event.target.value = '';
     if (!file || coverBusy || isSuspended) return;
 
+    setLocalError(null);
     setCoverBusy(true);
     setCoverProgress({ percent: 15, label: 'Compressing cover photo...' });
     try {
@@ -169,12 +172,12 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
       setCoverProgress(null);
     } catch (error) {
       setCoverProgress(null);
-      onError(
-        formatFirestoreOrAppError(
-          error,
-          'Could not compress that cover photograph.'
-        )
+      const msg = formatFirestoreOrAppError(
+        error,
+        'Could not compress that cover photograph.'
       );
+      setLocalError(msg);
+      onError(msg);
     } finally {
       setCoverBusy(false);
     }
@@ -250,9 +253,18 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
         </h3>
         <p className="mt-0.5 text-xs text-slate-600">
           Tap the plus button to choose directly from your phone gallery or
-          camera. Photos are compressed automatically before saving.
+          camera. Any image format is supported and compressed automatically.
         </p>
       </div>
+
+      {localError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800"
+        >
+          {localError}
+        </div>
+      )}
 
       {/* PART 3: WIDE RECTANGULAR COVER PHOTOGRAPH */}
       <div className="space-y-3">
@@ -316,7 +328,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
             accept={ALL_IMAGE_FILE_ACCEPT}
             disabled={coverBusy || isSuspended}
             onChange={handleSelectCover}
-            className="sr-only"
+            className="hidden"
             data-testid="cover-file-input"
           />
         </div>
@@ -426,7 +438,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
               accept={ALL_IMAGE_FILE_ACCEPT}
               disabled={avatarBusy || isSuspended}
               onChange={handleSelectAvatar}
-              className="sr-only"
+              className="hidden"
               data-testid="avatar-file-input"
             />
           </div>

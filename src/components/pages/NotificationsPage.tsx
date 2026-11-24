@@ -41,6 +41,7 @@ import {
 } from '../../utils/notifications';
 import { formatUnreadBadgeCount } from '../../utils/pwa';
 import { TikTokFollowButton } from '../TikTokFollowButton';
+import { EmailVerificationBanner } from '../auth/EmailVerificationBanner';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
 
@@ -372,6 +373,8 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           })}
         </div>
       </div>
+
+      <EmailVerificationBanner variant="notification" className="mt-4" />
 
       {isSuspended && (
         <div

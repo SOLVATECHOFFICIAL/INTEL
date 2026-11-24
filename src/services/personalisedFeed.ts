@@ -21,6 +21,7 @@ import {
 import { toPublicProfileProjection } from '../utils/authValidation';
 import {
   buildInteractionAffinities,
+  loadFeedBehaviorSnapshot,
   rankRecommendedAnonymousPosts,
   rankRecommendedEvents,
   rankRecommendedOpportunities,
@@ -315,8 +316,33 @@ export async function loadPersonalisationContextAndDiscovery(input: {
     savedOpportunities,
   });
 
+  const behaviorSnap = loadFeedBehaviorSnapshot(viewerUid);
+
+  const mergedAuthorWeights = new Map(affinities.interactedAuthorWeights);
+  for (const [k, v] of behaviorSnap.authorWeights.entries()) {
+    mergedAuthorWeights.set(
+      k,
+      Math.max(-18, Math.min(40, (mergedAuthorWeights.get(k) ?? 0) + v))
+    );
+  }
+  const mergedCategoryWeights = new Map(affinities.interactedCategoryWeights);
+  for (const [k, v] of behaviorSnap.categoryWeights.entries()) {
+    mergedCategoryWeights.set(
+      k,
+      Math.max(-12, Math.min(40, (mergedCategoryWeights.get(k) ?? 0) + v))
+    );
+  }
+  const mergedKeywords = new Map(affinities.interactedKeywords);
+  for (const [k, v] of behaviorSnap.keywordWeights.entries()) {
+    mergedKeywords.set(
+      k,
+      Math.min(14, (mergedKeywords.get(k) ?? 0) + v)
+    );
+  }
+
   const interactedAuthorUsernames = new Map<string, number>();
-  for (const [uid, weight] of affinities.interactedAuthorWeights.entries()) {
+  for (const [uid, weight] of mergedAuthorWeights.entries()) {
+    if (weight <= 0) continue;
     const uname = memberPool.uidToUsernameLower.get(uid);
     if (uname) interactedAuthorUsernames.set(uname, weight);
   }
@@ -327,9 +353,12 @@ export async function loadPersonalisationContextAndDiscovery(input: {
     viewerFaculty: input.viewerProfile?.faculty ?? null,
     viewerLevel: input.viewerProfile?.level ?? null,
     interestCategories: input.interestCategories,
-    interactedAuthorWeights: affinities.interactedAuthorWeights,
-    interactedCategoryWeights: affinities.interactedCategoryWeights,
-    interactedKeywords: affinities.interactedKeywords,
+    interactedAuthorWeights: mergedAuthorWeights,
+    interactedCategoryWeights: mergedCategoryWeights,
+    interactedKeywords: mergedKeywords,
+    seenCounts: behaviorSnap.seenCounts,
+    lastSeenMs: behaviorSnap.lastSeenMs,
+    fastSkippedIds: behaviorSnap.fastSkippedIds,
   };
 
   const followedUsernames = new Set(input.followingUsernames);

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatFirestoreOrAppError } from './authValidation';
 import {
+  commitFreshWriteBatchWithRetry,
   computeNextReactionTransactionState,
   hasValidFirebaseConfig,
   isFirestoreSdkError,
@@ -204,4 +205,97 @@ test('hasValidFirebaseConfig validates real configs and rejects placeholders', (
     }),
     false
   );
+});
+
+test('commitFreshWriteBatchWithRetry creates a brand-new batch on every retry without reusing committed batches', async () => {
+  const createdBatches: Array<{ ops: string[]; committed: boolean }> = [];
+  let attempt = 0;
+
+  await commitFreshWriteBatchWithRetry(
+    () => {
+      const state = {
+        ops: [] as string[],
+        committed: false,
+        set(key: string) {
+          if (this.committed) {
+            throw new Error(
+              'A write batch can no longer be used after commit() has been called.'
+            );
+          }
+          this.ops.push(key);
+        },
+        async commit() {
+          if (this.committed) {
+            throw new Error(
+              'A write batch can no longer be used after commit() has been called.'
+            );
+          }
+          this.committed = true;
+          attempt += 1;
+          if (attempt < 3) {
+            throw makeFirebaseError('unavailable', 'Connection failed.');
+          }
+        },
+      };
+      createdBatches.push(state);
+      return state;
+    },
+    (batch) => {
+      batch.set('posts/post_123');
+      batch.set('mediaImages/img_456');
+    },
+    {
+      maxAttempts: 3,
+      baseDelayMs: 0,
+      sleep: async () => undefined,
+      isOnline: () => true,
+    }
+  );
+
+  assert.equal(attempt, 3);
+  assert.equal(createdBatches.length, 3);
+  for (const batch of createdBatches) {
+    assert.equal(batch.committed, true);
+    assert.deepEqual(batch.ops, ['posts/post_123', 'mediaImages/img_456']);
+  }
+});
+
+test('commitFreshWriteBatchWithRetry stops immediately on non-transient errors without double-commit', async () => {
+  let batchCount = 0;
+
+  await assert.rejects(
+    commitFreshWriteBatchWithRetry(
+      () => {
+        batchCount += 1;
+        let committed = false;
+        return {
+          set() {},
+          async commit() {
+            if (committed) {
+              throw new Error(
+                'A write batch can no longer be used after commit() has been called.'
+              );
+            }
+            committed = true;
+            throw makeFirebaseError(
+              'permission-denied',
+              'Missing or insufficient permissions.'
+            );
+          },
+        };
+      },
+      (batch) => {
+        batch.set();
+      },
+      {
+        maxAttempts: 3,
+        baseDelayMs: 0,
+        sleep: async () => undefined,
+        isOnline: () => true,
+      }
+    ),
+    /Missing or insufficient permissions/
+  );
+
+  assert.equal(batchCount, 1);
 });

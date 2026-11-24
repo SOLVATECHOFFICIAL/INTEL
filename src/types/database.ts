@@ -1597,6 +1597,61 @@ export function resolveBadgeAuditAction(
   return 'remove_moderator';
 }
 
+export interface MarketplaceListingValidationInput {
+  listingKind: MarketplaceListingKind;
+  title: string;
+  description: string;
+  category: string;
+  price: number;
+  quantity: number;
+  whatsappNumber: string;
+  mediaCount: number;
+}
+
+export function validateMarketplaceListingInput(
+  input: MarketplaceListingValidationInput
+): string | null {
+  const cleanTitle = input.title.trim();
+  const cleanDescription = input.description.trim();
+  const cleanCategory = input.category.trim();
+  const cleanWhatsapp = input.whatsappNumber.trim();
+
+  if (
+    cleanTitle.length < BLUEPRINT_LIMITS.marketplaceTitleMin ||
+    cleanTitle.length > BLUEPRINT_LIMITS.marketplaceTitleMax
+  ) {
+    return `Listing title must be ${BLUEPRINT_LIMITS.marketplaceTitleMin}–${BLUEPRINT_LIMITS.marketplaceTitleMax} characters.`;
+  }
+  if (!cleanCategory) {
+    return 'Select a marketplace category.';
+  }
+  if (
+    cleanDescription.length < BLUEPRINT_LIMITS.marketplaceDescMin ||
+    cleanDescription.length > BLUEPRINT_LIMITS.marketplaceDescMax
+  ) {
+    return `Description must be ${BLUEPRINT_LIMITS.marketplaceDescMin}–${BLUEPRINT_LIMITS.marketplaceDescMax} characters.`;
+  }
+  if (
+    cleanWhatsapp.length < BLUEPRINT_LIMITS.marketplaceWhatsappMin ||
+    cleanWhatsapp.length > BLUEPRINT_LIMITS.marketplaceWhatsappMax
+  ) {
+    return 'Provide a valid WhatsApp phone number (7–24 characters).';
+  }
+  if (!Number.isFinite(input.price) || input.price < 0) {
+    return 'Enter a valid price (0 or higher).';
+  }
+  if (!Number.isInteger(input.quantity) || input.quantity < 1) {
+    return 'Initial quantity must be at least 1.';
+  }
+  if (input.mediaCount > BLUEPRINT_LIMITS.mediaPostMaxCount) {
+    return `A maximum of ${BLUEPRINT_LIMITS.mediaPostMaxCount} photographs is allowed per listing.`;
+  }
+  if (input.listingKind === 'product' && input.mediaCount < 1) {
+    return 'Products require at least 1 photograph before publishing.';
+  }
+  return null;
+}
+
 export function canApproveMarketplaceListing(
   actorRole: UserRole,
   currentApprovalStatus: MarketplaceApprovalStatus

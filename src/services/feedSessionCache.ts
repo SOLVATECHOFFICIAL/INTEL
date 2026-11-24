@@ -1,6 +1,9 @@
 import type { AnonymousPost } from '../types/database';
 import type { FeedTabId } from '../types/platform';
-import type { ForYouRankingOptions } from '../utils/feedRanking';
+import type {
+  ForYouRankingOptions,
+  HomeUpdateWithAuthor,
+} from '../utils/feedRanking';
 import type {
   AnonymousFeedPageCursor,
   CommunityFeedCursor,
@@ -23,8 +26,16 @@ export interface HomeFeedSessionSnapshot {
   viewerKey: string;
   tab: FeedTabId;
   postItems: CommunityPostWithAuthor[];
+  updateItems?: HomeUpdateWithAuthor[];
+  anonymousItems?: AnonymousPost[];
   likedPostIds: Set<string>;
   savedPostIds: Set<string>;
+  likedUpdateIds?: Set<string>;
+  savedUpdateIds?: Set<string>;
+  likedAnonIds?: Set<string>;
+  savedAnonIds?: Set<string>;
+  ownedAnonPostIds?: Set<string>;
+  ownedAnonCommentIds?: Set<string>;
   followingCount: number;
   followedUids: string[];
   feedCursor: CommunityFeedCursor | null;
@@ -49,6 +60,8 @@ export interface AnonymousFeedSessionSnapshot {
 
 interface PersistedHomePublicPosts {
   postItems: CommunityPostWithAuthor[];
+  updateItems?: HomeUpdateWithAuthor[];
+  anonymousItems?: AnonymousPost[];
   hasMorePosts: boolean;
   feedCursor: { mode: 'offset'; offset: number } | null;
   cachedAt: number;
@@ -72,10 +85,17 @@ interface PersistedHomeViewerState {
   viewerKey: string;
   tab: FeedTabId;
   postItems?: CommunityPostWithAuthor[];
+  updateItems?: HomeUpdateWithAuthor[];
   hasMorePosts?: boolean;
   feedCursor?: { mode: 'offset'; offset: number } | null;
   likedPostIds: string[];
   savedPostIds: string[];
+  likedUpdateIds?: string[];
+  savedUpdateIds?: string[];
+  likedAnonIds?: string[];
+  savedAnonIds?: string[];
+  ownedAnonPostIds?: string[];
+  ownedAnonCommentIds?: string[];
   followingCount: number;
   followedUids: string[];
   discovery?: SerializedForYouDiscovery;
@@ -169,64 +189,84 @@ export function getHomeFeedSessionSnapshot(
 export function saveHomeFeedSessionSnapshot(
   snapshot: HomeFeedSessionSnapshot
 ): void {
+  const sanitizedAnon = sanitizeAnonymousPostsForCache(
+    snapshot.anonymousItems ?? []
+  );
+  const cleanSnapshot: HomeFeedSessionSnapshot = {
+    ...snapshot,
+    anonymousItems: sanitizedAnon,
+  };
   homeFeedSessionCache.set(
-    makeHomeCacheKey(snapshot.viewerKey, snapshot.tab),
-    snapshot
+    makeHomeCacheKey(cleanSnapshot.viewerKey, cleanSnapshot.tab),
+    cleanSnapshot
   );
 
-  const isGuest = isGuestViewer(snapshot.viewerKey);
-  if (snapshot.tab === 'following') {
+  const isGuest = isGuestViewer(cleanSnapshot.viewerKey);
+  if (cleanSnapshot.tab === 'following') {
     if (isGuest) return;
     const privPayload: PersistedHomeViewerState = {
-      viewerKey: snapshot.viewerKey,
-      tab: snapshot.tab,
-      postItems: snapshot.postItems.slice(0, 36),
-      hasMorePosts: snapshot.hasMorePosts,
-      feedCursor: stripFirestoreCursor(snapshot.feedCursor),
-      likedPostIds: serializeSet(snapshot.likedPostIds),
-      savedPostIds: serializeSet(snapshot.savedPostIds),
-      followingCount: snapshot.followingCount,
-      followedUids: snapshot.followedUids,
-      interestSignature: snapshot.interestSignature,
-      cachedAt: snapshot.cachedAt,
+      viewerKey: cleanSnapshot.viewerKey,
+      tab: cleanSnapshot.tab,
+      postItems: cleanSnapshot.postItems.slice(0, 36),
+      updateItems: (cleanSnapshot.updateItems ?? []).slice(0, 20),
+      hasMorePosts: cleanSnapshot.hasMorePosts,
+      feedCursor: stripFirestoreCursor(cleanSnapshot.feedCursor),
+      likedPostIds: serializeSet(cleanSnapshot.likedPostIds),
+      savedPostIds: serializeSet(cleanSnapshot.savedPostIds),
+      likedUpdateIds: serializeSet(cleanSnapshot.likedUpdateIds ?? new Set()),
+      savedUpdateIds: serializeSet(cleanSnapshot.savedUpdateIds ?? new Set()),
+      followingCount: cleanSnapshot.followingCount,
+      followedUids: cleanSnapshot.followedUids,
+      interestSignature: cleanSnapshot.interestSignature,
+      cachedAt: cleanSnapshot.cachedAt,
     };
     void writePersistentContent(
-      `priv:feed:v1:${snapshot.viewerKey}:following`,
+      `priv:feed:v1:${cleanSnapshot.viewerKey}:following`,
       privPayload,
-      { viewerKey: snapshot.viewerKey, scope: 'private' }
+      { viewerKey: cleanSnapshot.viewerKey, scope: 'private' }
     );
     return;
   }
 
   // Persist public feed posts pool for fast cold-reload paint
   const publicPostsPayload: PersistedHomePublicPosts = {
-    postItems: snapshot.postItems.slice(0, 36),
-    hasMorePosts: snapshot.hasMorePosts,
-    feedCursor: stripFirestoreCursor(snapshot.feedCursor),
-    cachedAt: snapshot.cachedAt,
+    postItems: cleanSnapshot.postItems.slice(0, 36),
+    updateItems: (cleanSnapshot.updateItems ?? []).slice(0, 20),
+    anonymousItems: sanitizedAnon.slice(0, 20),
+    hasMorePosts: cleanSnapshot.hasMorePosts,
+    feedCursor: stripFirestoreCursor(cleanSnapshot.feedCursor),
+    cachedAt: cleanSnapshot.cachedAt,
   };
   void writePersistentContent(
-    `feed:posts:v1:${snapshot.tab}`,
+    `feed:posts:v1:${cleanSnapshot.tab}`,
     publicPostsPayload,
     { viewerKey: 'public', scope: 'public' }
   );
 
   if (!isGuest) {
     const privPayload: PersistedHomeViewerState = {
-      viewerKey: snapshot.viewerKey,
-      tab: snapshot.tab,
-      likedPostIds: serializeSet(snapshot.likedPostIds),
-      savedPostIds: serializeSet(snapshot.savedPostIds),
-      followingCount: snapshot.followingCount,
-      followedUids: snapshot.followedUids,
-      discovery: serializeDiscovery(snapshot.discovery),
-      interestSignature: snapshot.interestSignature,
-      cachedAt: snapshot.cachedAt,
+      viewerKey: cleanSnapshot.viewerKey,
+      tab: cleanSnapshot.tab,
+      likedPostIds: serializeSet(cleanSnapshot.likedPostIds),
+      savedPostIds: serializeSet(cleanSnapshot.savedPostIds),
+      likedUpdateIds: serializeSet(cleanSnapshot.likedUpdateIds ?? new Set()),
+      savedUpdateIds: serializeSet(cleanSnapshot.savedUpdateIds ?? new Set()),
+      likedAnonIds: serializeSet(cleanSnapshot.likedAnonIds ?? new Set()),
+      savedAnonIds: serializeSet(cleanSnapshot.savedAnonIds ?? new Set()),
+      ownedAnonPostIds: serializeSet(cleanSnapshot.ownedAnonPostIds ?? new Set()),
+      ownedAnonCommentIds: serializeSet(
+        cleanSnapshot.ownedAnonCommentIds ?? new Set()
+      ),
+      followingCount: cleanSnapshot.followingCount,
+      followedUids: cleanSnapshot.followedUids,
+      discovery: serializeDiscovery(cleanSnapshot.discovery),
+      interestSignature: cleanSnapshot.interestSignature,
+      cachedAt: cleanSnapshot.cachedAt,
     };
     void writePersistentContent(
-      `priv:feed:v1:${snapshot.viewerKey}:${snapshot.tab}`,
+      `priv:feed:v1:${cleanSnapshot.viewerKey}:${cleanSnapshot.tab}`,
       privPayload,
-      { viewerKey: snapshot.viewerKey, scope: 'private' }
+      { viewerKey: cleanSnapshot.viewerKey, scope: 'private' }
     );
   }
 }
@@ -249,8 +289,12 @@ export async function hydrateHomeFeedSnapshot(
       viewerKey,
       tab,
       postItems: priv.postItems ?? [],
+      updateItems: priv.updateItems ?? [],
+      anonymousItems: [],
       likedPostIds: deserializeSet(priv.likedPostIds),
       savedPostIds: deserializeSet(priv.savedPostIds),
+      likedUpdateIds: deserializeSet(priv.likedUpdateIds ?? []),
+      savedUpdateIds: deserializeSet(priv.savedUpdateIds ?? []),
       followingCount: priv.followingCount ?? 0,
       followedUids: priv.followedUids ?? [],
       feedCursor: priv.feedCursor ?? null,
@@ -271,14 +315,39 @@ export async function hydrateHomeFeedSnapshot(
         ),
   ]);
 
-  if (!pubPosts || pubPosts.postItems.length === 0) return null;
+  const hasAnyPub =
+    Boolean(pubPosts) &&
+    ((pubPosts?.postItems.length ?? 0) > 0 ||
+      (pubPosts?.updateItems?.length ?? 0) > 0 ||
+      (pubPosts?.anonymousItems?.length ?? 0) > 0);
+  if (!pubPosts || !hasAnyPub) return null;
 
   const hydrated: HomeFeedSessionSnapshot = {
     viewerKey,
     tab,
-    postItems: pubPosts.postItems,
+    postItems: pubPosts.postItems ?? [],
+    updateItems: pubPosts.updateItems ?? [],
+    anonymousItems: sanitizeAnonymousPostsForCache(pubPosts.anonymousItems ?? []),
     likedPostIds: privState ? deserializeSet(privState.likedPostIds) : new Set(),
     savedPostIds: privState ? deserializeSet(privState.savedPostIds) : new Set(),
+    likedUpdateIds: privState
+      ? deserializeSet(privState.likedUpdateIds ?? [])
+      : new Set(),
+    savedUpdateIds: privState
+      ? deserializeSet(privState.savedUpdateIds ?? [])
+      : new Set(),
+    likedAnonIds: privState
+      ? deserializeSet(privState.likedAnonIds ?? [])
+      : new Set(),
+    savedAnonIds: privState
+      ? deserializeSet(privState.savedAnonIds ?? [])
+      : new Set(),
+    ownedAnonPostIds: privState
+      ? deserializeSet(privState.ownedAnonPostIds ?? [])
+      : new Set(),
+    ownedAnonCommentIds: privState
+      ? deserializeSet(privState.ownedAnonCommentIds ?? [])
+      : new Set(),
     followingCount: privState?.followingCount ?? 0,
     followedUids: privState?.followedUids ?? [],
     feedCursor: pubPosts.feedCursor ?? null,

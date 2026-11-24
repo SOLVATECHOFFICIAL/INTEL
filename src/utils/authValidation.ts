@@ -437,11 +437,8 @@ export function resolveEffectiveAccountTier(
   if (!user) {
     return 'guest';
   }
-  if (user.emailVerified !== true) {
-    return 'member';
-  }
-  if (isDesignatedSupremeAdminUser(user)) {
-    return 'supreme_admin';
+  if (hasDesignatedSupremeAdminEmailMatch(user)) {
+    return user.emailVerified === true ? 'supreme_admin' : 'member';
   }
   const rawRole = (roleRecord as { role?: string } | null)?.role;
   if (
@@ -522,19 +519,25 @@ export function canPublishOrdinaryPostStrict(input: {
   roleRecord: UserRoleRecord | null;
   suspended: boolean;
 }): boolean {
-  if (!input.user || input.user.emailVerified !== true || input.suspended || input.tier === 'guest') {
+  if (!input.user || input.suspended || input.tier === 'guest') {
     return false;
   }
   if (!canPublishOrdinaryFeedUpdate(input.tier, input.suspended)) {
     return false;
   }
-  if (isDesignatedSupremeAdminUser(input.user)) {
-    return !input.profile || input.profile.accountStatus === 'active';
+  if (hasDesignatedSupremeAdminEmailMatch(input.user)) {
+    return (
+      input.user.emailVerified === true &&
+      (!input.profile || input.profile.accountStatus === 'active')
+    );
   }
   if (!input.profile || input.profile.accountStatus !== 'active') {
     return false;
   }
   if (!isValidRoleRecordConsistency(input.roleRecord)) {
+    return false;
+  }
+  if (input.roleRecord.isPermanentOwner) {
     return false;
   }
   if (input.roleRecord.role !== input.tier) {
@@ -554,19 +557,7 @@ export function hasPostingRolePendingEmailVerification(input: {
   if (input.profile?.accountStatus === 'suspended') {
     return false;
   }
-  if (hasDesignatedSupremeAdminEmailMatch(input.user)) {
-    return true;
-  }
-  const role = input.roleRecord?.role;
-  const badge = input.profile?.badge;
-  return (
-    role === 'verified' ||
-    role === 'moderator' ||
-    role === 'supreme_admin' ||
-    badge === 'verified' ||
-    badge === 'moderator' ||
-    badge === 'supreme_admin'
-  );
+  return hasDesignatedSupremeAdminEmailMatch(input.user);
 }
 
 export function canCreateAnonymousEntry(

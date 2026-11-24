@@ -132,6 +132,20 @@ export async function runWithFirestoreConnectionRetry<T>(
   throw lastError;
 }
 
+export async function commitFreshWriteBatchWithRetry<
+  TBatch extends { commit: () => Promise<void> },
+>(
+  createBatch: () => TBatch,
+  populateBatch: (batch: TBatch) => void,
+  options: FirestoreRetryOptions = {}
+): Promise<void> {
+  await runWithFirestoreConnectionRetry(async () => {
+    const batch = createBatch();
+    populateBatch(batch);
+    await batch.commit();
+  }, options);
+}
+
 export interface NextReactionTransactionState {
   liked: boolean;
   likesCount: number;

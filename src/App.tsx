@@ -5,6 +5,7 @@ import { Header } from './components/Header';
 import { HomeFeedWorkspace } from './components/HomeFeedWorkspace';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileSectionDrawer } from './components/MobileSectionDrawer';
+import { EmailVerificationBanner } from './components/auth/EmailVerificationBanner';
 import { PWAInstallControl } from './components/pwa/PWAInstallControl';
 import { SectionSidebar } from './components/SectionSidebar';
 import { SectionWorkspace } from './components/SectionWorkspace';
@@ -1181,6 +1182,10 @@ export function App() {
                 Dismiss
               </button>
             </div>
+          )}
+
+          {showSidebar && activeRoute !== 'notifications' && (
+            <EmailVerificationBanner variant="banner" />
           )}
 
           {showSidebar && <PWAInstallControl variant="banner" />}

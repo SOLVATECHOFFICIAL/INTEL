@@ -604,6 +604,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
     try {
       await deleteOfficialUpdateCascading({
         updateId: update.id,
+        likesCount: update.likesCount ?? 0,
         mediaImageIds: (update.mediaItems ?? []).map((m) => m.imageId),
         actorUid: viewerUid,
         actorRole: 'supreme_admin',

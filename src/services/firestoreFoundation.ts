@@ -416,7 +416,7 @@ export async function ensureDesignatedSupremeAdminAccountState(
     const [roleSnap, userSnap, privSnap] = await Promise.all([
       getDoc(roleRef),
       getDoc(userRef),
-      isUnderground ? getDoc(privRef) : Promise.resolve(null),
+      getDoc(privRef),
     ]);
 
     const roleData = roleSnap.exists() ? (roleSnap.data() as UserRoleRecord) : null;
@@ -443,7 +443,86 @@ export async function ensureDesignatedSupremeAdminAccountState(
       }
     }
 
-    if (userSnap.exists()) {
+    if (!userSnap.exists()) {
+      const cleanEmail = (user.email ?? '').trim().slice(0, BLUEPRINT_LIMITS.emailMax);
+      const rawPrefix = (cleanEmail.split('@')[0] ?? 'member')
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 14);
+      const uidSuffix = user.uid.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'user';
+      let candidateUsername = `${rawPrefix || 'campus'}_${uidSuffix}`.slice(0, 32);
+      if (candidateUsername.length < 3) {
+        candidateUsername = `member_${uidSuffix}`.slice(0, 32);
+      }
+      const displayName = isUnderground
+        ? 'Campus Member'
+        : (user.displayName?.trim() || 'LASUED Intel Official').slice(
+            0,
+            BLUEPRINT_LIMITS.fullNameMax
+          );
+      const safeFullName = displayName.length >= 2 ? displayName : 'Campus Member';
+      const usernameRef = doc(db, COLLECTION_NAMES.usernames, candidateUsername);
+
+      await runTransaction(db, async (tx) => {
+        const [freshUserSnap, freshPrivSnap, freshUsernameSnap] = await Promise.all([
+          tx.get(userRef),
+          tx.get(privRef),
+          tx.get(usernameRef),
+        ]);
+        if (freshUserSnap.exists()) {
+          return;
+        }
+        const finalUsername =
+          !freshUsernameSnap.exists() ||
+          (freshUsernameSnap.data() as UsernameReservation).ownerUID === user.uid
+            ? candidateUsername
+            : `intel_u_${user.uid.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16)}`;
+        const finalUsernameRef = doc(db, COLLECTION_NAMES.usernames, finalUsername);
+        const finalUsernameSnap =
+          finalUsername === candidateUsername
+            ? freshUsernameSnap
+            : await tx.get(finalUsernameRef);
+
+        if (!finalUsernameSnap.exists()) {
+          tx.set(finalUsernameRef, {
+            username: finalUsername,
+            ownerUID: user.uid,
+            isPrimary: true,
+            createdAt: serverTimestamp(),
+          });
+        }
+
+        tx.set(userRef, {
+          uid: user.uid,
+          memberId: `LI-${user.uid.slice(0, 12)}`,
+          fullName: safeFullName,
+          username: finalUsername,
+          department: 'General Studies',
+          level: 'Member',
+          showWhatsappPublicly: false,
+          badge: expectedPublicBadge,
+          accountStatus: 'active',
+          isHiddenFromDirectory: isUnderground,
+          followersCount: 0,
+          followingCount: 0,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        if (!freshPrivSnap.exists() && cleanEmail.length >= 3) {
+          tx.set(privRef, {
+            uid: user.uid,
+            authEmail: cleanEmail,
+            ownedUsernames: [finalUsername],
+            notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
+            ...(isUnderground ? { showSupremeAdminBadge: false } : {}),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      });
+    } else {
       const userData = userSnap.data() as PublicUserProfile;
       if (
         userData.badge !== expectedPublicBadge ||
@@ -463,7 +542,7 @@ export async function ensureDesignatedSupremeAdminAccountState(
       }
     }
 
-    if (isUnderground && privSnap?.exists()) {
+    if (isUnderground && privSnap.exists()) {
       const privData = privSnap.data() as PrivateUserData;
       if (privData.showSupremeAdminBadge !== false) {
         await updateDoc(privRef, {
@@ -1030,11 +1109,21 @@ export async function followMemberByUsername(
     throw new Error('You cannot follow your own account.');
   }
 
+  if (
+    auth.currentUser?.uid === actorUid &&
+    isDesignatedSupremeAdminUser(auth.currentUser)
+  ) {
+    await ensureDesignatedSupremeAdminAccountState(auth.currentUser);
+  }
+
   const targetUid = resolved.uid;
   const followId = `${actorUid}_${targetUid}`;
   const followRef = doc(db, COLLECTION_NAMES.follows, followId);
   const targetRef = doc(db, COLLECTION_NAMES.users, targetUid);
   const actorRef = doc(db, COLLECTION_NAMES.users, actorUid);
+  const isSilentUndergroundActor =
+    auth.currentUser?.uid === actorUid &&
+    isUndergroundSupremeAdminUser(auth.currentUser);
 
   let createdFollowNotifId: string | null = null;
   try {
@@ -1042,69 +1131,81 @@ export async function followMemberByUsername(
       runTransaction(db, async (tx) => {
         createdFollowNotifId = null;
         const [followSnap, targetSnap, actorSnap] = await Promise.all([
-        tx.get(followRef),
-        tx.get(targetRef),
-        tx.get(actorRef),
-      ]);
+          tx.get(followRef),
+          tx.get(targetRef),
+          tx.get(actorRef),
+        ]);
 
-      if (followSnap.exists()) {
-        return;
-      }
-      if (!targetSnap.exists()) {
-        throw new Error('This member account is no longer active.');
-      }
-      const targetData = targetSnap.data() as PublicUserProfile;
-      if (targetData.accountStatus !== 'active') {
-        throw new Error('Suspended accounts cannot be followed.');
-      }
-      if (!actorSnap.exists()) {
-        throw new DomainValidationError(
-          'Complete and save your profile in Account Settings before following members.'
-        );
-      }
-      const actorData = actorSnap.data() as PublicUserProfile;
-      if (actorData.accountStatus !== 'active') {
-        throw new DomainValidationError(
-          'Suspended accounts cannot follow other members.'
-        );
-      }
+        if (followSnap.exists()) {
+          return;
+        }
+        if (!targetSnap.exists()) {
+          throw new Error('This member account is no longer active.');
+        }
+        const targetData = targetSnap.data() as PublicUserProfile;
+        if (targetData.accountStatus !== 'active') {
+          throw new Error('Suspended accounts cannot be followed.');
+        }
+        if (!actorSnap.exists()) {
+          throw new DomainValidationError(
+            'Complete and save your profile in Account Settings before following members.'
+          );
+        }
+        const actorData = actorSnap.data() as PublicUserProfile;
+        if (actorData.accountStatus !== 'active') {
+          throw new DomainValidationError(
+            'Suspended accounts cannot follow other members.'
+          );
+        }
 
-      tx.set(followRef, {
-        followerUid: actorUid,
-        targetUid,
-        createdAt: serverTimestamp(),
-      });
+        tx.set(followRef, {
+          followerUid: actorUid,
+          targetUid,
+          createdAt: serverTimestamp(),
+        });
 
-      tx.update(targetRef, {
-        followersCount: (targetData.followersCount ?? 0) + 1,
-        updatedAt: serverTimestamp(),
-      });
+        tx.update(targetRef, {
+          followersCount: (targetData.followersCount ?? 0) + 1,
+          updatedAt: serverTimestamp(),
+        });
 
-      tx.update(actorRef, {
-        followingCount: (actorData.followingCount ?? 0) + 1,
-        updatedAt: serverTimestamp(),
-      });
+        tx.update(actorRef, {
+          followingCount: (actorData.followingCount ?? 0) + 1,
+          updatedAt: serverTimestamp(),
+        });
 
-      const notifId = doc(collection(db, COLLECTION_NAMES.notifications)).id;
-      const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
-      const notifPayload: Record<string, unknown> = {
-        id: notifId,
-        recipientUid: targetUid,
-        eventType: 'follow',
-        title: `${actorData.fullName} started following you`,
-        body: `@${actorData.username} is now following your campus profile.`,
-        targetPath: `/?view=profile&username=${actorData.username}`,
-        actorUid,
-        actorUsername: actorData.username,
-        actorName: actorData.fullName,
-        isRead: false,
-        createdAt: serverTimestamp(),
-      };
-      if (actorData.photoImageId && isValidFirestoreId(actorData.photoImageId)) {
-        notifPayload.actorPhotoImageId = actorData.photoImageId;
-      } else if (actorData.photoUrl && isSafeMediaUrl(actorData.photoUrl)) {
-        notifPayload.actorPhotoUrl = actorData.photoUrl;
-      }
+        const notifId = doc(collection(db, COLLECTION_NAMES.notifications)).id;
+        const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+        const notifPayload: Record<string, unknown> = isSilentUndergroundActor
+          ? {
+              id: notifId,
+              recipientUid: targetUid,
+              eventType: 'follow',
+              title: 'New campus follower',
+              body: 'Someone started following your campus updates.',
+              isRead: false,
+              createdAt: serverTimestamp(),
+            }
+          : {
+              id: notifId,
+              recipientUid: targetUid,
+              eventType: 'follow',
+              title: `${actorData.fullName} started following you`,
+              body: `@${actorData.username} is now following your campus profile.`,
+              targetPath: `/?view=profile&username=${actorData.username}`,
+              actorUid,
+              actorUsername: actorData.username,
+              actorName: actorData.fullName,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            };
+        if (!isSilentUndergroundActor) {
+          if (actorData.photoImageId && isValidFirestoreId(actorData.photoImageId)) {
+            notifPayload.actorPhotoImageId = actorData.photoImageId;
+          } else if (actorData.photoUrl && isSafeMediaUrl(actorData.photoUrl)) {
+            notifPayload.actorPhotoUrl = actorData.photoUrl;
+          }
+        }
         tx.set(notifRef, notifPayload);
         createdFollowNotifId = notifId;
       })

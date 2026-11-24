@@ -420,6 +420,141 @@ export function removeItemById<T extends { id: string }>(
   return items.filter((item) => item.id !== targetId);
 }
 
+/**
+ * Safely subtracts a deleted post's likes from an aggregate likes counter,
+ * clamping to zero and guarding against NaN/negative inputs.
+ */
+export function subtractPostLikesSafe(
+  currentTotal: number,
+  deletedLikes: number
+): number {
+  const safeTotal =
+    typeof currentTotal === 'number' && Number.isFinite(currentTotal)
+      ? Math.max(0, Math.floor(currentTotal))
+      : 0;
+  const safeDeleted =
+    typeof deletedLikes === 'number' && Number.isFinite(deletedLikes)
+      ? Math.max(0, Math.floor(deletedLikes))
+      : 0;
+  return Math.max(0, safeTotal - safeDeleted);
+}
+
+export interface AnchoredFeedMergeResult<T> {
+  items: T[];
+  insertedCount: number;
+  insertionIndex: number;
+}
+
+/**
+ * Merges an incoming live feed stream against the currently rendered stream:
+ * - Near top (`!isScrolledMidFeed` or missing anchor): deduplicates incoming stream cleanly
+ *   (or prepends unseen items when `fallbackPrependUnseen` is true).
+ * - While scrolled mid-feed (`isScrolledMidFeed === true` and `anchorId` present):
+ *   locks items `0..anchorIndex` in exact slot order (updating mutable counts in-place),
+ *   drops unseen incoming items strictly at `anchorIndex + 1` (the user's next post slot),
+ *   and preserves tail ordering below `anchorIndex + 1` with zero duplicates or top jump.
+ */
+export function mergeAnchoredFeedStream<T extends { id: string }>(input: {
+  existing: readonly T[];
+  incoming: readonly T[];
+  anchorId?: string | null;
+  isScrolledMidFeed?: boolean;
+  fallbackPrependUnseen?: boolean;
+  resolveUpdatedItem?: (prev: T, next: T) => T;
+}): AnchoredFeedMergeResult<T> {
+  const {
+    existing,
+    incoming,
+    anchorId,
+    isScrolledMidFeed = false,
+    fallbackPrependUnseen = false,
+    resolveUpdatedItem,
+  } = input;
+
+  const dedupedIncoming: T[] = [];
+  const incomingById = new Map<string, T>();
+  for (const item of incoming) {
+    if (!item || !item.id || incomingById.has(item.id)) continue;
+    incomingById.set(item.id, item);
+    dedupedIncoming.push(item);
+  }
+
+  if (existing.length === 0) {
+    return {
+      items: dedupedIncoming,
+      insertedCount: dedupedIncoming.length,
+      insertionIndex: 0,
+    };
+  }
+
+  const mergePair = (prev: T, next: T | undefined): T => {
+    if (!next) return prev;
+    return resolveUpdatedItem ? resolveUpdatedItem(prev, next) : next;
+  };
+
+  const dedupedExisting: T[] = [];
+  const existingIds = new Set<string>();
+  for (const item of existing) {
+    if (!item || !item.id || existingIds.has(item.id)) continue;
+    existingIds.add(item.id);
+    dedupedExisting.push(item);
+  }
+
+  const unseenIncoming = dedupedIncoming.filter(
+    (item) => !existingIds.has(item.id)
+  );
+
+  const anchorIndex =
+    isScrolledMidFeed && anchorId
+      ? dedupedExisting.findIndex((item) => item.id === anchorId)
+      : -1;
+
+  if (anchorIndex === -1) {
+    if (fallbackPrependUnseen) {
+      const merged = [
+        ...unseenIncoming,
+        ...dedupedExisting.map((prev) =>
+          mergePair(prev, incomingById.get(prev.id))
+        ),
+      ];
+      return {
+        items: merged,
+        insertedCount: unseenIncoming.length,
+        insertionIndex: 0,
+      };
+    }
+
+    const existingById = new Map(dedupedExisting.map((item) => [item.id, item]));
+    const reordered = dedupedIncoming.map((next) => {
+      const prev = existingById.get(next.id);
+      return prev ? mergePair(prev, next) : next;
+    });
+    return {
+      items: reordered,
+      insertedCount: unseenIncoming.length,
+      insertionIndex: 0,
+    };
+  }
+
+  const prefix: T[] = [];
+  for (let i = 0; i <= anchorIndex; i += 1) {
+    const prev = dedupedExisting[i];
+    prefix.push(mergePair(prev, incomingById.get(prev.id)));
+  }
+
+  const tail: T[] = [];
+  for (let i = anchorIndex + 1; i < dedupedExisting.length; i += 1) {
+    const prev = dedupedExisting[i];
+    tail.push(mergePair(prev, incomingById.get(prev.id)));
+  }
+
+  return {
+    items: [...prefix, ...unseenIncoming, ...tail],
+    insertedCount: unseenIncoming.length,
+    insertionIndex: anchorIndex + 1,
+  };
+}
+
 export function patchAuthorProjectionInPostItems<T extends PostWithAuthorLike>(
   items: readonly T[],
   updatedProfile: PublicProfileProjection,

@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   AlertCircle,
@@ -8,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
+import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
 import {
   fetchOfficialUpdatesPage,
   fetchSingleOfficialUpdate,
@@ -31,6 +39,11 @@ import {
   formatFirestoreOrAppError,
   isDesignatedSupremeAdminUser,
 } from '../../utils/authValidation';
+import {
+  mergeAnchoredFeedStream,
+  pickFresherRecordPreservingRef,
+  reuseSetIfUnchanged,
+} from '../../utils/cacheSync';
 import { UpdateCard } from '../updates/UpdateCard';
 import { UpdateComposerModal } from '../updates/UpdateComposerModal';
 
@@ -94,14 +107,31 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
   const [editingUpdate, setEditingUpdate] = useState<AdminUpdate | null>(null);
 
   const prevViewerKeyRef = useRef(viewerKey);
+  const activeAnchorUpdateIdRef = useRef<string | null>(null);
+  const pendingScrollAdjustRef = useRef<{
+    anchorId: string;
+    beforeTop: number;
+  } | null>(null);
 
   const loadUpdatesFeed = useCallback(
-    async (options: { force?: boolean } = {}) => {
-      if (!options.force && initialSnap && updates.length > 0) {
+    async (
+      options: { force?: boolean; mode?: 'initial' | 'background' } = {}
+    ) => {
+      const mode = options.mode ?? 'initial';
+      if (
+        mode === 'background' &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine === false
+      ) {
         return;
       }
-      setLoading(true);
-      setErrorMessage(null);
+      if (!options.force && mode === 'initial' && initialSnap && updates.length > 0) {
+        return;
+      }
+      if (mode === 'initial') {
+        setLoading(true);
+        setErrorMessage(null);
+      }
       try {
         const [page, viewerLikes, viewerSaved] = await Promise.all([
           fetchOfficialUpdatesPage({ pageSize: 18 }),
@@ -135,12 +165,50 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
           }
         }
 
-        setUpdates(mergedItems);
-        setAuthorMap(mergedAuthors);
-        setLikedIds(viewerLikes);
-        setSavedIds(viewerSaved);
-        setCursor(page.nextCursor);
-        setHasMore(page.hasMore);
+        const isScrolledMidFeed =
+          mode === 'background' &&
+          typeof window !== 'undefined' &&
+          window.scrollY > 140;
+        const anchorId = isScrolledMidFeed ? activeAnchorUpdateIdRef.current : null;
+        if (anchorId && typeof document !== 'undefined') {
+          const el = document.querySelector<HTMLElement>(
+            `[data-update-entry-id="${anchorId}"]`
+          );
+          if (el) {
+            pendingScrollAdjustRef.current = {
+              anchorId,
+              beforeTop: el.getBoundingClientRect().top,
+            };
+          }
+        }
+
+        setUpdates((prev) => {
+          if (mode === 'initial' || prev.length === 0) {
+            return mergedItems;
+          }
+          const merged = mergeAnchoredFeedStream({
+            existing: prev,
+            incoming: mergedItems,
+            anchorId,
+            isScrolledMidFeed,
+            fallbackPrependUnseen: true,
+            resolveUpdatedItem: (existingItem, nextItem) =>
+              pickFresherRecordPreservingRef(existingItem, nextItem),
+          });
+          return merged.items;
+        });
+        setAuthorMap((prev) => {
+          if (mode === 'initial' || prev.size === 0) return mergedAuthors;
+          const next = new Map(prev);
+          mergedAuthors.forEach((v, k) => next.set(k, v));
+          return next;
+        });
+        setLikedIds((prev) => reuseSetIfUnchanged(prev, viewerLikes));
+        setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
+        if (mode === 'initial') {
+          setCursor(page.nextCursor);
+          setHasMore(page.hasMore);
+        }
 
         saveAdminUpdatesSnapshot({
           viewerKey,
@@ -152,14 +220,18 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
           cachedAt: Date.now(),
         });
       } catch (err) {
-        setErrorMessage(
-          formatFirestoreOrAppError(
-            err,
-            'Could not load official updates right now.'
-          )
-        );
+        if (mode === 'initial') {
+          setErrorMessage(
+            formatFirestoreOrAppError(
+              err,
+              'Could not load official updates right now.'
+            )
+          );
+        }
       } finally {
-        setLoading(false);
+        if (mode === 'initial') {
+          setLoading(false);
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,11 +241,67 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
   useEffect(() => {
     if (prevViewerKeyRef.current !== viewerKey) {
       prevViewerKeyRef.current = viewerKey;
-      void loadUpdatesFeed({ force: true });
+      void loadUpdatesFeed({ force: true, mode: 'initial' });
       return;
     }
     void loadUpdatesFeed();
   }, [viewerKey, loadUpdatesFeed]);
+
+  useActiveBackgroundRefresh({
+    enabled: !loading,
+    onRefresh: () => loadUpdatesFeed({ mode: 'background', force: true }),
+    baseIntervalMs: 5000,
+  });
+
+  useLayoutEffect(() => {
+    const adjust = pendingScrollAdjustRef.current;
+    if (!adjust || typeof document === 'undefined' || typeof window === 'undefined') {
+      return;
+    }
+    pendingScrollAdjustRef.current = null;
+    const el = document.querySelector<HTMLElement>(
+      `[data-update-entry-id="${adjust.anchorId}"]`
+    );
+    if (!el) return;
+    const delta = el.getBoundingClientRect().top - adjust.beforeTop;
+    if (Math.abs(delta) > 1) {
+      window.scrollBy(0, delta);
+    }
+  }, [updates]);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+    const nodes = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-update-entry-id]')
+    );
+    if (nodes.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let bestId: string | null = null;
+        let bestDist = Infinity;
+        const targetY = typeof window !== 'undefined' ? window.innerHeight * 0.28 : 200;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = (entry.target as HTMLElement).dataset.updateEntryId;
+          if (!id) continue;
+          const dist = Math.abs(entry.boundingClientRect.top - targetY);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestId = id;
+          }
+        }
+        if (bestId) {
+          activeAnchorUpdateIdRef.current = bestId;
+        }
+      },
+      { threshold: [0.35, 0.65] }
+    );
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [updates, activeCategory]);
 
   // Ensure deep-linked update is fetched even if feed already cached
   useEffect(() => {
@@ -417,50 +545,51 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
           {filteredUpdates.map((update) => {
             const isTarget = selectedUpdateId === update.id;
             return (
-              <UpdateCard
-                key={update.id}
-                update={update}
-                author={
-                  update.authorMode === 'public_admin' && update.ownerUID
-                    ? authorMap.get(update.ownerUID) ?? null
-                    : null
-                }
-                viewerUid={user?.uid ?? null}
-                viewerTier={effectiveTier}
-                viewerSuspended={isSuspended}
-                isLiked={likedIds.has(update.id)}
-                isSaved={savedIds.has(update.id)}
-                defaultCommentsOpen={isTarget && Boolean(focusedCommentId)}
-                isHighlighted={isTarget}
-                highlightCommentId={isTarget ? focusedCommentId : null}
-                onEditUpdate={
-                  canPublishOfficialUpdate
-                    ? (item) => {
-                        setEditingUpdate(item);
-                        setComposerOpen(true);
-                      }
-                    : undefined
-                }
-                onUpdateMutated={(updated) => {
-                  setUpdates((prev) =>
-                    prev.map((u) => (u.id === updated.id ? updated : u))
-                  );
-                }}
-                onUpdateDeleted={(deletedId) => {
-                  setUpdates((prev) => prev.filter((u) => u.id !== deletedId));
-                }}
-                onSaveChanged={(id, saved) => {
-                  setSavedIds((prev) => {
-                    const next = new Set(prev);
-                    if (saved) next.add(id);
-                    else next.delete(id);
-                    return next;
-                  });
-                }}
-                onNavigateProfile={onNavigateProfile}
-                onRequireAuth={onRequireAuth}
-                returnRoute="updates"
-              />
+              <div key={update.id} data-update-entry-id={update.id}>
+                <UpdateCard
+                  update={update}
+                  author={
+                    update.authorMode === 'public_admin' && update.ownerUID
+                      ? authorMap.get(update.ownerUID) ?? null
+                      : null
+                  }
+                  viewerUid={user?.uid ?? null}
+                  viewerTier={effectiveTier}
+                  viewerSuspended={isSuspended}
+                  isLiked={likedIds.has(update.id)}
+                  isSaved={savedIds.has(update.id)}
+                  defaultCommentsOpen={isTarget && Boolean(focusedCommentId)}
+                  isHighlighted={isTarget}
+                  highlightCommentId={isTarget ? focusedCommentId : null}
+                  onEditUpdate={
+                    canPublishOfficialUpdate
+                      ? (item) => {
+                          setEditingUpdate(item);
+                          setComposerOpen(true);
+                        }
+                      : undefined
+                  }
+                  onUpdateMutated={(updated) => {
+                    setUpdates((prev) =>
+                      prev.map((u) => (u.id === updated.id ? updated : u))
+                    );
+                  }}
+                  onUpdateDeleted={(deletedId) => {
+                    setUpdates((prev) => prev.filter((u) => u.id !== deletedId));
+                  }}
+                  onSaveChanged={(id, saved) => {
+                    setSavedIds((prev) => {
+                      const next = new Set(prev);
+                      if (saved) next.add(id);
+                      else next.delete(id);
+                      return next;
+                    });
+                  }}
+                  onNavigateProfile={onNavigateProfile}
+                  onRequireAuth={onRequireAuth}
+                  returnRoute="updates"
+                />
+              </div>
             );
           })}
 

@@ -75,6 +75,7 @@ import {
 } from '../utils/postViews';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
+  commitFreshWriteBatchWithRetry,
   computeNextReactionTransactionState,
   isFirestoreSdkError,
   runWithFirestoreConnectionRetry,
@@ -119,6 +120,7 @@ import {
   notifyPostCommentMutated,
   notifyPostViewCountUpdated,
 } from './cacheInvalidation';
+import { subtractPostLikesSafe } from '../utils/cacheSync';
 
 export interface ComposerImageAttachment {
   clientId: string;
@@ -252,13 +254,13 @@ async function resolveExistingImageIds(imageIds: string[]): Promise<string[]> {
 }
 
 async function commitWriteBatchWithRetry(
-  batch: WriteBatch,
+  populateBatch: (batch: WriteBatch) => void,
   opType: OperationType,
   path: string,
   actorUid?: string
 ): Promise<void> {
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(() => writeBatch(db), populateBatch);
   } catch (error) {
     const isPermDenied =
       isFirebaseErrorCode(error, 'permission-denied') ||
@@ -269,7 +271,7 @@ async function commitWriteBatchWithRetry(
       try {
         await auth.currentUser.reload();
         await auth.currentUser.getIdToken(true);
-        await runWithFirestoreConnectionRetry(() => batch.commit());
+        await commitFreshWriteBatchWithRetry(() => writeBatch(db), populateBatch);
         return;
       } catch (retryError) {
         handleFirestoreError(retryError, opType, path);
@@ -438,26 +440,30 @@ export async function createCommunityPostWithMedia(input: {
         : 'Publishing campus update...',
   });
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.posts, postId), postDoc);
-
-  for (const att of effectiveAttachments) {
-    if (!att.compressed) continue;
-    const mediaRecord = buildMediaImageFirestoreRecord({
-      imageId: att.imageId,
-      targetCollection: 'posts',
-      targetId: postId,
-      ownerUID: input.ownerUID,
-      compressed: att.compressed,
-      createdAtValue: serverTimestamp(),
-    });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
-  }
-
   input.onProgress?.({ percent: 70, label: 'Confirming with Firebase...' });
 
   const path = `${COLLECTION_NAMES.posts}/${postId}`;
-  await commitWriteBatchWithRetry(batch, OperationType.CREATE, path, input.ownerUID);
+  await commitWriteBatchWithRetry(
+    (batch) => {
+      batch.set(doc(db, COLLECTION_NAMES.posts, postId), postDoc);
+
+      for (const att of effectiveAttachments) {
+        if (!att.compressed) continue;
+        const mediaRecord = buildMediaImageFirestoreRecord({
+          imageId: att.imageId,
+          targetCollection: 'posts',
+          targetId: postId,
+          ownerUID: input.ownerUID,
+          compressed: att.compressed,
+          createdAtValue: serverTimestamp(),
+        });
+        batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
+      }
+    },
+    OperationType.CREATE,
+    path,
+    input.ownerUID
+  );
 
   for (const att of effectiveAttachments) {
     if (att.compressed) {
@@ -562,50 +568,49 @@ export async function createAnonymousPostWithMedia(input: {
     input.authorRole
   );
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.anonymousPosts, postId), publicDoc);
-  batch.set(
-    doc(db, COLLECTION_NAMES.anonymousIdentityMappings, postId),
-    {
-      entryId: postId,
-      entryType: 'anonymousPosts',
-      authorUid: input.authorUid,
-      authorRole: mappingRole,
-      createdAt: serverTimestamp(),
-    }
-  );
-
-  for (const att of effectiveAttachments) {
-    if (!att.compressed) continue;
-    const mediaRecord = buildMediaImageFirestoreRecord({
-      imageId: att.imageId,
-      targetCollection: 'anonymousPosts',
-      targetId: postId,
-      compressed: att.compressed,
-      createdAtValue: serverTimestamp(),
-    });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
-  }
-
-  batch.set(
-    doc(
-      db,
-      COLLECTION_NAMES.privateUserData,
-      input.authorUid,
-      SUBCOLLECTION_NAMES.anonymousHistory,
-      postId
-    ),
-    {
-      postId,
-      createdAt: serverTimestamp(),
-    }
-  );
-
   input.onProgress?.({ percent: 72, label: 'Confirming with Firebase...' });
 
   const path = `${COLLECTION_NAMES.anonymousPosts}/${postId}`;
   await commitWriteBatchWithRetry(
-    batch,
+    (batch) => {
+      batch.set(doc(db, COLLECTION_NAMES.anonymousPosts, postId), publicDoc);
+      batch.set(
+        doc(db, COLLECTION_NAMES.anonymousIdentityMappings, postId),
+        {
+          entryId: postId,
+          entryType: 'anonymousPosts',
+          authorUid: input.authorUid,
+          authorRole: mappingRole,
+          createdAt: serverTimestamp(),
+        }
+      );
+
+      for (const att of effectiveAttachments) {
+        if (!att.compressed) continue;
+        const mediaRecord = buildMediaImageFirestoreRecord({
+          imageId: att.imageId,
+          targetCollection: 'anonymousPosts',
+          targetId: postId,
+          compressed: att.compressed,
+          createdAtValue: serverTimestamp(),
+        });
+        batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
+      }
+
+      batch.set(
+        doc(
+          db,
+          COLLECTION_NAMES.privateUserData,
+          input.authorUid,
+          SUBCOLLECTION_NAMES.anonymousHistory,
+          postId
+        ),
+        {
+          postId,
+          createdAt: serverTimestamp(),
+        }
+      );
+    },
     OperationType.CREATE,
     path,
     input.authorUid
@@ -682,7 +687,6 @@ export async function updateCommunityPostWithMedia(input: {
 
   input.onProgress?.({ percent: 45, label: 'Saving post changes...' });
 
-  const batch = writeBatch(db);
   const updateFields: UpdateData<CommunityPost> = {
     category: cleanCategory,
     title: cleanTitle || deleteField(),
@@ -692,27 +696,32 @@ export async function updateCommunityPostWithMedia(input: {
     updatedAt: serverTimestamp(),
   };
 
-  batch.update(doc(db, COLLECTION_NAMES.posts, input.post.id), updateFields);
-
-  for (const att of effectiveAttachments) {
-    if (!att.compressed) continue;
-    const mediaRecord = buildMediaImageFirestoreRecord({
-      imageId: att.imageId,
-      targetCollection: 'posts',
-      targetId: input.post.id,
-      ownerUID: input.actorUid,
-      compressed: att.compressed,
-      createdAtValue: serverTimestamp(),
-    });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
-  }
-
-  for (const removedId of removedExistingIds) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
-  }
-
   const path = `${COLLECTION_NAMES.posts}/${input.post.id}`;
-  await commitWriteBatchWithRetry(batch, OperationType.UPDATE, path, input.actorUid);
+  await commitWriteBatchWithRetry(
+    (batch) => {
+      batch.update(doc(db, COLLECTION_NAMES.posts, input.post.id), updateFields);
+
+      for (const att of effectiveAttachments) {
+        if (!att.compressed) continue;
+        const mediaRecord = buildMediaImageFirestoreRecord({
+          imageId: att.imageId,
+          targetCollection: 'posts',
+          targetId: input.post.id,
+          ownerUID: input.actorUid,
+          compressed: att.compressed,
+          createdAtValue: serverTimestamp(),
+        });
+        batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
+      }
+
+      for (const removedId of removedExistingIds) {
+        batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
+      }
+    },
+    OperationType.UPDATE,
+    path,
+    input.actorUid
+  );
 
   for (const removedId of removedCandidates) {
     evictMediaImageCache(removedId);
@@ -787,34 +796,34 @@ export async function updateAnonymousPostWithMedia(input: {
 
   input.onProgress?.({ percent: 45, label: 'Updating anonymous post...' });
 
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.anonymousPosts, input.post.id), {
-    category: cleanCategory,
-    body: cleanBody,
-    backgroundStyle: isTextPost && effectiveBg ? effectiveBg : deleteField(),
-    mediaItems: !isTextPost && mediaItems.length > 0 ? mediaItems : deleteField(),
-    updatedAt: serverTimestamp(),
-  });
-
-  for (const att of effectiveAttachments) {
-    if (!att.compressed) continue;
-    const mediaRecord = buildMediaImageFirestoreRecord({
-      imageId: att.imageId,
-      targetCollection: 'anonymousPosts',
-      targetId: input.post.id,
-      compressed: att.compressed,
-      createdAtValue: serverTimestamp(),
-    });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
-  }
-
-  for (const removedId of removedExistingIds) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
-  }
-
   const path = `${COLLECTION_NAMES.anonymousPosts}/${input.post.id}`;
   await commitWriteBatchWithRetry(
-    batch,
+    (batch) => {
+      batch.update(doc(db, COLLECTION_NAMES.anonymousPosts, input.post.id), {
+        category: cleanCategory,
+        body: cleanBody,
+        backgroundStyle: isTextPost && effectiveBg ? effectiveBg : deleteField(),
+        mediaItems:
+          !isTextPost && mediaItems.length > 0 ? mediaItems : deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+
+      for (const att of effectiveAttachments) {
+        if (!att.compressed) continue;
+        const mediaRecord = buildMediaImageFirestoreRecord({
+          imageId: att.imageId,
+          targetCollection: 'anonymousPosts',
+          targetId: input.post.id,
+          compressed: att.compressed,
+          createdAtValue: serverTimestamp(),
+        });
+        batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
+      }
+
+      for (const removedId of removedExistingIds) {
+        batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
+      }
+    },
     OperationType.UPDATE,
     path,
     auth.currentUser?.uid
@@ -1078,6 +1087,17 @@ export async function deletePostCascading(input: {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 
+  const deletedLikes =
+    typeof input.post.likesCount === 'number' &&
+    Number.isFinite(input.post.likesCount)
+      ? Math.max(0, Math.floor(input.post.likesCount))
+      : 0;
+  const isOwnAnonymousPost = Boolean(
+    input.kind === 'anonymousPosts' &&
+      ((ownership?.exists && ownership.postIds.includes(postId)) ||
+        hasAnonymousHistoryDoc)
+  );
+
   if (
     input.kind === 'anonymousPosts' &&
     ownership?.exists &&
@@ -1089,6 +1109,29 @@ export async function deletePostCascading(input: {
     }).catch(() => undefined);
   }
 
+  if (isOwnAnonymousPost && deletedLikes > 0) {
+    getDoc(doc(db, COLLECTION_NAMES.users, input.actorUid))
+      .then((actorSnap) => {
+        if (!actorSnap.exists()) return;
+        const currentAnonLikes = Math.max(
+          0,
+          Math.floor(
+            (actorSnap.data() as PublicUserProfile)
+              .anonymousLikesReceivedCount ?? 0
+          )
+        );
+        const nextAnonLikes = subtractPostLikesSafe(
+          currentAnonLikes,
+          deletedLikes
+        );
+        return updateDoc(doc(db, COLLECTION_NAMES.users, input.actorUid), {
+          anonymousLikesReceivedCount: nextAnonLikes,
+          updatedAt: serverTimestamp(),
+        });
+      })
+      .catch(() => undefined);
+  }
+
   for (const mediaId of existingMediaIds) {
     evictMediaImageCache(mediaId);
   }
@@ -1096,9 +1139,15 @@ export async function deletePostCascading(input: {
     evictMediaImageCache(metaId);
   }
   if (input.kind === 'posts') {
-    notifyCommunityPostDeleted(postId);
+    notifyCommunityPostDeleted(postId, {
+      ownerUID: (input.post as CommunityPost).ownerUID,
+      likesCount: deletedLikes,
+    });
   } else {
-    notifyAnonymousPostDeleted(postId);
+    notifyAnonymousPostDeleted(postId, {
+      ownerUID: isOwnAnonymousPost ? input.actorUid : undefined,
+      likesCount: deletedLikes,
+    });
   }
 }
 

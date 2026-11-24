@@ -1,4 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -19,9 +26,11 @@ import {
 import { useFirebase } from '../context/firebaseContext';
 import { useActiveBackgroundRefresh } from '../hooks/useActiveBackgroundRefresh';
 import { subscribeCacheMutations } from '../services/cacheInvalidation';
+import { fetchOfficialUpdatesPage } from '../services/adminUpdates';
 import { toggleEventReaction } from '../services/events';
 import {
   fetchCommunityFeedPage,
+  fetchPublicAnonymousFeedPage,
   type CommunityFeedCursor,
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
@@ -36,12 +45,15 @@ import {
 } from '../services/personalisedFeed';
 import { requestEmailVerification } from '../services/auth';
 import {
+  fetchOwnedAnonymousEntries,
   fetchSinglePublishedPostWithAuthor,
   fetchViewerLikedPostIds,
   fetchViewerSavedPostIds,
   toggleSavedPost,
 } from '../services/socialPosts';
 import type {
+  AdminUpdate,
+  AnonymousPost,
   CampusEvent,
   CommunityPost,
   OrdinaryPostType,
@@ -57,6 +69,7 @@ import {
 import {
   canCreateAnonymousEntry,
   canPublishOrdinaryPostStrict,
+  hasDesignatedSupremeAdminEmailMatch,
   hasPostingRolePendingEmailVerification,
   isAccountSuspended,
   isDesignatedSupremeAdminUser,
@@ -64,13 +77,18 @@ import {
   toPublicProfileProjection,
 } from '../utils/authValidation';
 import {
-  buildForYouFeedStream,
+  buildCombinedHomeForYouStream,
+  buildCombinedHomeLatestStream,
   loadDismissedRecommendationKeys,
+  recordFeedBehaviorSignal,
   saveDismissedRecommendationKey,
+  type CombinedHomeStreamEntry,
   type ForYouRankingOptions,
+  type HomeUpdateWithAuthor,
 } from '../utils/feedRanking';
 import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions';
 import {
+  mergeAnchoredFeedStream,
   mergeCommunityPostItems,
   reuseSetIfUnchanged,
 } from '../utils/cacheSync';
@@ -82,6 +100,7 @@ import { EmptyState, ErrorState, LoadingState } from './StateViews';
 import { GuestPromptCard } from './auth/GuestPromptCard';
 import { PostCard } from './posts/PostCard';
 import { PostComposer } from './posts/PostComposer';
+import { UpdateCard } from './updates/UpdateCard';
 import { UpdateComposerModal } from './updates/UpdateComposerModal';
 import { EventCard } from './sections/events/EventCard';
 import { OpportunityCard } from './sections/opportunities/OpportunityCard';
@@ -171,6 +190,12 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   const [postItems, setPostItems] = useState<CommunityPostWithAuthor[]>(
     () => initialCache?.postItems ?? []
   );
+  const [updateItems, setUpdateItems] = useState<HomeUpdateWithAuthor[]>(
+    () => initialCache?.updateItems ?? []
+  );
+  const [anonymousItems, setAnonymousItems] = useState<AnonymousPost[]>(
+    () => initialCache?.anonymousItems ?? []
+  );
   const [deepLinkedPost, setDeepLinkedPost] = useState<{
     targetId: string;
     item: CommunityPostWithAuthor | null;
@@ -180,6 +205,24 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   );
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(
     () => initialCache?.savedPostIds ?? new Set()
+  );
+  const [likedUpdateIds, setLikedUpdateIds] = useState<Set<string>>(
+    () => initialCache?.likedUpdateIds ?? new Set()
+  );
+  const [savedUpdateIds, setSavedUpdateIds] = useState<Set<string>>(
+    () => initialCache?.savedUpdateIds ?? new Set()
+  );
+  const [likedAnonIds, setLikedAnonIds] = useState<Set<string>>(
+    () => initialCache?.likedAnonIds ?? new Set()
+  );
+  const [savedAnonIds, setSavedAnonIds] = useState<Set<string>>(
+    () => initialCache?.savedAnonIds ?? new Set()
+  );
+  const [ownedAnonPostIds, setOwnedAnonPostIds] = useState<Set<string>>(
+    () => initialCache?.ownedAnonPostIds ?? new Set()
+  );
+  const [ownedAnonCommentIds, setOwnedAnonCommentIds] = useState<Set<string>>(
+    () => initialCache?.ownedAnonCommentIds ?? new Set()
   );
   const [followingCount, setFollowingCount] = useState<number>(
     () => initialCache?.followingCount ?? 0
@@ -229,6 +272,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     editPost?: CommunityPost;
   } | null>(null);
   const [officialUpdateModalOpen, setOfficialUpdateModalOpen] = useState(false);
+  const [editingOfficialUpdate, setEditingOfficialUpdate] =
+    useState<AdminUpdate | null>(null);
 
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const lastHandledRetryRef = useRef(0);
@@ -247,11 +292,52 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   const activeViewerUidRef = useRef(activeViewerUid);
   const interestSigRef = useRef(interestSignature);
   const postItemsRef = useRef(postItems);
+  const updateItemsRef = useRef(updateItems);
+  const anonymousItemsRef = useRef(anonymousItems);
+  const discoveryRef = useRef(discovery);
+  const dismissedKeysRef = useRef(dismissedKeys);
   const loadStateRef = useRef(loadState);
   const rankingOptionsRef = useRef(rankingOptions);
   const lastDiscoverySyncAtRef = useRef<number>(
     initialCache?.rankingOptions ? initialCache.cachedAt : 0
   );
+
+  const currentTabKey = `${viewerKey}:${activeFeedTab}`;
+  const [anchoredOrderState, setAnchoredOrderState] = useState<{
+    key: string;
+    ids: string[];
+  }>({ key: currentTabKey, ids: [] });
+  const activeAnchorEntryIdRef = useRef<string | null>(null);
+  const currentStreamIdsRef = useRef<string[]>([]);
+  const pendingScrollAdjustRef = useRef<{
+    anchorId: string;
+    beforeTop: number;
+  } | null>(null);
+  const visibleEntryTimingRef = useRef<
+    Map<
+      string,
+      {
+        startedAt: number;
+        meta: {
+          targetId: string;
+          authorKey?: string;
+          category?: string;
+          text?: string;
+        };
+      }
+    >
+  >(new Map());
+  const streamEntryMetaRef = useRef<
+    Map<
+      string,
+      {
+        targetId: string;
+        authorKey?: string;
+        category?: string;
+        text?: string;
+      }
+    >
+  >(new Map());
 
   useEffect(() => {
     activeTabRef.current = activeFeedTab;
@@ -259,6 +345,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     activeViewerUidRef.current = activeViewerUid;
     interestSigRef.current = interestSignature;
     postItemsRef.current = postItems;
+    updateItemsRef.current = updateItems;
+    anonymousItemsRef.current = anonymousItems;
+    discoveryRef.current = discovery;
+    dismissedKeysRef.current = dismissedKeys;
     loadStateRef.current = loadState;
     rankingOptionsRef.current = rankingOptions;
   }, [
@@ -267,6 +357,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     activeViewerUid,
     interestSignature,
     postItems,
+    updateItems,
+    anonymousItems,
+    discovery,
+    dismissedKeys,
     loadState,
     rankingOptions,
   ]);
@@ -274,11 +368,27 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   const prefetchLeadPostMedia = useCallback(
     (
       items: readonly CommunityPostWithAuthor[],
-      recommendedPeople?: ForYouDiscoveryBundle['recommendedPeople']
+      recommendedPeople?: ForYouDiscoveryBundle['recommendedPeople'],
+      updates: readonly HomeUpdateWithAuthor[] = [],
+      anons: readonly AnonymousPost[] = []
     ) => {
       if (isDataSaverConnection()) return;
       const highPriority: Array<string | null | undefined> = [];
       const normalPriority: Array<string | null | undefined> = [];
+
+      updates.slice(0, 4).forEach((entry, index) => {
+        if (index < 2) {
+          highPriority.push(
+            entry.author?.photoImageId,
+            entry.update.mediaItems?.[0]?.imageId
+          );
+        } else {
+          normalPriority.push(
+            entry.author?.photoImageId,
+            entry.update.mediaItems?.[0]?.imageId
+          );
+        }
+      });
 
       items.slice(0, 6).forEach((entry, index) => {
         if (index < 3) {
@@ -297,6 +407,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         }
       });
 
+      anons.slice(0, 3).forEach((anon) => {
+        normalPriority.push(anon.mediaItems?.[0]?.imageId);
+      });
+
       if (recommendedPeople?.length) {
         recommendedPeople.slice(0, 5).forEach((rec) => {
           normalPriority.push(rec.member.photoImageId);
@@ -308,7 +422,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           highPriority,
           normalPriority,
           predecode: false,
-          maxTotal: 14,
+          maxTotal: 16,
         });
       }
     },
@@ -331,21 +445,52 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         return;
       }
 
-      const likedPromise = uid
-        ? fetchViewerLikedPostIds('posts', uid).catch(
-            () => new Set<string>()
-          )
-        : Promise.resolve(new Set<string>());
+      const includeCombinedSources = targetTab !== 'following';
 
-      const savedPromise = uid
-        ? fetchViewerSavedPostIds('posts', uid).catch(
-            () => new Set<string>()
-          )
-        : Promise.resolve(new Set<string>());
-
-      const [likedIds, savedIds] = await Promise.all([
-        likedPromise,
-        savedPromise,
+      const [
+        likedIds,
+        savedIds,
+        likedUpdates,
+        savedUpdates,
+        likedAnons,
+        savedAnons,
+        ownedAnons,
+      ] = await Promise.all([
+        uid
+          ? fetchViewerLikedPostIds('posts', uid).catch(() => new Set<string>())
+          : Promise.resolve(new Set<string>()),
+        uid
+          ? fetchViewerSavedPostIds('posts', uid).catch(() => new Set<string>())
+          : Promise.resolve(new Set<string>()),
+        uid
+          ? fetchViewerLikedPostIds('updates', uid).catch(
+              () => new Set<string>()
+            )
+          : Promise.resolve(new Set<string>()),
+        uid
+          ? fetchViewerSavedPostIds('updates', uid).catch(
+              () => new Set<string>()
+            )
+          : Promise.resolve(new Set<string>()),
+        uid && includeCombinedSources
+          ? fetchViewerLikedPostIds('anonymousPosts', uid).catch(
+              () => new Set<string>()
+            )
+          : Promise.resolve(new Set<string>()),
+        uid && includeCombinedSources
+          ? fetchViewerSavedPostIds('anonymousPosts', uid).catch(
+              () => new Set<string>()
+            )
+          : Promise.resolve(new Set<string>()),
+        uid && includeCombinedSources
+          ? fetchOwnedAnonymousEntries(uid).catch(() => ({
+              postIds: new Set<string>(),
+              commentIds: new Set<string>(),
+            }))
+          : Promise.resolve({
+              postIds: new Set<string>(),
+              commentIds: new Set<string>(),
+            }),
       ]);
 
       let nextRankingOptions:
@@ -382,12 +527,18 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         }
       }
 
-      const page = await fetchCommunityFeedPage({
-        tab: targetTab,
-        viewerUid: uid,
-        pageSize: FEED_PAGE_SIZE,
-        rankingOptions: nextRankingOptions,
-      });
+      const [page, updatesPage, anonPage] = await Promise.all([
+        fetchCommunityFeedPage({
+          tab: targetTab,
+          viewerUid: uid,
+          pageSize: FEED_PAGE_SIZE,
+          rankingOptions: nextRankingOptions,
+        }),
+        fetchOfficialUpdatesPage({ pageSize: 14 }).catch(() => null),
+        includeCombinedSources
+          ? fetchPublicAnonymousFeedPage({ pageSize: 12 }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
 
       if (isCancelled?.()) return;
 
@@ -402,18 +553,122 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         };
       }
 
-      setFollowingCount(page.followingCount);
-      setFollowedUids(page.followedUids);
-      setPostItems((prev) =>
-        mode === 'background' && prev.length > 0
+      const mappedUpdates: HomeUpdateWithAuthor[] | null = updatesPage
+        ? updatesPage.items.map((update) => ({
+            update,
+            author:
+              update.authorMode === 'public_admin' && update.ownerUID
+                ? updatesPage.authorMap.get(update.ownerUID) ?? null
+                : null,
+          }))
+        : null;
+
+      const tabKey = `${viewerKeyRef.current}:${targetTab}`;
+      const nextDismissed = loadDismissedRecommendationKeys(uid);
+
+      const nextPosts =
+        mode === 'background' && postItemsRef.current.length > 0
           ? mergeCommunityPostItems({
-              existing: prev,
+              existing: postItemsRef.current,
               incoming: page.items,
               preferIncomingOrder: false,
               preserveTail: true,
             })
-          : page.items
-      );
+          : page.items;
+      const nextUpdates = mappedUpdates ?? updateItemsRef.current;
+      const nextAnons = includeCombinedSources
+        ? anonPage?.items ?? anonymousItemsRef.current
+        : [];
+      const effectiveDiscovery = nextDiscovery ?? discoveryRef.current;
+      const effectiveRanking = nextRankingOptions ?? rankingOptionsRef.current;
+
+      if (mode === 'background' && currentStreamIdsRef.current.length > 0) {
+        const isScrolledMidFeed =
+          typeof window !== 'undefined' && window.scrollY > 140;
+        const anchorId = isScrolledMidFeed
+          ? activeAnchorEntryIdRef.current
+          : null;
+        if (anchorId && typeof document !== 'undefined') {
+          const el = document.querySelector<HTMLElement>(
+            `[data-feed-entry-id="${anchorId}"]`
+          );
+          if (el) {
+            pendingScrollAdjustRef.current = {
+              anchorId,
+              beforeTop: el.getBoundingClientRect().top,
+            };
+          }
+        }
+
+        const followedSet = new Set(page.followedUids);
+        const incomingStream: CombinedHomeStreamEntry[] =
+          targetTab === 'for-you'
+            ? buildCombinedHomeForYouStream({
+                updates: nextUpdates,
+                posts: nextPosts,
+                anonymousPosts: [
+                  ...nextAnons,
+                  ...(effectiveDiscovery?.recommendedAnonymous ?? []).map(
+                    (item) => item.post
+                  ),
+                ],
+                rankingOptions: effectiveRanking
+                  ? { ...effectiveRanking, followedUids: followedSet }
+                  : undefined,
+                recommendedPeople: effectiveDiscovery?.recommendedPeople,
+                recommendedEvents: effectiveDiscovery?.recommendedEvents,
+                recommendedOpportunities:
+                  effectiveDiscovery?.recommendedOpportunities,
+                dismissedKeys: nextDismissed,
+              })
+            : targetTab === 'latest'
+              ? buildCombinedHomeLatestStream({
+                  updates: nextUpdates,
+                  posts: nextPosts,
+                  anonymousPosts: nextAnons,
+                })
+              : buildCombinedHomeLatestStream({
+                  updates: nextUpdates.filter(
+                    (item) =>
+                      item.update.authorMode === 'public_admin' &&
+                      Boolean(
+                        item.update.ownerUID &&
+                          followedSet.has(item.update.ownerUID)
+                      )
+                  ),
+                  posts: nextPosts,
+                  anonymousPosts: [],
+                });
+
+        const baseIds = currentStreamIdsRef.current.map((id) => ({ id }));
+        const mergedStream = mergeAnchoredFeedStream<{ id: string }>({
+          existing: baseIds,
+          incoming: incomingStream.map((entry) => ({ id: entry.id })),
+          anchorId,
+          isScrolledMidFeed,
+          fallbackPrependUnseen: true,
+        });
+        setAnchoredOrderState({
+          key: tabKey,
+          ids: mergedStream.items.map((item) => item.id),
+        });
+      } else if (mode === 'initial') {
+        setAnchoredOrderState({ key: tabKey, ids: [] });
+      }
+
+      setFollowingCount(page.followingCount);
+      setFollowedUids(page.followedUids);
+      setPostItems(nextPosts);
+      if (mappedUpdates) {
+        setUpdateItems(mappedUpdates);
+      }
+      if (includeCombinedSources) {
+        if (anonPage) {
+          setAnonymousItems(anonPage.items);
+        }
+      } else {
+        setAnonymousItems([]);
+      }
       setFeedCursor((prevCursor) =>
         mode === 'background' &&
         postItemsRef.current.length > page.items.length &&
@@ -428,6 +683,18 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       );
       setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
       setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
+      setLikedUpdateIds((prev) => reuseSetIfUnchanged(prev, likedUpdates));
+      setSavedUpdateIds((prev) => reuseSetIfUnchanged(prev, savedUpdates));
+      if (includeCombinedSources) {
+        setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedAnons));
+        setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedAnons));
+        setOwnedAnonPostIds((prev) =>
+          reuseSetIfUnchanged(prev, ownedAnons.postIds)
+        );
+        setOwnedAnonCommentIds((prev) =>
+          reuseSetIfUnchanged(prev, ownedAnons.commentIds)
+        );
+      }
       if (nextRankingOptions) {
         setRankingOptions(nextRankingOptions);
       }
@@ -436,7 +703,12 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       }
       setDismissedKeys(loadDismissedRecommendationKeys(uid));
       setLoadState('ready');
-      prefetchLeadPostMedia(page.items, nextDiscovery?.recommendedPeople);
+      prefetchLeadPostMedia(
+        page.items,
+        nextDiscovery?.recommendedPeople,
+        mappedUpdates ?? [],
+        anonPage?.items ?? []
+      );
     },
     [prefetchLeadPostMedia]
   );
@@ -448,6 +720,26 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         const delta = event.following ? 1 : -1;
         setFollowingCount((prev) => Math.max(0, prev + delta));
         setPostItems((prev) => {
+          let changed = false;
+          const next = prev.map((entry) => {
+            if (!entry.author || entry.author.username.toLowerCase() !== lower) {
+              return entry;
+            }
+            changed = true;
+            return {
+              ...entry,
+              author: {
+                ...entry.author,
+                followersCount: Math.max(
+                  0,
+                  (entry.author.followersCount ?? 0) + delta
+                ),
+              },
+            };
+          });
+          return changed ? next : prev;
+        });
+        setUpdateItems((prev) => {
           let changed = false;
           const next = prev.map((entry) => {
             if (!entry.author || entry.author.username.toLowerCase() !== lower) {
@@ -490,8 +782,151 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         const snap = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
         if (snap) {
           setPostItems(snap.postItems);
+          if (snap.updateItems) setUpdateItems(snap.updateItems);
           if (snap.discovery) setDiscovery(snap.discovery);
         }
+      } else if (event.type === 'admin_update_created') {
+        const createdId = `update_${event.update.id}`;
+        setAnchoredOrderState((prev) =>
+          prev.key === `${viewerKey}:${activeFeedTab}` && prev.ids.length > 0
+            ? {
+                key: prev.key,
+                ids: [createdId, ...prev.ids.filter((id) => id !== createdId)],
+              }
+            : prev
+        );
+        setUpdateItems((prev) => [
+          { update: event.update, author: event.author },
+          ...prev.filter((item) => item.update.id !== event.update.id),
+        ]);
+      } else if (event.type === 'admin_update_updated') {
+        setUpdateItems((prev) =>
+          prev.map((item) =>
+            item.update.id === event.update.id
+              ? { ...item, update: event.update }
+              : item
+          )
+        );
+      } else if (event.type === 'admin_update_deleted') {
+        setUpdateItems((prev) =>
+          prev.filter((item) => item.update.id !== event.updateId)
+        );
+      } else if (event.type === 'admin_update_reaction') {
+        setLikedUpdateIds((prev) => {
+          const next = new Set(prev);
+          if (event.liked) next.add(event.updateId);
+          else next.delete(event.updateId);
+          return next;
+        });
+        setUpdateItems((prev) =>
+          prev.map((item) =>
+            item.update.id === event.updateId
+              ? {
+                  ...item,
+                  update: { ...item.update, likesCount: event.likesCount },
+                }
+              : item
+          )
+        );
+      } else if (event.type === 'admin_update_saved') {
+        setSavedUpdateIds((prev) => {
+          const next = new Set(prev);
+          if (event.saved) next.add(event.updateId);
+          else next.delete(event.updateId);
+          return next;
+        });
+      } else if (event.type === 'admin_update_comment_mutated') {
+        setUpdateItems((prev) =>
+          prev.map((item) =>
+            item.update.id === event.updateId
+              ? {
+                  ...item,
+                  update: {
+                    ...item.update,
+                    commentsCount: event.commentsCount,
+                  },
+                }
+              : item
+          )
+        );
+      } else if (event.type === 'anonymous_post_created') {
+        if (activeFeedTab !== 'following') {
+          const createdId = `anon_${event.post.id}`;
+          setAnchoredOrderState((prev) =>
+            prev.key === `${viewerKey}:${activeFeedTab}` && prev.ids.length > 0
+              ? {
+                  key: prev.key,
+                  ids: [createdId, ...prev.ids.filter((id) => id !== createdId)],
+                }
+              : prev
+          );
+          setAnonymousItems((prev) => [
+            event.post,
+            ...prev.filter((item) => item.id !== event.post.id),
+          ]);
+        }
+      } else if (event.type === 'anonymous_post_updated') {
+        setAnonymousItems((prev) =>
+          prev.map((item) => (item.id === event.post.id ? event.post : item))
+        );
+      } else if (event.type === 'anonymous_post_deleted') {
+        setAnonymousItems((prev) =>
+          prev.filter((item) => item.id !== event.postId)
+        );
+      } else if (event.type === 'anonymous_post_reaction') {
+        setLikedAnonIds((prev) => {
+          const next = new Set(prev);
+          if (event.liked) next.add(event.postId);
+          else next.delete(event.postId);
+          return next;
+        });
+        setAnonymousItems((prev) =>
+          prev.map((item) =>
+            item.id === event.postId
+              ? { ...item, likesCount: event.likesCount }
+              : item
+          )
+        );
+      } else if (event.type === 'anonymous_post_saved') {
+        setSavedAnonIds((prev) => {
+          const next = new Set(prev);
+          if (event.saved) next.add(event.postId);
+          else next.delete(event.postId);
+          return next;
+        });
+      } else if (event.type === 'community_post_updated') {
+        setPostItems((prev) =>
+          prev.map((item) =>
+            item.post.id === event.post.id
+              ? { ...item, post: event.post }
+              : item
+          )
+        );
+      } else if (event.type === 'community_post_deleted') {
+        setPostItems((prev) =>
+          prev.filter((item) => item.post.id !== event.postId)
+        );
+      } else if (event.type === 'community_post_reaction') {
+        setLikedPostIds((prev) => {
+          const next = new Set(prev);
+          if (event.liked) next.add(event.postId);
+          else next.delete(event.postId);
+          return next;
+        });
+        setPostItems((prev) =>
+          prev.map((item) =>
+            item.post.id === event.postId
+              ? { ...item, post: { ...item.post, likesCount: event.likesCount } }
+              : item
+          )
+        );
+      } else if (event.type === 'community_post_saved') {
+        setSavedPostIds((prev) => {
+          const next = new Set(prev);
+          if (event.saved) next.add(event.postId);
+          else next.delete(event.postId);
+          return next;
+        });
       }
     });
     return unsubscribe;
@@ -513,7 +948,12 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         cached?.interestSignature === interestSignature);
 
     if (ramMatches && cached) {
-      prefetchLeadPostMedia(cached.postItems);
+      prefetchLeadPostMedia(
+        cached.postItems,
+        cached.discovery?.recommendedPeople,
+        cached.updateItems ?? [],
+        cached.anonymousItems ?? []
+      );
       if (Date.now() - cached.cachedAt > 15_000) {
         void syncHomeFeedFromNetwork('background', () => !active).catch(
           () => undefined
@@ -537,7 +977,9 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           active &&
           !networkSettled &&
           persisted &&
-          persisted.postItems.length > 0 &&
+          (persisted.postItems.length > 0 ||
+            (persisted.updateItems?.length ?? 0) > 0 ||
+            (persisted.anonymousItems?.length ?? 0) > 0) &&
           (activeFeedTab !== 'for-you' ||
             !persisted.interestSignature ||
             persisted.interestSignature === interestSignature)
@@ -545,15 +987,25 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           setFollowingCount(persisted.followingCount);
           setFollowedUids(persisted.followedUids);
           setPostItems(persisted.postItems);
+          setUpdateItems(persisted.updateItems ?? []);
+          setAnonymousItems(persisted.anonymousItems ?? []);
           setFeedCursor(persisted.feedCursor);
           setHasMorePosts(persisted.hasMorePosts);
           setLikedPostIds(persisted.likedPostIds);
           setSavedPostIds(persisted.savedPostIds);
+          setLikedUpdateIds(persisted.likedUpdateIds ?? new Set());
+          setSavedUpdateIds(persisted.savedUpdateIds ?? new Set());
+          setLikedAnonIds(persisted.likedAnonIds ?? new Set());
+          setSavedAnonIds(persisted.savedAnonIds ?? new Set());
+          setOwnedAnonPostIds(persisted.ownedAnonPostIds ?? new Set());
+          setOwnedAnonCommentIds(persisted.ownedAnonCommentIds ?? new Set());
           if (persisted.discovery) setDiscovery(persisted.discovery);
           setLoadState('ready');
           prefetchLeadPostMedia(
             persisted.postItems,
-            persisted.discovery?.recommendedPeople
+            persisted.discovery?.recommendedPeople,
+            persisted.updateItems ?? [],
+            persisted.anonymousItems ?? []
           );
 
           // Revalidate silently in background
@@ -604,8 +1056,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       viewerKey,
       tab: activeFeedTab,
       postItems,
+      updateItems,
+      anonymousItems,
       likedPostIds,
       savedPostIds,
+      likedUpdateIds,
+      savedUpdateIds,
+      likedAnonIds,
+      savedAnonIds,
+      ownedAnonPostIds,
+      ownedAnonCommentIds,
       followingCount,
       followedUids,
       feedCursor,
@@ -621,8 +1081,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     activeFeedTab,
     user,
     postItems,
+    updateItems,
+    anonymousItems,
     likedPostIds,
     savedPostIds,
+    likedUpdateIds,
+    savedUpdateIds,
+    likedAnonIds,
+    savedAnonIds,
+    ownedAnonPostIds,
+    ownedAnonCommentIds,
     followingCount,
     followedUids,
     feedCursor,
@@ -666,20 +1134,209 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     [selectedPostId, deepLinkedPost, postItems]
   );
 
-  const forYouStream = useMemo(() => {
+  const combinedForYouStream = useMemo(() => {
     if (activeFeedTab !== 'for-you') return [];
-    return buildForYouFeedStream({
+    const mergedAnonymous = [
+      ...anonymousItems,
+      ...(discovery?.recommendedAnonymous ?? []).map((item) => item.post),
+    ];
+    return buildCombinedHomeForYouStream({
+      updates: updateItems,
       posts: displayedPostItems,
+      anonymousPosts: mergedAnonymous,
+      rankingOptions: rankingOptions
+        ? { ...rankingOptions, followedUids: new Set(followedUids) }
+        : undefined,
       recommendedPeople: discovery?.recommendedPeople,
       recommendedEvents: discovery?.recommendedEvents,
       recommendedOpportunities: discovery?.recommendedOpportunities,
-      recommendedAnonymous: discovery?.recommendedAnonymous,
       dismissedKeys,
     });
-  }, [activeFeedTab, displayedPostItems, discovery, dismissedKeys]);
+  }, [
+    activeFeedTab,
+    updateItems,
+    displayedPostItems,
+    anonymousItems,
+    rankingOptions,
+    followedUids,
+    discovery,
+    dismissedKeys,
+  ]);
+
+  const combinedLatestStream = useMemo(() => {
+    if (activeFeedTab !== 'latest') return [];
+    return buildCombinedHomeLatestStream({
+      updates: updateItems,
+      posts: displayedPostItems,
+      anonymousPosts: anonymousItems,
+    });
+  }, [activeFeedTab, updateItems, displayedPostItems, anonymousItems]);
+
+  const followingStream = useMemo(() => {
+    if (activeFeedTab !== 'following') return [];
+    const followedUidSet = new Set(followedUids);
+    const followedUpdates = updateItems.filter(
+      (item) =>
+        item.update.authorMode === 'public_admin' &&
+        Boolean(item.update.ownerUID && followedUidSet.has(item.update.ownerUID))
+    );
+    return buildCombinedHomeLatestStream({
+      updates: followedUpdates,
+      posts: displayedPostItems,
+      anonymousPosts: [],
+    });
+  }, [activeFeedTab, updateItems, displayedPostItems, followedUids]);
+
+  const computedActiveStream = useMemo<CombinedHomeStreamEntry[]>(() => {
+    if (activeFeedTab === 'for-you') return combinedForYouStream;
+    if (activeFeedTab === 'latest') return combinedLatestStream;
+    return followingStream;
+  }, [activeFeedTab, combinedForYouStream, combinedLatestStream, followingStream]);
+
+  const displayedStream = useMemo<CombinedHomeStreamEntry[]>(() => {
+    if (
+      anchoredOrderState.key !== currentTabKey ||
+      anchoredOrderState.ids.length === 0
+    ) {
+      return computedActiveStream;
+    }
+    const byId = new Map<string, CombinedHomeStreamEntry>();
+    for (const entry of computedActiveStream) {
+      byId.set(entry.id, entry);
+    }
+    const ordered: CombinedHomeStreamEntry[] = [];
+    for (const id of anchoredOrderState.ids) {
+      const match = byId.get(id);
+      if (match) {
+        ordered.push(match);
+        byId.delete(id);
+      }
+    }
+    for (const remaining of byId.values()) {
+      ordered.push(remaining);
+    }
+    return ordered;
+  }, [anchoredOrderState, currentTabKey, computedActiveStream]);
+
+  useEffect(() => {
+    currentStreamIdsRef.current = displayedStream.map((entry) => entry.id);
+    const metaMap = new Map<
+      string,
+      { targetId: string; authorKey?: string; category?: string; text?: string }
+    >();
+    for (const entry of displayedStream) {
+      if (entry.kind === 'post') {
+        metaMap.set(entry.id, {
+          targetId: entry.item.post.id,
+          authorKey: entry.item.post.ownerUID,
+          category: entry.item.post.category,
+          text: entry.item.post.body,
+        });
+      } else if (entry.kind === 'update') {
+        metaMap.set(entry.id, {
+          targetId: entry.item.update.id,
+          authorKey: entry.item.update.ownerUID,
+          category: entry.item.update.category,
+          text: `${entry.item.update.title ?? ''} ${entry.item.update.body}`,
+        });
+      } else if (entry.kind === 'anonymous') {
+        metaMap.set(entry.id, {
+          targetId: entry.post.id,
+          category: entry.post.category,
+          text: entry.post.body,
+        });
+      }
+    }
+    streamEntryMetaRef.current = metaMap;
+  }, [displayedStream]);
+
+  useLayoutEffect(() => {
+    const adjust = pendingScrollAdjustRef.current;
+    if (
+      !adjust ||
+      typeof document === 'undefined' ||
+      typeof window === 'undefined'
+    ) {
+      return;
+    }
+    pendingScrollAdjustRef.current = null;
+    const el = document.querySelector<HTMLElement>(
+      `[data-feed-entry-id="${adjust.anchorId}"]`
+    );
+    if (!el) return;
+    const delta = el.getBoundingClientRect().top - adjust.beforeTop;
+    if (Math.abs(delta) > 1) {
+      window.scrollBy(0, delta);
+    }
+  }, [displayedStream]);
+
+  useEffect(() => {
+    if (
+      loadState !== 'ready' ||
+      typeof IntersectionObserver === 'undefined' ||
+      typeof document === 'undefined'
+    ) {
+      return;
+    }
+    const nodes = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-feed-entry-id]')
+    );
+    if (nodes.length === 0) return;
+
+    const timingMap = visibleEntryTimingRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const now = Date.now();
+        const targetY =
+          typeof window !== 'undefined' ? window.innerHeight * 0.28 : 220;
+        let bestId: string | null = null;
+        let bestDist = Infinity;
+
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.feedEntryId;
+          if (!id) continue;
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.35) {
+            const dist = Math.abs(entry.boundingClientRect.top - targetY);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestId = id;
+            }
+            if (!timingMap.has(id)) {
+              const meta = streamEntryMetaRef.current.get(id);
+              if (meta) {
+                timingMap.set(id, { startedAt: now, meta });
+              }
+            }
+          } else {
+            const activeTiming = timingMap.get(id);
+            if (activeTiming) {
+              timingMap.delete(id);
+              const dwellMs = now - activeTiming.startedAt;
+              if (dwellMs >= 150) {
+                recordFeedBehaviorSignal(activeViewerUidRef.current, {
+                  ...activeTiming.meta,
+                  dwellMs,
+                  timestampMs: now,
+                });
+              }
+            }
+          }
+        }
+
+        if (bestId) {
+          activeAnchorEntryIdRef.current = bestId;
+        }
+      },
+      { threshold: [0.1, 0.35, 0.65] }
+    );
+
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [loadState, displayedStream, activeFeedTab]);
 
   const loadFeed = () => {
     clearHomeFeedSessionCache(activeFeedTab);
+    setAnchoredOrderState({ key: currentTabKey, ids: [] });
     setLoadState('loading');
     setFeedCursor(null);
     setHasMorePosts(false);
@@ -911,7 +1568,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     }
 
     if (!canPublishOrdinary) {
-      if (!accountSyncReady || !user.emailVerified) {
+      if (
+        !accountSyncReady ||
+        (hasDesignatedSupremeAdminEmailMatch(user) && !user.emailVerified)
+      ) {
         setVerifyingComposerAction(true);
         try {
           const snapshot = await refreshVerificationStatus();
@@ -1114,10 +1774,107 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     );
   };
 
-  const hasFeedContent =
-    activeFeedTab === 'for-you'
-      ? forYouStream.length > 0
-      : displayedPostItems.length > 0;
+  const renderHomeUpdateCard = ({ update, author }: HomeUpdateWithAuthor) => {
+    const resolvedAuthor =
+      update.authorMode === 'public_admin' &&
+      profile &&
+      update.ownerUID === profile.uid
+        ? toPublicProfileProjection(profile)
+        : author;
+
+    return (
+      <UpdateCard
+        key={`update_${update.id}`}
+        update={update}
+        author={resolvedAuthor}
+        viewerUid={user?.uid ?? null}
+        viewerTier={effectiveTier}
+        viewerSuspended={isSuspended}
+        isLiked={likedUpdateIds.has(update.id)}
+        isSaved={savedUpdateIds.has(update.id)}
+        onSaveChanged={(updateId, saved) =>
+          setSavedUpdateIds((prev) => {
+            const next = new Set(prev);
+            if (saved) next.add(updateId);
+            else next.delete(updateId);
+            return next;
+          })
+        }
+        onEditUpdate={(targetUpdate) => {
+          setEditingOfficialUpdate(targetUpdate);
+          setOfficialUpdateModalOpen(true);
+        }}
+        onUpdateMutated={(updated) =>
+          setUpdateItems((prev) =>
+            prev.map((item) =>
+              item.update.id === updated.id ? { ...item, update: updated } : item
+            )
+          )
+        }
+        onUpdateDeleted={(deletedId) =>
+          setUpdateItems((prev) =>
+            prev.filter((item) => item.update.id !== deletedId)
+          )
+        }
+        onNavigateProfile={(uname) => onNavigate('profile', { username: uname })}
+        onRequireAuth={onRequireAuth}
+        returnRoute={activeFeedTab}
+      />
+    );
+  };
+
+  const renderHomeAnonymousCard = (anon: AnonymousPost) => {
+    const isLiked =
+      likedAnonIds.has(anon.id) || Boolean(discovery?.likedAnonIds.has(anon.id));
+    const isSaved =
+      savedAnonIds.has(anon.id) || Boolean(discovery?.savedAnonIds.has(anon.id));
+    const isOwned =
+      ownedAnonPostIds.has(anon.id) ||
+      Boolean(discovery?.ownedAnonPostIds.has(anon.id));
+
+    return (
+      <PostCard
+        key={`anon_${anon.id}`}
+        kind="anonymous"
+        post={anon}
+        viewerUid={user?.uid ?? null}
+        viewerTier={effectiveTier}
+        viewerSuspended={isSuspended}
+        isLiked={isLiked}
+        isSaved={isSaved}
+        isOwnedAnonymous={isOwned}
+        ownedAnonymousCommentIds={
+          ownedAnonCommentIds.size > 0
+            ? ownedAnonCommentIds
+            : discovery?.ownedAnonCommentIds
+        }
+        onSaveChanged={(postId, saved) =>
+          setSavedAnonIds((prev) => {
+            const next = new Set(prev);
+            if (saved) next.add(postId);
+            else next.delete(postId);
+            return next;
+          })
+        }
+        onPostUpdated={(updated) =>
+          setAnonymousItems((prev) =>
+            prev.map((item) =>
+              item.id === updated.id ? (updated as AnonymousPost) : item
+            )
+          )
+        }
+        onPostDeleted={(deletedId) =>
+          setAnonymousItems((prev) =>
+            prev.filter((item) => item.id !== deletedId)
+          )
+        }
+        onRequireAuth={onRequireAuth}
+        returnRoute={activeFeedTab}
+      />
+    );
+  };
+
+  const hasFeedContent = displayedStream.length > 0;
 
   return (
     <div className="min-w-0 max-w-full flex-1 space-y-5">
@@ -1276,6 +2033,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                   data-testid="home-official-update-btn"
                   onClick={() => {
                     setComposerFeedback(null);
+                    setEditingOfficialUpdate(null);
                     setOfficialUpdateModalOpen(true);
                   }}
                   className="lasued-emerald-gradient inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
@@ -1455,7 +2213,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             <LoadingState sectionTitle={activeSection.title} />
           ) : loadState === 'error' ? (
             <ErrorState section={activeSection} onRetry={() => void loadFeed()} />
-          ) : activeFeedTab === 'following' && postItems.length === 0 ? (
+          ) : activeFeedTab === 'following' && followingStream.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center">
               <Users
                 className="mx-auto mb-2.5 h-6 w-6 text-[#1E88E5]"
@@ -1464,14 +2222,14 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               <h2 className="font-display text-base font-bold text-[#0B1A2E]">
                 {followingCount === 0
                   ? 'You are not following anyone yet'
-                  : 'No ordinary posts from accounts you follow yet'}
+                  : 'No updates from accounts you follow yet'}
               </h2>
               <p className="mx-auto mt-1 max-w-md text-sm text-slate-600">
                 {followingCount === 0
                   ? 'Search for classmates, lecturers, and verified campus contributors to follow their public updates.'
                   : `You follow ${followingCount} ${
                       followingCount === 1 ? 'account' : 'accounts'
-                    }. Ordinary public posts they publish appear here (anonymous posts never appear here).`}
+                    }. Public campus updates they publish appear here (anonymous posts never appear here).`}
               </p>
               <button
                 type="button"
@@ -1486,282 +2244,201 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             <EmptyState section={activeSection} />
           ) : (
             <div className="space-y-4">
-              {activeFeedTab === 'for-you'
-                ? forYouStream.map((entry) => {
-                    if (entry.kind === 'post') {
-                      return renderOrdinaryPostCard(entry.item);
-                    }
+              {displayedStream.map((entry) => {
+                if (entry.kind === 'update') {
+                  return (
+                    <div key={entry.id} data-feed-entry-id={entry.id}>
+                      {renderHomeUpdateCard(entry.item)}
+                    </div>
+                  );
+                }
+                if (entry.kind === 'post') {
+                  return (
+                    <div key={entry.id} data-feed-entry-id={entry.id}>
+                      {renderOrdinaryPostCard(entry.item)}
+                    </div>
+                  );
+                }
+                if (entry.kind === 'anonymous') {
+                  return (
+                    <div key={entry.id} data-feed-entry-id={entry.id}>
+                      {renderHomeAnonymousCard(entry.post)}
+                    </div>
+                  );
+                }
 
-                    if (entry.kind === 'people_discovery') {
-                      return (
-                        <section
-                          key={entry.id}
-                          aria-label="Recommended campus members"
-                          className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
-                            <div className="flex items-center gap-2">
-                              <Sparkles
-                                className="h-4 w-4 text-[#1E88E5]"
-                                aria-hidden="true"
-                              />
-                              <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-                                Discover Classmates &amp; Campus Voices
-                              </h2>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onNavigate('search', { searchScope: 'people' })
-                              }
-                              className="text-xs font-semibold text-[#1E88E5] hover:underline"
-                            >
-                              Browse directory
-                            </button>
-                          </div>
-
-                          <div className="space-y-2.5">
-                            {entry.people.map(({ member, reason }) => (
-                              <div key={member.username} className="space-y-1">
-                                <div className="flex items-center justify-between gap-2 px-1">
-                                  <span className="text-[11px] font-medium text-slate-500">
-                                    {reason}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleDismissRecommendation(
-                                        `person:${member.username.toLowerCase()}`
-                                      )
-                                    }
-                                    aria-label={`Dismiss suggestion for ${member.fullName}`}
-                                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700"
-                                  >
-                                    <X className="h-3 w-3" aria-hidden="true" />
-                                    Hide
-                                  </button>
-                                </div>
-                                <MemberDirectoryCard
-                                  member={member}
-                                  viewerUsername={profile?.username ?? null}
-                                  onOpenProfile={(uname) =>
-                                    onNavigate('profile', { username: uname })
-                                  }
-                                  onRequireAuth={() =>
-                                    onRequireAuth('login', 'for-you')
-                                  }
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </section>
-                      );
-                    }
-
-                    if (entry.kind === 'recommended_event') {
-                      const { event, reason } = entry.recommendation;
-                      return (
-                        <div
-                          key={entry.id}
-                          className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
-                        >
-                          <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
-                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
-                              <Sparkles
-                                className="h-3.5 w-3.5 text-[#1E88E5]"
-                                aria-hidden="true"
-                              />
-                              Relevant Event ·{' '}
-                              <span className="font-normal text-slate-600">
-                                {reason}
-                              </span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDismissRecommendation(
-                                  `event:${event.id}`
-                                )
-                              }
-                              aria-label={`Hide recommended event ${event.title}`}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
-                            >
-                              <X className="h-3.5 w-3.5" aria-hidden="true" />
-                              Hide
-                            </button>
-                          </div>
-                          <EventCard
-                            event={event}
-                            nowMs={nowMs}
-                            isLiked={Boolean(discovery?.likedEventIds.has(event.id))}
-                            isSaved={Boolean(discovery?.savedEventIds.has(event.id))}
-                            onOpenDetails={(eventId) =>
-                              onNavigate('upcoming-events', { eventId })
-                            }
-                            onToggleLike={(evt) =>
-                              void handleToggleRecommendedEventLike(evt)
-                            }
-                            onToggleSave={(evt) =>
-                              void handleToggleRecommendedEventSave(evt)
-                            }
+                if (entry.kind === 'people_discovery') {
+                  return (
+                    <section
+                      key={entry.id}
+                      data-feed-entry-id={entry.id}
+                      aria-label="Recommended campus members"
+                      className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles
+                            className="h-4 w-4 text-[#1E88E5]"
+                            aria-hidden="true"
                           />
+                          <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                            Discover Classmates &amp; Campus Voices
+                          </h2>
                         </div>
-                      );
-                    }
-
-                    if (entry.kind === 'recommended_opportunity') {
-                      const { opportunity, reason } = entry.recommendation;
-                      return (
-                        <div
-                          key={entry.id}
-                          className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onNavigate('search', { searchScope: 'people' })
+                          }
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
                         >
-                          <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
-                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
-                              <Sparkles
-                                className="h-3.5 w-3.5 text-[#1E88E5]"
-                                aria-hidden="true"
-                              />
-                              Recommended Opportunity ·{' '}
-                              <span className="font-normal text-slate-600">
+                          Browse directory
+                        </button>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        {entry.people.map(({ member, reason }) => (
+                          <div key={member.username} className="space-y-1">
+                            <div className="flex items-center justify-between gap-2 px-1">
+                              <span className="text-[11px] font-medium text-slate-500">
                                 {reason}
                               </span>
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDismissRecommendation(
-                                  `opportunity:${opportunity.id}`
-                                )
-                              }
-                              aria-label={`Hide recommended opportunity ${opportunity.title}`}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
-                            >
-                              <X className="h-3.5 w-3.5" aria-hidden="true" />
-                              Hide
-                            </button>
-                          </div>
-                          <OpportunityCard
-                            opportunity={opportunity}
-                            nowMs={nowMs}
-                            isSaved={Boolean(
-                              discovery?.savedOpportunityIds.has(opportunity.id)
-                            )}
-                            saving={savingOppId === opportunity.id}
-                            onToggleSave={(id) =>
-                              void handleToggleRecommendedOpportunitySave(id)
-                            }
-                            onOpenDetails={(oppId) =>
-                              onNavigate('opportunities', { opportunityId: oppId })
-                            }
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (entry.kind === 'recommended_anonymous') {
-                      const { post, reason } = entry.recommendation;
-                      return (
-                        <div
-                          key={entry.id}
-                          className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
-                        >
-                          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
-                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
-                              <Sparkles
-                                className="h-3.5 w-3.5 text-[#1E88E5]"
-                                aria-hidden="true"
-                              />
-                              Recommended Anonymous Thread ·{' '}
-                              <span className="font-normal text-slate-600">
-                                {reason}
-                              </span>
-                            </span>
-                            <div className="flex items-center gap-3">
                               <button
                                 type="button"
                                 onClick={() =>
-                                  onNavigate('anonymous', { postId: post.id })
+                                  handleDismissRecommendation(
+                                    `person:${member.username.toLowerCase()}`
+                                  )
                                 }
-                                className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                                aria-label={`Dismiss suggestion for ${member.fullName}`}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700"
                               >
-                                Open Anonymous
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleDismissRecommendation(`anon:${post.id}`)
-                                }
-                                aria-label="Hide recommended anonymous thread"
-                                className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
-                              >
-                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                                <X className="h-3 w-3" aria-hidden="true" />
                                 Hide
                               </button>
                             </div>
+                            <MemberDirectoryCard
+                              member={member}
+                              viewerUsername={profile?.username ?? null}
+                              onOpenProfile={(uname) =>
+                                onNavigate('profile', { username: uname })
+                              }
+                              onRequireAuth={() =>
+                                onRequireAuth('login', 'for-you')
+                              }
+                            />
                           </div>
-                          <PostCard
-                            kind="anonymous"
-                            post={post}
-                            viewerUid={user?.uid ?? null}
-                            viewerTier={effectiveTier}
-                            viewerSuspended={isSuspended}
-                            isLiked={Boolean(discovery?.likedAnonIds.has(post.id))}
-                            isSaved={Boolean(discovery?.savedAnonIds.has(post.id))}
-                            isOwnedAnonymous={Boolean(
-                              discovery?.ownedAnonPostIds.has(post.id)
-                            )}
-                            ownedAnonymousCommentIds={
-                              discovery?.ownedAnonCommentIds
-                            }
-                            onSaveChanged={(postId, saved) =>
-                              setDiscovery((prev) => {
-                                if (!prev) return prev;
-                                const next = new Set(prev.savedAnonIds);
-                                if (saved) next.add(postId);
-                                else next.delete(postId);
-                                return { ...prev, savedAnonIds: next };
-                              })
-                            }
-                            onPostUpdated={(updated) =>
-                              setDiscovery((prev) => {
-                                if (!prev) return prev;
-                                return {
-                                  ...prev,
-                                  recommendedAnonymous:
-                                    prev.recommendedAnonymous.map((rec) =>
-                                      rec.post.id === updated.id
-                                        ? {
-                                            ...rec,
-                                            post: updated as typeof rec.post,
-                                          }
-                                        : rec
-                                    ),
-                                };
-                              })
-                            }
-                            onPostDeleted={(deletedId) =>
-                              setDiscovery((prev) => {
-                                if (!prev) return prev;
-                                return {
-                                  ...prev,
-                                  recommendedAnonymous:
-                                    prev.recommendedAnonymous.filter(
-                                      (rec) => rec.post.id !== deletedId
-                                    ),
-                                };
-                              })
-                            }
-                            onRequireAuth={onRequireAuth}
-                            returnRoute="for-you"
-                          />
-                        </div>
-                      );
-                    }
+                        ))}
+                      </div>
+                    </section>
+                  );
+                }
 
-                    return null;
-                  })
-                : displayedPostItems.map(renderOrdinaryPostCard)}
+                if (entry.kind === 'recommended_event') {
+                  const { event, reason } = entry.recommendation;
+                  return (
+                    <div
+                      key={entry.id}
+                      data-feed-entry-id={entry.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                    >
+                      <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                          <Sparkles
+                            className="h-3.5 w-3.5 text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                          Relevant Event ·{' '}
+                          <span className="font-normal text-slate-600">
+                            {reason}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDismissRecommendation(
+                              `event:${event.id}`
+                            )
+                          }
+                          aria-label={`Hide recommended event ${event.title}`}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          Hide
+                        </button>
+                      </div>
+                      <EventCard
+                        event={event}
+                        nowMs={nowMs}
+                        isLiked={Boolean(discovery?.likedEventIds.has(event.id))}
+                        isSaved={Boolean(discovery?.savedEventIds.has(event.id))}
+                        onOpenDetails={(eventId) =>
+                          onNavigate('upcoming-events', { eventId })
+                        }
+                        onToggleLike={(evt) =>
+                          void handleToggleRecommendedEventLike(evt)
+                        }
+                        onToggleSave={(evt) =>
+                          void handleToggleRecommendedEventSave(evt)
+                        }
+                      />
+                    </div>
+                  );
+                }
+
+                if (entry.kind === 'recommended_opportunity') {
+                  const { opportunity, reason } = entry.recommendation;
+                  return (
+                    <div
+                      key={entry.id}
+                      data-feed-entry-id={entry.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                    >
+                      <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                          <Sparkles
+                            className="h-3.5 w-3.5 text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                          Recommended Opportunity ·{' '}
+                          <span className="font-normal text-slate-600">
+                            {reason}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleDismissRecommendation(
+                              `opportunity:${opportunity.id}`
+                            )
+                          }
+                          aria-label={`Hide recommended opportunity ${opportunity.title}`}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          Hide
+                        </button>
+                      </div>
+                      <OpportunityCard
+                        opportunity={opportunity}
+                        nowMs={nowMs}
+                        isSaved={Boolean(
+                          discovery?.savedOpportunityIds.has(opportunity.id)
+                        )}
+                        saving={savingOppId === opportunity.id}
+                        onToggleSave={(id) =>
+                          void handleToggleRecommendedOpportunitySave(id)
+                        }
+                        onOpenDetails={(oppId) =>
+                          onNavigate('opportunities', { opportunityId: oppId })
+                        }
+                      />
+                    </div>
+                  );
+                }
+
+                return null;
+              })}
 
               {hasMorePosts ? (
                 <div
@@ -1808,6 +2485,26 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           initialPost={composerModal.editPost ?? null}
           onSuccess={(saved) => {
             if (composerModal.mode === 'anonymous') {
+              const savedAnon = saved as AnonymousPost;
+              if (activeFeedTab !== 'following') {
+                const createdId = `anon_${savedAnon.id}`;
+                setAnchoredOrderState((prev) =>
+                  prev.key === currentTabKey && prev.ids.length > 0
+                    ? {
+                        key: prev.key,
+                        ids: [
+                          createdId,
+                          ...prev.ids.filter((id) => id !== createdId),
+                        ],
+                      }
+                    : prev
+                );
+                setAnonymousItems((prev) => [
+                  savedAnon,
+                  ...prev.filter((item) => item.id !== savedAnon.id),
+                ]);
+                setOwnedAnonPostIds((prev) => new Set([...prev, savedAnon.id]));
+              }
               setComposerModal(null);
               setComposerFeedback({
                 kind: 'anonymous_published',
@@ -1835,6 +2532,18 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 const authorProjection = profile
                   ? toPublicProfileProjection(profile)
                   : null;
+                const createdId = `post_${savedCommunity.id}`;
+                setAnchoredOrderState((prev) =>
+                  prev.key === currentTabKey && prev.ids.length > 0
+                    ? {
+                        key: prev.key,
+                        ids: [
+                          createdId,
+                          ...prev.ids.filter((id) => id !== createdId),
+                        ],
+                      }
+                    : prev
+                );
                 setPostItems((prev) => [
                   { post: savedCommunity, author: authorProjection },
                   ...prev.filter((item) => item.post.id !== savedCommunity.id),
@@ -1858,15 +2567,43 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           actorName={profile?.fullName || user.displayName || undefined}
           actorPhotoUrl={profile?.photoUrl}
           actorPhotoImageId={profile?.photoImageId}
-          onSuccess={() => {
+          initialUpdate={editingOfficialUpdate}
+          onSuccess={(savedUpdate) => {
+            const authorProjection =
+              savedUpdate.authorMode === 'public_admin' && profile
+                ? toPublicProfileProjection(profile)
+                : null;
+            if (!editingOfficialUpdate) {
+              const createdId = `update_${savedUpdate.id}`;
+              setAnchoredOrderState((prev) =>
+                prev.key === currentTabKey && prev.ids.length > 0
+                  ? {
+                      key: prev.key,
+                      ids: [
+                        createdId,
+                        ...prev.ids.filter((id) => id !== createdId),
+                      ],
+                    }
+                  : prev
+              );
+            }
+            setUpdateItems((prev) => [
+              { update: savedUpdate, author: authorProjection },
+              ...prev.filter((item) => item.update.id !== savedUpdate.id),
+            ]);
             setOfficialUpdateModalOpen(false);
+            setEditingOfficialUpdate(null);
             setComposerFeedback({
               kind: 'ordinary_published',
-              message:
-                'Your official update is now live on the Official Updates feed.',
+              message: editingOfficialUpdate
+                ? 'Your official update has been updated.'
+                : 'Your official update is now live across Home and Official Updates.',
             });
           }}
-          onClose={() => setOfficialUpdateModalOpen(false)}
+          onClose={() => {
+            setOfficialUpdateModalOpen(false);
+            setEditingOfficialUpdate(null);
+          }}
         />
       )}
     </div>

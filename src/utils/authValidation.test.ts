@@ -231,7 +231,7 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
       isHiddenFromDirectory: false,
       updatedAt: null,
     }),
-    'member'
+    'verified'
   );
   assert.equal(
     resolveEffectiveAccountTier(unverifiedFakeUser, {
@@ -242,7 +242,7 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
       isHiddenFromDirectory: false,
       updatedAt: null,
     }),
-    'member'
+    'moderator'
   );
   assert.equal(
     resolveEffectiveAccountTier(fakeUser, {
@@ -466,6 +466,31 @@ test('resolveEffectiveAccountTier distinguishes all 6 account states and blocks 
       tier: 'verified',
       profile: activeVerifiedProfile,
       roleRecord: validVerifiedRole,
+      suspended: false,
+    }),
+    true
+  );
+  // Unverified designated Supreme Admin cannot publish until emailVerified is true
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: {
+        uid: 'admin_unverified',
+        email: PUBLIC_SUPREME_ADMIN_EMAIL,
+        emailVerified: false,
+      } as User,
+      tier: 'supreme_admin',
+      profile: {
+        ...activeVerifiedProfile,
+        uid: 'admin_unverified',
+        badge: 'supreme_admin',
+      },
+      roleRecord: {
+        uid: 'admin_unverified',
+        role: 'supreme_admin',
+        badge: 'supreme_admin',
+        isPermanentOwner: false,
+        updatedAt: null,
+      },
       suspended: false,
     }),
     false
@@ -726,7 +751,7 @@ test('hasDesignatedSupremeAdminEmailMatch & hasPostingRolePendingEmailVerificati
         updatedAt: null,
       },
     }),
-    true
+    false
   );
   assert.equal(
     hasPostingRolePendingEmailVerification({

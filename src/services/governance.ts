@@ -27,6 +27,7 @@ import {
   resolveBadgeAuditAction,
   resolveBadgeForRole,
   resolveMarketplaceUpdateFromQuantity,
+  validateMarketplaceListingInput,
   validateTrustedContactPayload,
 } from '../types/database';
 import type {
@@ -69,7 +70,7 @@ import {
   fetchPublicProfileProjectionsByUids,
 } from './firestoreFoundation';
 import { triggerBestEffortPushDispatch } from './webPush';
-import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
+import { commitFreshWriteBatchWithRetry } from '../utils/firestoreRetry';
 import {
   buildMediaImageFirestoreRecord,
   evictMediaImageCache,
@@ -1016,40 +1017,24 @@ export async function createMarketplaceListingItem(
   const cleanDescription = input.description.trim();
   const cleanCategory = input.category.trim();
   const cleanWhatsapp = input.whatsappNumber.trim();
-
-  if (
-    cleanTitle.length < BLUEPRINT_LIMITS.marketplaceTitleMin ||
-    cleanTitle.length > BLUEPRINT_LIMITS.marketplaceTitleMax
-  ) {
-    throw new Error(
-      `Listing title must be ${BLUEPRINT_LIMITS.marketplaceTitleMin}–${BLUEPRINT_LIMITS.marketplaceTitleMax} characters.`
-    );
-  }
-  if (
-    cleanDescription.length < BLUEPRINT_LIMITS.marketplaceDescMin ||
-    cleanDescription.length > BLUEPRINT_LIMITS.marketplaceDescMax
-  ) {
-    throw new Error(
-      `Description must be ${BLUEPRINT_LIMITS.marketplaceDescMin}–${BLUEPRINT_LIMITS.marketplaceDescMax} characters.`
-    );
-  }
-  if (
-    cleanWhatsapp.length < BLUEPRINT_LIMITS.marketplaceWhatsappMin ||
-    cleanWhatsapp.length > BLUEPRINT_LIMITS.marketplaceWhatsappMax
-  ) {
-    throw new Error('Provide a valid WhatsApp phone number (7–24 characters).');
-  }
-  if (!Number.isFinite(input.price) || input.price < 0) {
-    throw new Error('Price must be 0 or higher.');
-  }
-  if (!Number.isInteger(input.quantity) || input.quantity < 1) {
-    throw new Error('Initial quantity must be at least 1.');
-  }
-
   const attachments = (input.attachments ?? []).slice(
     0,
     BLUEPRINT_LIMITS.mediaPostMaxCount
   );
+
+  const validationError = validateMarketplaceListingInput({
+    listingKind: input.listingKind,
+    title: cleanTitle,
+    description: cleanDescription,
+    category: cleanCategory,
+    price: Number(input.price),
+    quantity: input.quantity,
+    whatsappNumber: cleanWhatsapp,
+    mediaCount: attachments.length,
+  });
+  if (validationError) {
+    throw new Error(validationError);
+  }
 
   input.onProgress?.({
     percent: attachments.length > 0 ? 25 : 40,
@@ -1064,7 +1049,10 @@ export async function createMarketplaceListingItem(
   const expiryDate = computeMarketplaceExpiryDate();
 
   const mediaItems: PostMediaMeta[] = [];
-  const batch = writeBatch(db);
+  const stagedMediaWrites: Array<{
+    imageId: string;
+    record: ReturnType<typeof buildMediaImageFirestoreRecord>;
+  }> = [];
 
   attachments.forEach((attachment, index) => {
     const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
@@ -1076,17 +1064,17 @@ export async function createMarketplaceListingItem(
       mimeType: attachment.compressed.mimeType,
       order: index,
     });
-    batch.set(
-      doc(db, COLLECTION_NAMES.mediaImages, imageId),
-      buildMediaImageFirestoreRecord({
+    stagedMediaWrites.push({
+      imageId,
+      record: buildMediaImageFirestoreRecord({
         imageId,
         targetCollection: 'marketplaceListings',
         targetId: listingId,
         ownerUID: input.ownerUID,
         compressed: attachment.compressed,
         createdAtValue: serverTimestamp(),
-      })
-    );
+      }),
+    });
   });
 
   const payload: Record<string, unknown> = {
@@ -1111,8 +1099,6 @@ export async function createMarketplaceListingItem(
     payload.mediaItems = mediaItems;
   }
 
-  batch.set(doc(db, COLLECTION_NAMES.marketplaceListings, listingId), payload);
-
   input.onProgress?.({
     percent: 65,
     label:
@@ -1122,7 +1108,15 @@ export async function createMarketplaceListingItem(
   });
 
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(
+      () => writeBatch(db),
+      (batch) => {
+        for (const item of stagedMediaWrites) {
+          batch.set(doc(db, COLLECTION_NAMES.mediaImages, item.imageId), item.record);
+        }
+        batch.set(doc(db, COLLECTION_NAMES.marketplaceListings, listingId), payload);
+      }
+    );
     if (!isUndergroundSupremeAdminUser(auth.currentUser)) {
       void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
         hasPublicActivity: true,

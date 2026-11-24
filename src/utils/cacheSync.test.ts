@@ -15,6 +15,7 @@ import {
   deserializeSet,
   isNewerOrSameTimestamp,
   isPersistableCacheKey,
+  mergeAnchoredFeedStream,
   mergeCommunityPostItems,
   mergeOrderedRecords,
   patchAuthorProjectionInMap,
@@ -27,6 +28,7 @@ import {
   serializeRecordMap,
   serializeSet,
   stripFirestoreCursor,
+  subtractPostLikesSafe,
   upsertItemById,
 } from './cacheSync';
 
@@ -399,4 +401,57 @@ test('patchAuthorProjectionInMap preserves ref when unchanged and updates target
   const updated = patchAuthorProjectionInMap(map, newAuthor, 'u1');
   assert.notEqual(updated, map);
   assert.equal(updated.get('u1')?.fullName, 'Amaka New');
+});
+
+test('mergeAnchoredFeedStream locks prefix and drops unseen updates at anchorIndex + 1 without duplicates', () => {
+  const existing = [
+    { id: 'p1', likes: 1 },
+    { id: 'p2', likes: 4 },
+    { id: 'p3', likes: 9 },
+  ];
+  const incoming = [
+    { id: 'p_new_1', likes: 0 },
+    { id: 'p_new_2', likes: 2 },
+    { id: 'p2', likes: 7 },
+    { id: 'p1', likes: 3 },
+    { id: 'p_new_1', likes: 0 },
+    { id: 'p3', likes: 9 },
+  ];
+
+  // When watching p2 (index 1) mid-feed, p1 & p2 stay anchored in order with updated likes,
+  // unseen incoming posts insert strictly at index 2 (after p2), and p3 remains after.
+  const midFeedResult = mergeAnchoredFeedStream({
+    existing,
+    incoming,
+    anchorId: 'p2',
+    isScrolledMidFeed: true,
+  });
+
+  assert.deepEqual(
+    midFeedResult.items.map((item) => item.id),
+    ['p1', 'p2', 'p_new_1', 'p_new_2', 'p3']
+  );
+  assert.equal(midFeedResult.insertionIndex, 2);
+  assert.equal(midFeedResult.insertedCount, 2);
+  assert.equal(midFeedResult.items[0].likes, 3);
+  assert.equal(midFeedResult.items[1].likes, 7);
+
+  // Near top (`isScrolledMidFeed: false`), incoming ranked order applies cleanly without duplicates
+  const topResult = mergeAnchoredFeedStream({
+    existing,
+    incoming,
+    anchorId: 'p2',
+    isScrolledMidFeed: false,
+  });
+  assert.deepEqual(
+    topResult.items.map((item) => item.id),
+    ['p_new_1', 'p_new_2', 'p2', 'p1', 'p3']
+  );
+});
+
+test('subtractPostLikesSafe safely decrements likes and clamps to zero', () => {
+  assert.equal(subtractPostLikesSafe(25, 7), 18);
+  assert.equal(subtractPostLikesSafe(5, 12), 0);
+  assert.equal(subtractPostLikesSafe(Number.NaN, 3), 0);
+  assert.equal(subtractPostLikesSafe(10, -4), 10);
 });

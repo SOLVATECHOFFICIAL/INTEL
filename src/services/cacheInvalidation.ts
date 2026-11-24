@@ -34,24 +34,25 @@ import {
   patchAuthorProjectionInPostItems,
   removeItemById,
   sanitizeAnonymousPostForCache,
+  subtractPostLikesSafe,
   upsertItemById,
 } from '../utils/cacheSync';
 
 export type CacheMutationEvent =
   | { type: 'community_post_created'; post: CommunityPost; author: PublicProfileProjection | null }
   | { type: 'community_post_updated'; post: CommunityPost }
-  | { type: 'community_post_deleted'; postId: string }
+  | { type: 'community_post_deleted'; postId: string; ownerUID?: string; likesCount?: number }
   | { type: 'community_post_reaction'; postId: string; liked: boolean; likesCount: number }
   | { type: 'community_post_saved'; postId: string; saved: boolean }
   | { type: 'anonymous_post_created'; post: AnonymousPost }
   | { type: 'anonymous_post_updated'; post: AnonymousPost }
-  | { type: 'anonymous_post_deleted'; postId: string }
+  | { type: 'anonymous_post_deleted'; postId: string; ownerUID?: string; likesCount?: number }
   | { type: 'anonymous_post_reaction'; postId: string; liked: boolean; likesCount: number }
   | { type: 'anonymous_post_saved'; postId: string; saved: boolean }
   | { type: 'post_view_updated'; kind: 'ordinary' | 'anonymous'; postId: string; viewsCount: number }
   | { type: 'admin_update_created'; update: AdminUpdate; author: PublicProfileProjection | null }
   | { type: 'admin_update_updated'; update: AdminUpdate }
-  | { type: 'admin_update_deleted'; updateId: string }
+  | { type: 'admin_update_deleted'; updateId: string; likesCount?: number }
   | { type: 'admin_update_reaction'; updateId: string; liked: boolean; likesCount: number }
   | { type: 'admin_update_saved'; updateId: string; saved: boolean }
   | { type: 'admin_update_comment_mutated'; updateId: string; commentsCount: number }
@@ -202,32 +203,55 @@ export function notifyCommunityPostUpdated(post: CommunityPost): void {
   emitMutation({ type: 'community_post_updated', post });
 }
 
-export function notifyCommunityPostDeleted(postId: string): void {
+export function notifyCommunityPostDeleted(
+  postId: string,
+  meta?: { ownerUID?: string; likesCount?: number }
+): void {
   updateAllCachedHomeFeedSnapshots((snap) => ({
     ...snap,
     postItems: snap.postItems.filter((entry) => entry.post.id !== postId),
     cachedAt: Date.now(),
   }));
 
-  updateAllCachedProfileSnapshots((snap) => ({
-    ...snap,
-    bundle: {
-      ...snap.bundle,
-      posts: removeItemById(snap.bundle.posts, postId),
-      likedPosts: snap.bundle.likedPosts.filter((e) => e.post.id !== postId),
-    },
-    savedBundle: snap.savedBundle
-      ? {
-          ...snap.savedBundle,
-          posts: snap.savedBundle.posts.filter((e) => e.post.id !== postId),
-        }
-      : null,
-    cachedAt: Date.now(),
-  }));
+  updateAllCachedProfileSnapshots((snap) => {
+    const removedPost = snap.bundle.posts.find((p) => p.id === postId);
+    const deletedLikes =
+      removedPost?.likesCount ??
+      (meta?.ownerUID && snap.bundle.isOwnProfile && snap.viewerKey === meta.ownerUID
+        ? meta.likesCount ?? 0
+        : 0);
+    const shouldSubtract =
+      Boolean(removedPost) ||
+      Boolean(meta?.ownerUID && snap.bundle.isOwnProfile && snap.viewerKey === meta.ownerUID);
+
+    return {
+      ...snap,
+      bundle: {
+        ...snap.bundle,
+        posts: removeItemById(snap.bundle.posts, postId),
+        likedPosts: snap.bundle.likedPosts.filter((e) => e.post.id !== postId),
+        totalLikesReceived: shouldSubtract
+          ? subtractPostLikesSafe(snap.bundle.totalLikesReceived, deletedLikes)
+          : snap.bundle.totalLikesReceived,
+      },
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            posts: snap.savedBundle.posts.filter((e) => e.post.id !== postId),
+          }
+        : null,
+      cachedAt: Date.now(),
+    };
+  });
 
   updateCachedPostUiSnapshot('ordinary', postId, () => null);
   searchCacheHandlers?.invalidate();
-  emitMutation({ type: 'community_post_deleted', postId });
+  emitMutation({
+    type: 'community_post_deleted',
+    postId,
+    ownerUID: meta?.ownerUID,
+    likesCount: meta?.likesCount,
+  });
 }
 
 export function notifyCommunityPostReactionChanged(
@@ -352,6 +376,14 @@ export function notifyPostCommentMutated(
       cachedAt: Date.now(),
     }));
 
+    updateAllCachedHomeFeedSnapshots((snap) => ({
+      ...snap,
+      anonymousItems: (snap.anonymousItems ?? []).map((p) =>
+        p.id === postId ? { ...p, commentsCount: safeCount } : p
+      ),
+      cachedAt: Date.now(),
+    }));
+
     updateAllCachedProfileSnapshots((snap) => ({
       ...snap,
       anonHistory: snap.anonHistory
@@ -394,7 +426,21 @@ export function notifyAnonymousPostCreated(
     };
   });
 
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    const nextOwned = new Set(snap.ownedAnonPostIds ?? []);
+    if (actorViewerKey && snap.viewerKey === actorViewerKey) {
+      nextOwned.add(clean.id);
+    }
+    return {
+      ...snap,
+      anonymousItems: upsertItemById(snap.anonymousItems ?? [], clean, true),
+      ownedAnonPostIds: nextOwned,
+      cachedAt: Date.now(),
+    };
+  });
+
   void deletePersistentContent('anon:posts:v1');
+  void purgePersistentContentByPrefix('feed:posts:v1:');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'anonymous_post_created', post: clean });
 }
@@ -404,6 +450,14 @@ export function notifyAnonymousPostUpdated(post: AnonymousPost): void {
   updateCachedAnonymousFeedSnapshot((snap) => ({
     ...snap,
     anonymousPosts: upsertItemById(snap.anonymousPosts, clean, false),
+    cachedAt: Date.now(),
+  }));
+
+  updateAllCachedHomeFeedSnapshots((snap) => ({
+    ...snap,
+    anonymousItems: (snap.anonymousItems ?? []).some((p) => p.id === clean.id)
+      ? upsertItemById(snap.anonymousItems ?? [], clean, false)
+      : snap.anonymousItems,
     cachedAt: Date.now(),
   }));
 
@@ -421,7 +475,10 @@ export function notifyAnonymousPostUpdated(post: AnonymousPost): void {
   emitMutation({ type: 'anonymous_post_updated', post: clean });
 }
 
-export function notifyAnonymousPostDeleted(postId: string): void {
+export function notifyAnonymousPostDeleted(
+  postId: string,
+  meta?: { ownerUID?: string; likesCount?: number }
+): void {
   updateCachedAnonymousFeedSnapshot((snap) => {
     const nextOwned = new Set(snap.ownedAnonPostIds);
     nextOwned.delete(postId);
@@ -433,23 +490,63 @@ export function notifyAnonymousPostDeleted(postId: string): void {
     };
   });
 
-  updateAllCachedProfileSnapshots((snap) => ({
-    ...snap,
-    anonHistory: snap.anonHistory
-      ? removeItemById(snap.anonHistory, postId)
-      : null,
-    savedBundle: snap.savedBundle
-      ? {
-          ...snap.savedBundle,
-          anonymousPosts: removeItemById(snap.savedBundle.anonymousPosts, postId),
-        }
-      : null,
-    cachedAt: Date.now(),
-  }));
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    const nextOwned = new Set(snap.ownedAnonPostIds ?? []);
+    nextOwned.delete(postId);
+    return {
+      ...snap,
+      anonymousItems: removeItemById(snap.anonymousItems ?? [], postId),
+      ownedAnonPostIds: nextOwned,
+      cachedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedProfileSnapshots((snap) => {
+    const removedAnon = snap.anonHistory?.find((p) => p.id === postId);
+    const matchesOwner =
+      Boolean(removedAnon) ||
+      Boolean(meta?.ownerUID && snap.bundle.isOwnProfile && snap.viewerKey === meta.ownerUID);
+    const deletedLikes = removedAnon?.likesCount ?? meta?.likesCount ?? 0;
+
+    return {
+      ...snap,
+      bundle: matchesOwner
+        ? {
+            ...snap.bundle,
+            totalLikesReceived: subtractPostLikesSafe(
+              snap.bundle.totalLikesReceived,
+              deletedLikes
+            ),
+            profile: {
+              ...snap.bundle.profile,
+              anonymousLikesReceivedCount: subtractPostLikesSafe(
+                snap.bundle.profile.anonymousLikesReceivedCount ?? 0,
+                deletedLikes
+              ),
+            },
+          }
+        : snap.bundle,
+      anonHistory: snap.anonHistory
+        ? removeItemById(snap.anonHistory, postId)
+        : null,
+      savedBundle: snap.savedBundle
+        ? {
+            ...snap.savedBundle,
+            anonymousPosts: removeItemById(snap.savedBundle.anonymousPosts, postId),
+          }
+        : null,
+      cachedAt: Date.now(),
+    };
+  });
 
   updateCachedPostUiSnapshot('anonymous', postId, () => null);
   searchCacheHandlers?.invalidate();
-  emitMutation({ type: 'anonymous_post_deleted', postId });
+  emitMutation({
+    type: 'anonymous_post_deleted',
+    postId,
+    ownerUID: meta?.ownerUID,
+    likesCount: meta?.likesCount,
+  });
 }
 
 export function notifyAnonymousPostReactionChanged(
@@ -471,6 +568,20 @@ export function notifyAnonymousPostReactionChanged(
     };
   });
 
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    const nextLiked = new Set(snap.likedAnonIds ?? []);
+    if (liked) nextLiked.add(postId);
+    else nextLiked.delete(postId);
+    return {
+      ...snap,
+      likedAnonIds: nextLiked,
+      anonymousItems: (snap.anonymousItems ?? []).map((p) =>
+        p.id === postId ? { ...p, likesCount } : p
+      ),
+      cachedAt: Date.now(),
+    };
+  });
+
   emitMutation({ type: 'anonymous_post_reaction', postId, liked, likesCount });
 }
 
@@ -480,6 +591,17 @@ export function notifyAnonymousPostSavedChanged(
 ): void {
   updateCachedAnonymousFeedSnapshot((snap) => {
     const nextSaved = new Set(snap.savedAnonIds);
+    if (saved) nextSaved.add(postId);
+    else nextSaved.delete(postId);
+    return {
+      ...snap,
+      savedAnonIds: nextSaved,
+      cachedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    const nextSaved = new Set(snap.savedAnonIds ?? []);
     if (saved) nextSaved.add(postId);
     else nextSaved.delete(postId);
     return {
@@ -538,6 +660,12 @@ export function notifyPostViewCountUpdated(
         p.id === postId ? { ...p, viewsCount: safeCount } : p
       ),
     }));
+    updateAllCachedHomeFeedSnapshots((snap) => ({
+      ...snap,
+      anonymousItems: (snap.anonymousItems ?? []).map((p) =>
+        p.id === postId ? { ...p, viewsCount: safeCount } : p
+      ),
+    }));
     updateAllCachedProfileSnapshots((snap) => ({
       ...snap,
       anonHistory: snap.anonHistory
@@ -588,7 +716,16 @@ export function notifyAdminUpdateCreated(
       cachedAt: Date.now(),
     };
   });
+  updateAllCachedHomeFeedSnapshots((snap) => ({
+    ...snap,
+    updateItems: [
+      { update, author },
+      ...(snap.updateItems ?? []).filter((item) => item.update.id !== update.id),
+    ],
+    cachedAt: Date.now(),
+  }));
   void deletePersistentContent('updates:public:v1');
+  void purgePersistentContentByPrefix('feed:posts:v1:');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'admin_update_created', update, author });
 }
@@ -599,20 +736,41 @@ export function notifyAdminUpdateUpdated(update: AdminUpdate): void {
     updates: upsertItemById(snap.updates, update, false),
     cachedAt: Date.now(),
   }));
+  updateAllCachedHomeFeedSnapshots((snap) => ({
+    ...snap,
+    updateItems: (snap.updateItems ?? []).map((item) =>
+      item.update.id === update.id ? { ...item, update } : item
+    ),
+    cachedAt: Date.now(),
+  }));
   void deletePersistentContent('updates:public:v1');
   searchCacheHandlers?.invalidate();
   emitMutation({ type: 'admin_update_updated', update });
 }
 
-export function notifyAdminUpdateDeleted(updateId: string): void {
+export function notifyAdminUpdateDeleted(
+  updateId: string,
+  meta?: { likesCount?: number }
+): void {
   updateAllCachedAdminUpdatesSnapshots((snap) => ({
     ...snap,
     updates: removeItemById(snap.updates, updateId),
     cachedAt: Date.now(),
   }));
+  updateAllCachedHomeFeedSnapshots((snap) => ({
+    ...snap,
+    updateItems: (snap.updateItems ?? []).filter(
+      (item) => item.update.id !== updateId
+    ),
+    cachedAt: Date.now(),
+  }));
   void deletePersistentContent('updates:public:v1');
   searchCacheHandlers?.invalidate();
-  emitMutation({ type: 'admin_update_deleted', updateId });
+  emitMutation({
+    type: 'admin_update_deleted',
+    updateId,
+    likesCount: meta?.likesCount,
+  });
 }
 
 export function notifyAdminUpdateReactionChanged(
@@ -634,6 +792,21 @@ export function notifyAdminUpdateReactionChanged(
       cachedAt: Date.now(),
     };
   });
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    const nextLiked = new Set(snap.likedUpdateIds ?? []);
+    if (liked) nextLiked.add(updateId);
+    else nextLiked.delete(updateId);
+    return {
+      ...snap,
+      likedUpdateIds: nextLiked,
+      updateItems: (snap.updateItems ?? []).map((item) =>
+        item.update.id === updateId
+          ? { ...item, update: { ...item.update, likesCount: safeCount } }
+          : item
+      ),
+      cachedAt: Date.now(),
+    };
+  });
   emitMutation({ type: 'admin_update_reaction', updateId, liked, likesCount: safeCount });
 }
 
@@ -651,6 +824,16 @@ export function notifyAdminUpdateSavedChanged(
       cachedAt: Date.now(),
     };
   });
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    const nextSaved = new Set(snap.savedUpdateIds ?? []);
+    if (saved) nextSaved.add(updateId);
+    else nextSaved.delete(updateId);
+    return {
+      ...snap,
+      savedUpdateIds: nextSaved,
+      cachedAt: Date.now(),
+    };
+  });
   emitMutation({ type: 'admin_update_saved', updateId, saved });
 }
 
@@ -663,6 +846,15 @@ export function notifyAdminUpdateCommentMutated(
     ...snap,
     updates: snap.updates.map((item) =>
       item.id === updateId ? { ...item, commentsCount: safeCount } : item
+    ),
+    cachedAt: Date.now(),
+  }));
+  updateAllCachedHomeFeedSnapshots((snap) => ({
+    ...snap,
+    updateItems: (snap.updateItems ?? []).map((item) =>
+      item.update.id === updateId
+        ? { ...item, update: { ...item.update, commentsCount: safeCount } }
+        : item
     ),
     cachedAt: Date.now(),
   }));
@@ -1076,6 +1268,12 @@ export function notifyProfileUpdated(input: {
         proj,
         input.uid
       ),
+      updateItems: (snap.updateItems ?? []).map((entry) =>
+        entry.update.authorMode === 'public_admin' &&
+        entry.update.ownerUID === input.uid
+          ? { ...entry, author: proj }
+          : entry
+      ),
     }));
     updateAllCachedMarketplaceSnapshots((snap) => {
       const nextMap = patchAuthorProjectionInMap(snap.sellerMap, proj, input.uid);
@@ -1099,7 +1297,23 @@ export function notifyProfileUpdated(input: {
           author: { ...entry.author, ...patch },
         };
       });
-      return changed ? { ...snap, postItems: nextItems } : snap;
+      const nextUpdateItems = (snap.updateItems ?? []).map((entry) => {
+        if (
+          entry.update.authorMode !== 'public_admin' ||
+          entry.update.ownerUID !== input.uid ||
+          !entry.author
+        ) {
+          return entry;
+        }
+        changed = true;
+        return {
+          ...entry,
+          author: { ...entry.author, ...patch },
+        };
+      });
+      return changed
+        ? { ...snap, postItems: nextItems, updateItems: nextUpdateItems }
+        : snap;
     });
     updateAllCachedMarketplaceSnapshots((snap) => {
       const existing = snap.sellerMap.get(input.uid);
@@ -1351,6 +1565,22 @@ export function notifyFollowToggled(input: {
         },
       };
     });
+    const nextUpdateItems = (snap.updateItems ?? []).map((entry) => {
+      if (!entry.author || entry.author.username.toLowerCase() !== lower) {
+        return entry;
+      }
+      changed = true;
+      return {
+        ...entry,
+        author: {
+          ...entry.author,
+          followersCount: Math.max(
+            0,
+            (entry.author.followersCount ?? 0) + delta
+          ),
+        },
+      };
+    });
     let nextDiscovery = snap.discovery;
     if (nextDiscovery && nextDiscovery.recommendedPeople.length > 0) {
       let recChanged = false;
@@ -1380,6 +1610,7 @@ export function notifyFollowToggled(input: {
     return {
       ...snap,
       postItems: nextPostItems,
+      updateItems: nextUpdateItems,
       discovery: nextDiscovery,
     };
   });

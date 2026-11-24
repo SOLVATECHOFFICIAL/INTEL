@@ -109,6 +109,7 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
 
   const viewerKey = user?.uid ?? 'guest';
   const initialCache = getTrustedCircleSnapshot(viewerKey);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [supremeAdmins, setSupremeAdmins] = useState<PublicProfileProjection[]>(
     () => initialCache?.supremeAdmins ?? []
@@ -822,7 +823,12 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
 
             <div className="min-w-0 flex-1 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
-                <label className="inline-flex min-h-[34px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]">
+                <button
+                  type="button"
+                  disabled={compressingPhoto}
+                  onClick={() => photoInputRef.current?.click()}
+                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60"
+                >
                   {compressingPhoto ? (
                     <Loader2
                       className="h-3.5 w-3.5 animate-spin"
@@ -837,14 +843,15 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
                   <span>
                     {compressingPhoto ? 'Compressing...' : 'Upload Photo'}
                   </span>
-                  <input
-                    type="file"
-                    accept={ALL_IMAGE_FILE_ACCEPT}
-                    disabled={compressingPhoto}
-                    onChange={handleSelectPhoto}
-                    className="sr-only"
-                  />
-                </label>
+                </button>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept={ALL_IMAGE_FILE_ACCEPT}
+                  disabled={compressingPhoto}
+                  onChange={handleSelectPhoto}
+                  className="hidden"
+                />
 
                 {(compressedPhoto || hasExistingStoredPhoto) && (
                   <button

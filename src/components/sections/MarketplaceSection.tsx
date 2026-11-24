@@ -60,6 +60,7 @@ import {
 import {
   BLUEPRINT_LIMITS,
   canRolePublishCommunityFeed,
+  validateMarketplaceListingInput,
   type MarketplaceListing,
   type MarketplaceListingKind,
   type MarketplaceUpdate,
@@ -231,6 +232,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     profile?.publicWhatsapp || ''
   );
   const [description, setDescription] = useState('');
+  const addPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const replacePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const replacingClientIdRef = useRef<string | null>(null);
   const submitLockRef = useRef(false);
@@ -338,8 +340,8 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
             : mergeOrderedRecords({
                 existing: prev,
                 incoming: pubItems,
-                preferIncomingOrder: true,
-                preserveTail: false,
+                preferIncomingOrder: false,
+                preserveTail: true,
               })
         );
         setMyListings((prev) =>
@@ -348,8 +350,8 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
             : mergeOrderedRecords({
                 existing: prev,
                 incoming: myItems,
-                preferIncomingOrder: true,
-                preserveTail: false,
+                preferIncomingOrder: false,
+                preserveTail: true,
               })
         );
         setPendingListings((prev) =>
@@ -358,8 +360,8 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
             : mergeOrderedRecords({
                 existing: prev,
                 incoming: pendingItems,
-                preferIncomingOrder: true,
-                preserveTail: false,
+                preferIncomingOrder: false,
+                preserveTail: true,
               })
         );
         setErrorMessage(null);
@@ -880,11 +882,42 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     void clearPersistentDraft(viewerKey, 'mkt_create_listing');
   };
 
+  const validateCreateForm = (): string | null => {
+    const parsedPrice = price.trim() === '' ? Number.NaN : Number(price);
+    const parsedQty = Number.parseInt(quantity.trim() || '0', 10);
+    return validateMarketplaceListingInput({
+      listingKind,
+      title,
+      description,
+      category,
+      price: parsedPrice,
+      quantity: parsedQty,
+      whatsappNumber,
+      mediaCount: formAttachments.length,
+    });
+  };
+
+  const handleOpenPreview = () => {
+    if (submitting || compressingPhotos) return;
+    const validationError = validateCreateForm();
+    if (validationError) {
+      setErrorMessage(validationError);
+      return;
+    }
+    setErrorMessage(null);
+    setIsPreviewMode(true);
+  };
+
   const handleCreateListing = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
     if (!user || isSuspended || submitting || compressingPhotos || submitLockRef.current) {
+      return;
+    }
+    const validationError = validateCreateForm();
+    if (validationError) {
+      setErrorMessage(validationError);
       return;
     }
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -1277,7 +1310,11 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           )}
 
           {!isPreviewMode ? (
-            <form onSubmit={handleCreateListing} className="mt-5 space-y-4">
+            <form
+              onSubmit={handleCreateListing}
+              noValidate
+              className="mt-5 space-y-4"
+            >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label
@@ -1439,30 +1476,50 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <span className="text-xs font-bold text-[#0B1A2E]">
-                      Product Photographs ({formAttachments.length}/4 max)
+                      {listingKind === 'product'
+                        ? `Product Photographs (${formAttachments.length}/4 · At least 1 required)`
+                        : `Photographs (${formAttachments.length}/4 max · Optional)`}
                     </span>
                     <p className="text-[11px] text-slate-500">
-                      Photo #1 is shown as the main cover. Dragless arrows let you reorder, replace, or remove photos.
+                      Any image format is supported and compressed automatically. Photo #1 is shown as the main cover.
                     </p>
                   </div>
-                  <label className="inline-flex min-h-[38px] cursor-pointer items-center gap-1.5 rounded-lg bg-[#1E88E5] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0]">
-                    <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                  <button
+                    type="button"
+                    disabled={
+                      compressingPhotos ||
+                      submitting ||
+                      formAttachments.length >= 4
+                    }
+                    onClick={() => addPhotoInputRef.current?.click()}
+                    className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
+                  >
+                    {compressingPhotos ? (
+                      <Loader2
+                        className="h-4 w-4 animate-spin"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                    )}
                     <span>
                       {compressingPhotos ? 'Compressing...' : 'Add Photos'}
                     </span>
-                    <input
-                      type="file"
-                      accept={ALL_IMAGE_FILE_ACCEPT}
-                      multiple
-                      disabled={
-                        compressingPhotos ||
-                        submitting ||
-                        formAttachments.length >= 4
-                      }
-                      onChange={(e) => void handlePhotoSelect(e)}
-                      className="hidden"
-                    />
-                  </label>
+                  </button>
+                  <input
+                    ref={addPhotoInputRef}
+                    type="file"
+                    accept={ALL_IMAGE_FILE_ACCEPT}
+                    multiple
+                    disabled={
+                      compressingPhotos ||
+                      submitting ||
+                      formAttachments.length >= 4
+                    }
+                    onChange={(e) => void handlePhotoSelect(e)}
+                    className="hidden"
+                    data-testid="marketplace-add-photo-input"
+                  />
                   <input
                     ref={replacePhotoInputRef}
                     type="file"
@@ -1470,6 +1527,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     disabled={compressingPhotos || submitting}
                     onChange={(e) => void handleReplacePhoto(e)}
                     className="hidden"
+                    data-testid="marketplace-replace-photo-input"
                   />
                 </div>
 
@@ -1494,6 +1552,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                         </button>
                         <span className="pointer-events-none absolute top-1.5 left-1.5 rounded bg-[#0B1A2E]/85 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
                           {idx === 0 ? '#1 Cover' : `#${idx + 1}`}
+                        </span>
+                        <span className="pointer-events-none absolute right-1.5 bottom-1.5 rounded bg-[#0B1A2E]/85 px-1.5 py-0.5 text-[10px] font-semibold text-white tabular-nums">
+                          {formatByteSize(att.compressed.byteSize)}
                         </span>
                         <button
                           type="button"
@@ -1521,7 +1582,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                           Replace
                         </button>
 
-                        {formAttachments.length > 1 ? (
+                        {formAttachments.length > 1 && (
                           <div className="flex items-center gap-0.5">
                             <button
                               type="button"
@@ -1544,19 +1605,39 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                               <ArrowRight className="h-3 w-3" aria-hidden="true" />
                             </button>
                           </div>
-                        ) : (
-                          <span className="truncate text-[11px] font-semibold text-slate-500 tabular-nums">
-                            {formatByteSize(att.compressed.byteSize)}
-                          </span>
                         )}
                       </div>
                     </div>
                   ))}
                   {formAttachments.length === 0 && (
-                    <div className="col-span-full rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-xs text-slate-500">
-                      No photographs added yet. Up to 4 clear photos help buyers
-                      trust your listing.
-                    </div>
+                    <button
+                      type="button"
+                      disabled={compressingPhotos || submitting}
+                      onClick={() => addPhotoInputRef.current?.click()}
+                      className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-xs text-slate-600 transition-colors hover:border-[#1E88E5] hover:bg-sky-50/40 disabled:opacity-60"
+                    >
+                      {compressingPhotos ? (
+                        <Loader2
+                          className="h-6 w-6 animate-spin text-[#1E88E5]"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <ImagePlus
+                          className="h-6 w-6 text-[#1E88E5]"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="font-semibold text-[#0B1A2E]">
+                        {compressingPhotos
+                          ? 'Compressing photographs...'
+                          : listingKind === 'product'
+                            ? 'Tap to upload 1–4 product photographs (Required)'
+                            : 'Tap to upload up to 4 photographs (Optional)'}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Supports JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG and more — compressed automatically.
+                      </span>
+                    </button>
                   )}
                 </div>
 
@@ -1576,27 +1657,41 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 )}
               </div>
 
+              {errorMessage && (
+                <div
+                  role="alert"
+                  className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800"
+                >
+                  <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
               <div className="flex flex-wrap justify-end gap-2 pt-2">
                 <button
                   type="button"
                   disabled={submitting || compressingPhotos}
-                  onClick={() => setIsPreviewMode(true)}
-                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
+                  onClick={handleOpenPreview}
+                  className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
                 >
                   Preview Listing
                 </button>
                 <button
                   type="submit"
                   disabled={submitting || compressingPhotos}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
+                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
                 >
-                  {submitting && (
+                  {(submitting || compressingPhotos) && (
                     <Loader2
                       className="h-3.5 w-3.5 animate-spin"
                       aria-hidden="true"
                     />
                   )}
-                  Publish Listing Now
+                  {compressingPhotos
+                    ? 'Compressing...'
+                    : submitting
+                      ? 'Publishing...'
+                      : 'Publish Listing Now'}
                 </button>
               </div>
             </form>
@@ -1645,12 +1740,22 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 </div>
               )}
 
+              {errorMessage && (
+                <div
+                  role="alert"
+                  className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800"
+                >
+                  <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   disabled={submitting}
                   onClick={() => setIsPreviewMode(false)}
-                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] disabled:opacity-50"
+                  className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] disabled:opacity-50"
                 >
                   Edit Details
                 </button>
@@ -1662,15 +1767,19 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     )
                   }
                   disabled={submitting || compressingPhotos}
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
+                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
                 >
-                  {submitting && (
+                  {(submitting || compressingPhotos) && (
                     <Loader2
                       className="h-3.5 w-3.5 animate-spin"
                       aria-hidden="true"
                     />
                   )}
-                  Confirm &amp; Publish
+                  {compressingPhotos
+                    ? 'Compressing...'
+                    : submitting
+                      ? 'Publishing...'
+                      : 'Confirm & Publish'}
                 </button>
               </div>
             </div>

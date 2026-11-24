@@ -1,4 +1,5 @@
 import type {
+  AdminUpdate,
   AnonymousPost,
   CampusEvent,
   CommunityPost,
@@ -42,7 +43,31 @@ export interface ForYouRankingOptions {
   interactedCategoryWeights?: ReadonlyMap<string, number>;
   interactedKeywords?: ReadonlyMap<string, number>;
   authorMap?: ReadonlyMap<string, PublicProfileProjection>;
+  seenCounts?: ReadonlyMap<string, number>;
+  lastSeenMs?: ReadonlyMap<string, number>;
+  fastSkippedIds?: ReadonlySet<string>;
   nowMs?: number;
+}
+
+export interface FeedInteractionSignal {
+  targetId: string;
+  authorKey?: string;
+  category?: string;
+  text?: string;
+  dwellMs: number;
+  completed?: boolean;
+  skippedFast?: boolean;
+  interacted?: boolean;
+  timestampMs?: number;
+}
+
+export interface FeedBehaviorSnapshot {
+  authorWeights: Map<string, number>;
+  categoryWeights: Map<string, number>;
+  keywordWeights: Map<string, number>;
+  seenCounts: Map<string, number>;
+  lastSeenMs: Map<string, number>;
+  fastSkippedIds: Set<string>;
 }
 
 export interface PersonRecommendationItem {
@@ -95,6 +120,24 @@ export type ForYouStreamEntry =
       kind: 'recommended_anonymous';
       id: string;
       recommendation: AnonymousRecommendationItem;
+    };
+
+export interface HomeUpdateWithAuthor {
+  update: AdminUpdate;
+  author: PublicProfileProjection | null;
+}
+
+export type CombinedHomeStreamEntry =
+  | ForYouStreamEntry
+  | {
+      kind: 'update';
+      id: string;
+      item: HomeUpdateWithAuthor;
+    }
+  | {
+      kind: 'anonymous';
+      id: string;
+      post: AnonymousPost;
     };
 
 const STOP_WORDS = new Set([
@@ -313,10 +356,81 @@ export function buildInteractionAffinities(input: {
   };
 }
 
+export interface TikTokVelocityMetrics {
+  likesCount?: number;
+  commentsCount?: number;
+  viewsCount?: number;
+  mediaCount?: number;
+  ageHours: number;
+  isOfficial?: boolean;
+}
+
 /**
- * Computes a transparent, deterministic relevance score combining recency,
- * follow relationships, academic department/faculty relevance, explicit topics,
- * interaction affinities, official/pinned priority, and bounded engagement.
+ * TikTok-style engagement velocity + hook weighting: rewards posts whose real
+ * engagement (likes, comments, views, visual media hook) grows rapidly relative
+ * to age while decaying older stale items gracefully.
+ */
+export function computeTikTokEngagementVelocityScore(
+  metrics: TikTokVelocityMetrics
+): number {
+  const likes =
+    typeof metrics.likesCount === 'number' && Number.isFinite(metrics.likesCount)
+      ? Math.max(0, metrics.likesCount)
+      : 0;
+  const comments =
+    typeof metrics.commentsCount === 'number' &&
+    Number.isFinite(metrics.commentsCount)
+      ? Math.max(0, metrics.commentsCount)
+      : 0;
+  const views =
+    typeof metrics.viewsCount === 'number' && Number.isFinite(metrics.viewsCount)
+      ? Math.max(0, metrics.viewsCount)
+      : 0;
+  const mediaCount =
+    typeof metrics.mediaCount === 'number' && Number.isFinite(metrics.mediaCount)
+      ? Math.max(0, metrics.mediaCount)
+      : 0;
+
+  const mediaHookWeight =
+    mediaCount > 1 ? 16 : mediaCount === 1 ? 10 : metrics.isOfficial ? 6 : 0;
+  const weightedInteractions =
+    likes * 1.6 + comments * 2.8 + views * 0.08 + mediaHookWeight;
+  const velocity =
+    weightedInteractions / Math.pow(Math.max(0, metrics.ageHours) + 1.5, 1.35);
+
+  const boundedVirality =
+    Math.min(34, Math.sqrt(likes) * 3.8) +
+    Math.min(44, Math.sqrt(comments) * 5.5);
+
+  return Math.min(68, velocity * 4.5) + boundedVirality + mediaHookWeight * 0.45;
+}
+
+function computeImpressionFatiguePenalty(
+  entryKey: string,
+  options: ForYouRankingOptions,
+  nowMs: number,
+  isPinned: boolean
+): number {
+  if (isPinned) return 0;
+  let penalty = 0;
+  if (options.fastSkippedIds?.has(entryKey)) {
+    penalty += 55;
+  }
+  const seenCount = options.seenCounts?.get(entryKey) ?? 0;
+  if (seenCount > 0) {
+    penalty += Math.min(84, seenCount * 24);
+    const seenAt = options.lastSeenMs?.get(entryKey) ?? 0;
+    if (seenAt > 0 && nowMs - seenAt < 20 * 60_000) {
+      penalty += 20;
+    }
+  }
+  return penalty;
+}
+
+/**
+ * Computes a transparent, TikTok-inspired AI relevance score combining
+ * engagement velocity, freshness decay, follow relationships, academic match,
+ * behavioral dwell/skip signals, and impression fatigue anti-repetition.
  */
 export function computeForYouPostScore(
   post: CommunityPost,
@@ -326,8 +440,8 @@ export function computeForYouPostScore(
   const createdMs = extractTimestampMs(post.createdAt) ?? nowMs;
   const ageHours = Math.max(0, (nowMs - createdMs) / (1000 * 60 * 60));
 
-  // Freshness starts at 100 and decays smoothly over time
-  const freshnessScore = 100 / Math.pow(1 + ageHours / 18, 1.15);
+  // Freshness starts at 105 and decays smoothly over time
+  const freshnessScore = 105 / Math.pow(1 + ageHours / 18, 1.15);
 
   const pinnedBoost = post.isPinned ? 500 : 0;
   const officialBoost = post.isOfficial ? 55 : 0;
@@ -387,25 +501,37 @@ export function computeForYouPostScore(
     : 0;
 
   const authorAffinityBoost = Math.min(
-    32,
+    36,
     options.interactedAuthorWeights?.get(post.ownerUID) ?? 0
   );
   const categoryAffinityBoost = Math.min(
-    26,
+    28,
     (options.interactedCategoryWeights?.get(categoryKey) ?? 0) +
-      Math.min(14, keywordWeight * 2)
+      Math.min(16, keywordWeight * 2)
   );
 
-  const likes = Number.isFinite(post.likesCount)
-    ? Math.max(0, post.likesCount)
-    : 0;
-  const comments = Number.isFinite(post.commentsCount)
-    ? Math.max(0, post.commentsCount)
-    : 0;
+  const mediaCount =
+    Array.isArray(post.mediaItems) && post.mediaItems.length > 0
+      ? post.mediaItems.length
+      : Array.isArray(post.mediaUrls) && post.mediaUrls.length > 0
+        ? post.mediaUrls.length
+        : 0;
 
-  // Bounded engagement so viral older posts don't crowd out fresh relevant content
-  const engagementScore =
-    Math.min(35, Math.sqrt(likes) * 3.8) + Math.min(45, Math.sqrt(comments) * 5.5);
+  const engagementScore = computeTikTokEngagementVelocityScore({
+    likesCount: post.likesCount,
+    commentsCount: post.commentsCount,
+    viewsCount: post.viewsCount,
+    mediaCount,
+    ageHours,
+    isOfficial: post.isOfficial,
+  });
+
+  const fatiguePenalty = computeImpressionFatiguePenalty(
+    `post_${post.id}`,
+    options,
+    nowMs,
+    Boolean(post.isPinned)
+  );
 
   return (
     pinnedBoost +
@@ -417,7 +543,8 @@ export function computeForYouPostScore(
     authorAffinityBoost +
     categoryAffinityBoost +
     engagementScore +
-    freshnessScore
+    freshnessScore -
+    fatiguePenalty
   );
 }
 
@@ -995,6 +1122,376 @@ export function buildForYouFeedStream(input: {
   return stream;
 }
 
+function computeOfficialUpdateHomeScore(
+  update: AdminUpdate,
+  options: ForYouRankingOptions,
+  nowMs: number
+): number {
+  const createdMs = extractTimestampMs(update.createdAt) ?? nowMs;
+  const ageHours = Math.max(0, (nowMs - createdMs) / 3_600_000);
+  const freshness = 135 / Math.pow(1 + ageHours / 22, 1.1);
+  const pinnedBoost = update.isPinned ? 560 : 0;
+  const urgentBoost = update.category === 'urgent' ? 40 : 18;
+  const mediaCount =
+    Array.isArray(update.mediaItems) && update.mediaItems.length > 0
+      ? update.mediaItems.length
+      : 0;
+  const engagement = computeTikTokEngagementVelocityScore({
+    likesCount: update.likesCount,
+    commentsCount: update.commentsCount,
+    viewsCount: update.viewsCount,
+    mediaCount,
+    ageHours,
+    isOfficial: true,
+  });
+  const fatiguePenalty = computeImpressionFatiguePenalty(
+    `update_${update.id}`,
+    options,
+    nowMs,
+    Boolean(update.isPinned)
+  );
+  return pinnedBoost + urgentBoost + engagement + freshness - fatiguePenalty;
+}
+
+function getEntryAuthorSpacingKey(entry: CombinedHomeStreamEntry): string | null {
+  if (entry.kind === 'post') {
+    return `uid:${entry.item.post.ownerUID}`;
+  }
+  if (entry.kind === 'update') {
+    return entry.item.update.authorMode === 'official_desk'
+      ? 'official_desk'
+      : `uid:${entry.item.update.ownerUID ?? entry.item.author?.username ?? 'desk'}`;
+  }
+  if (entry.kind === 'anonymous') {
+    return `anon_cat:${normalizePhrase(entry.post.category)}`;
+  }
+  return null;
+}
+
+function getEntryCategoryKey(entry: CombinedHomeStreamEntry): string {
+  if (entry.kind === 'post') return normalizePhrase(entry.item.post.category);
+  if (entry.kind === 'update') return normalizePhrase(entry.item.update.category);
+  if (entry.kind === 'anonymous') return normalizePhrase(entry.post.category);
+  return entry.kind;
+}
+
+function isEntryPinned(entry: CombinedHomeStreamEntry): boolean {
+  if (entry.kind === 'post') return Boolean(entry.item.post.isPinned);
+  if (entry.kind === 'update') return Boolean(entry.item.update.isPinned);
+  return false;
+}
+
+/**
+ * TikTok-style anti-repetition interleaver: prevents consecutive posts from the
+ * same author or >2 consecutive posts from the same category/type while keeping
+ * pinned announcements anchored at the top.
+ */
+export function diversifyCombinedHomeStream(
+  entries: readonly CombinedHomeStreamEntry[],
+  lookaheadWindow = 5
+): CombinedHomeStreamEntry[] {
+  if (entries.length <= 2) return [...entries];
+  const pool = [...entries];
+  const result: CombinedHomeStreamEntry[] = [];
+
+  while (pool.length > 0) {
+    const prev1 = result[result.length - 1];
+    const prev2 = result[result.length - 2];
+
+    let chosenIdx = 0;
+    const head = pool[0];
+    if (!isEntryPinned(head) && prev1) {
+      const headAuthor = getEntryAuthorSpacingKey(head);
+      const prev1Author = getEntryAuthorSpacingKey(prev1);
+      const headCat = getEntryCategoryKey(head);
+      const prev1Cat = getEntryCategoryKey(prev1);
+      const prev2Cat = prev2 ? getEntryCategoryKey(prev2) : null;
+
+      const sameAuthorConflict = Boolean(headAuthor && prev1Author && headAuthor === prev1Author);
+      const sameCategoryRun =
+        Boolean(headCat && prev1Cat === headCat && prev2Cat === headCat);
+
+      if (sameAuthorConflict || sameCategoryRun) {
+        const maxLook = Math.min(pool.length - 1, lookaheadWindow);
+        for (let i = 1; i <= maxLook; i += 1) {
+          const candidate = pool[i];
+          if (isEntryPinned(candidate)) {
+            chosenIdx = i;
+            break;
+          }
+          const candAuthor = getEntryAuthorSpacingKey(candidate);
+          const candCat = getEntryCategoryKey(candidate);
+          const candAuthorOk = !candAuthor || !prev1Author || candAuthor !== prev1Author;
+          const candCatOk = !candCat || !(prev1Cat === candCat && prev2Cat === candCat);
+          if (candAuthorOk && candCatOk) {
+            chosenIdx = i;
+            break;
+          }
+        }
+      }
+    }
+
+    const [picked] = pool.splice(chosenIdx, 1);
+    result.push(picked);
+  }
+
+  return result;
+}
+
+/**
+ * Combines Official Updates, Campus Updates (ordinary posts), Anonymous posts,
+ * and discovery blocks into a unified Home "For You" stream powered by
+ * TikTok-style velocity & anti-repetition spacing.
+ */
+export function buildCombinedHomeForYouStream(input: {
+  updates?: readonly HomeUpdateWithAuthor[];
+  posts: readonly PersonalisedPostWithAuthor[];
+  anonymousPosts?: readonly AnonymousPost[];
+  recommendedPeople?: readonly PersonRecommendationItem[];
+  recommendedEvents?: readonly EventRecommendationItem[];
+  recommendedOpportunities?: readonly OpportunityRecommendationItem[];
+  dismissedKeys?: ReadonlySet<string>;
+  rankingOptions?: ForYouRankingOptions;
+  nowMs?: number;
+}): CombinedHomeStreamEntry[] {
+  const nowMs = input.nowMs ?? Date.now();
+  const dismissed = input.dismissedKeys ?? new Set<string>();
+  const effectiveRankingOptions: ForYouRankingOptions = {
+    ...(input.rankingOptions ?? {}),
+    nowMs,
+  };
+
+  const seenUpdateIds = new Set<string>();
+  const primaryRanked: Array<{
+    score: number;
+    createdMs: number;
+    entry: CombinedHomeStreamEntry;
+  }> = [];
+
+  for (const item of input.updates ?? []) {
+    if (item.update.status !== 'published') continue;
+    if (seenUpdateIds.has(item.update.id)) continue;
+    if (dismissed.has(`update:${item.update.id}`)) continue;
+    seenUpdateIds.add(item.update.id);
+    primaryRanked.push({
+      score: computeOfficialUpdateHomeScore(
+        item.update,
+        effectiveRankingOptions,
+        nowMs
+      ),
+      createdMs: extractTimestampMs(item.update.createdAt) ?? 0,
+      entry: {
+        kind: 'update',
+        id: `update_${item.update.id}`,
+        item,
+      },
+    });
+  }
+
+  const seenPostIds = new Set<string>();
+  for (const item of input.posts) {
+    if (item.post.status !== 'published') continue;
+    if (seenPostIds.has(item.post.id)) continue;
+    if (dismissed.has(`post:${item.post.id}`)) continue;
+    seenPostIds.add(item.post.id);
+    const baseScore = computeForYouPostScore(item.post, effectiveRankingOptions);
+    primaryRanked.push({
+      score: baseScore,
+      createdMs: extractTimestampMs(item.post.createdAt) ?? 0,
+      entry: {
+        kind: 'post',
+        id: `post_${item.post.id}`,
+        item,
+      },
+    });
+  }
+
+  primaryRanked.sort((a, b) => {
+    if (Math.abs(b.score - a.score) > 0.0001) {
+      return b.score - a.score;
+    }
+    if (b.createdMs !== a.createdMs) {
+      return b.createdMs - a.createdMs;
+    }
+    return a.entry.id.localeCompare(b.entry.id);
+  });
+
+  const diversifiedPrimary = diversifyCombinedHomeStream(
+    primaryRanked.map((wrapped) => wrapped.entry)
+  );
+
+  const seenAnonIds = new Set<string>();
+  const uniqueAnonPosts: AnonymousPost[] = [];
+  for (const anon of sortChronologicalAnonymousPosts(input.anonymousPosts ?? [])) {
+    if (seenAnonIds.has(anon.id)) continue;
+    if (dismissed.has(`anon:${anon.id}`)) continue;
+    seenAnonIds.add(anon.id);
+    uniqueAnonPosts.push(anon);
+  }
+
+  const topEvent = (input.recommendedEvents ?? []).find(
+    (item) => !dismissed.has(`event:${item.event.id}`)
+  );
+  const topOpportunity = (input.recommendedOpportunities ?? []).find(
+    (item) => !dismissed.has(`opportunity:${item.opportunity.id}`)
+  );
+  const visiblePeople = (input.recommendedPeople ?? [])
+    .filter((item) => !dismissed.has(`person:${item.member.username.toLowerCase()}`))
+    .slice(0, 3);
+
+  const primaryDiscovery: CombinedHomeStreamEntry | null = topEvent
+    ? {
+        kind: 'recommended_event',
+        id: `rec_event_${topEvent.event.id}`,
+        recommendation: topEvent,
+      }
+    : topOpportunity
+      ? {
+          kind: 'recommended_opportunity',
+          id: `rec_opp_${topOpportunity.opportunity.id}`,
+          recommendation: topOpportunity,
+        }
+      : null;
+
+  const secondaryDiscovery: CombinedHomeStreamEntry | null =
+    topEvent && topOpportunity
+      ? {
+          kind: 'recommended_opportunity',
+          id: `rec_opp_${topOpportunity.opportunity.id}`,
+          recommendation: topOpportunity,
+        }
+      : null;
+
+  const peopleDiscovery: CombinedHomeStreamEntry | null =
+    visiblePeople.length > 0
+      ? {
+          kind: 'people_discovery',
+          id: `rec_people_${visiblePeople.map((p) => p.member.username).join('_')}`,
+          people: visiblePeople,
+        }
+      : null;
+
+  const stream: CombinedHomeStreamEntry[] = [];
+  let anonCursor = 0;
+
+  if (diversifiedPrimary.length === 0) {
+    for (const anon of uniqueAnonPosts) {
+      stream.push({ kind: 'anonymous', id: `anon_${anon.id}`, post: anon });
+    }
+    if (primaryDiscovery) stream.push(primaryDiscovery);
+    if (peopleDiscovery) stream.push(peopleDiscovery);
+    if (secondaryDiscovery) stream.push(secondaryDiscovery);
+    return stream;
+  }
+
+  diversifiedPrimary.forEach((entry, index) => {
+    stream.push(entry);
+
+    if (index === 1 && primaryDiscovery) {
+      stream.push(primaryDiscovery);
+    }
+    if ((index + 1) % 3 === 0 && anonCursor < uniqueAnonPosts.length) {
+      const anon = uniqueAnonPosts[anonCursor];
+      anonCursor += 1;
+      stream.push({ kind: 'anonymous', id: `anon_${anon.id}`, post: anon });
+    }
+    if (index === 4 && peopleDiscovery) {
+      stream.push(peopleDiscovery);
+    }
+    if (index === 7 && secondaryDiscovery) {
+      stream.push(secondaryDiscovery);
+    }
+  });
+
+  if (diversifiedPrimary.length <= 1 && primaryDiscovery) {
+    stream.push(primaryDiscovery);
+  }
+  if (diversifiedPrimary.length <= 4 && peopleDiscovery) {
+    stream.push(peopleDiscovery);
+  }
+  if (diversifiedPrimary.length <= 7 && secondaryDiscovery) {
+    stream.push(secondaryDiscovery);
+  }
+  while (anonCursor < uniqueAnonPosts.length) {
+    const anon = uniqueAnonPosts[anonCursor];
+    anonCursor += 1;
+    stream.push({ kind: 'anonymous', id: `anon_${anon.id}`, post: anon });
+  }
+
+  return stream;
+}
+
+/**
+ * Merges Official Updates, Campus Updates, and Anonymous Posts into a unified
+ * newest-first Home "Latest" stream without duplicate entries.
+ */
+export function buildCombinedHomeLatestStream(input: {
+  updates?: readonly HomeUpdateWithAuthor[];
+  posts: readonly PersonalisedPostWithAuthor[];
+  anonymousPosts?: readonly AnonymousPost[];
+}): CombinedHomeStreamEntry[] {
+  const combined: Array<{
+    kindRank: number;
+    createdMs: number;
+    rawId: string;
+    entry: CombinedHomeStreamEntry;
+  }> = [];
+
+  const seenUpdates = new Set<string>();
+  for (const item of input.updates ?? []) {
+    if (item.update.status !== 'published' || seenUpdates.has(item.update.id)) {
+      continue;
+    }
+    seenUpdates.add(item.update.id);
+    combined.push({
+      kindRank: 3,
+      createdMs: extractTimestampMs(item.update.createdAt) ?? 0,
+      rawId: item.update.id,
+      entry: { kind: 'update', id: `update_${item.update.id}`, item },
+    });
+  }
+
+  const seenPosts = new Set<string>();
+  for (const item of input.posts) {
+    if (item.post.status !== 'published' || seenPosts.has(item.post.id)) {
+      continue;
+    }
+    seenPosts.add(item.post.id);
+    combined.push({
+      kindRank: 2,
+      createdMs: extractTimestampMs(item.post.createdAt) ?? 0,
+      rawId: item.post.id,
+      entry: { kind: 'post', id: `post_${item.post.id}`, item },
+    });
+  }
+
+  const seenAnon = new Set<string>();
+  for (const anon of input.anonymousPosts ?? []) {
+    if (anon.status !== 'published' || seenAnon.has(anon.id)) {
+      continue;
+    }
+    seenAnon.add(anon.id);
+    combined.push({
+      kindRank: 1,
+      createdMs: extractTimestampMs(anon.createdAt) ?? 0,
+      rawId: anon.id,
+      entry: { kind: 'anonymous', id: `anon_${anon.id}`, post: anon },
+    });
+  }
+
+  return combined
+    .sort((a, b) => {
+      if (b.createdMs !== a.createdMs) {
+        return b.createdMs - a.createdMs;
+      }
+      if (b.kindRank !== a.kindRank) {
+        return b.kindRank - a.kindRank;
+      }
+      return b.rawId.localeCompare(a.rawId);
+    })
+    .map((item) => item.entry);
+}
+
 const DISMISSED_RECS_STORAGE_PREFIX = 'lasued_intel_dismissed_recs_v1';
 
 export function loadDismissedRecommendationKeys(
@@ -1030,4 +1527,167 @@ export function saveDismissedRecommendationKey(
     }
   }
   return next;
+}
+
+const AI_BEHAVIOR_STORAGE_PREFIX = 'lasued_intel_ai_behavior_v1';
+
+interface SerializedBehaviorPayload {
+  authorWeights: Array<[string, number]>;
+  categoryWeights: Array<[string, number]>;
+  keywordWeights: Array<[string, number]>;
+  seenCounts: Array<[string, number]>;
+  lastSeenMs: Array<[string, number]>;
+  fastSkippedIds: string[];
+}
+
+const memoryBehaviorStore = new Map<string, FeedBehaviorSnapshot>();
+
+function emptyBehaviorSnapshot(): FeedBehaviorSnapshot {
+  return {
+    authorWeights: new Map(),
+    categoryWeights: new Map(),
+    keywordWeights: new Map(),
+    seenCounts: new Map(),
+    lastSeenMs: new Map(),
+    fastSkippedIds: new Set(),
+  };
+}
+
+function cloneBehaviorSnapshot(snap: FeedBehaviorSnapshot): FeedBehaviorSnapshot {
+  return {
+    authorWeights: new Map(snap.authorWeights),
+    categoryWeights: new Map(snap.categoryWeights),
+    keywordWeights: new Map(snap.keywordWeights),
+    seenCounts: new Map(snap.seenCounts),
+    lastSeenMs: new Map(snap.lastSeenMs),
+    fastSkippedIds: new Set(snap.fastSkippedIds),
+  };
+}
+
+export function loadFeedBehaviorSnapshot(
+  viewerUid: string | null | undefined
+): FeedBehaviorSnapshot {
+  const storageKey = `${AI_BEHAVIOR_STORAGE_PREFIX}:${viewerUid || 'guest'}`;
+  if (typeof window === 'undefined') {
+    const cached = memoryBehaviorStore.get(storageKey);
+    return cached ? cloneBehaviorSnapshot(cached) : emptyBehaviorSnapshot();
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return emptyBehaviorSnapshot();
+    const parsed = JSON.parse(raw) as Partial<SerializedBehaviorPayload>;
+    return {
+      authorWeights: new Map(Array.isArray(parsed.authorWeights) ? parsed.authorWeights : []),
+      categoryWeights: new Map(Array.isArray(parsed.categoryWeights) ? parsed.categoryWeights : []),
+      keywordWeights: new Map(Array.isArray(parsed.keywordWeights) ? parsed.keywordWeights : []),
+      seenCounts: new Map(Array.isArray(parsed.seenCounts) ? parsed.seenCounts : []),
+      lastSeenMs: new Map(Array.isArray(parsed.lastSeenMs) ? parsed.lastSeenMs : []),
+      fastSkippedIds: new Set(Array.isArray(parsed.fastSkippedIds) ? parsed.fastSkippedIds : []),
+    };
+  } catch {
+    return emptyBehaviorSnapshot();
+  }
+}
+
+export function recordFeedBehaviorSignal(
+  viewerUid: string | null | undefined,
+  signal: FeedInteractionSignal
+): FeedBehaviorSnapshot {
+  const storageKey = `${AI_BEHAVIOR_STORAGE_PREFIX}:${viewerUid || 'guest'}`;
+  const snap = loadFeedBehaviorSnapshot(viewerUid);
+  const nowMs = signal.timestampMs ?? Date.now();
+  const dwellMs = Math.max(0, signal.dwellMs);
+
+  const prevSeen = snap.seenCounts.get(signal.targetId) ?? 0;
+  snap.seenCounts.set(signal.targetId, Math.min(20, prevSeen + 1));
+  snap.lastSeenMs.set(signal.targetId, nowMs);
+
+  const isCompleted = signal.completed ?? dwellMs >= 4500;
+  const isFastSkip = signal.skippedFast ?? (dwellMs < 900 && !signal.interacted);
+
+  if (isFastSkip) {
+    snap.fastSkippedIds.add(signal.targetId);
+  } else if (signal.interacted || isCompleted) {
+    snap.fastSkippedIds.delete(signal.targetId);
+  }
+
+  const delta = signal.interacted
+    ? 8
+    : isCompleted
+      ? 4.5
+      : dwellMs >= 2000
+        ? 2
+        : isFastSkip
+          ? -3
+          : 0;
+
+  if (delta !== 0) {
+    if (signal.authorKey) {
+      const nextAuthor = Math.max(
+        -18,
+        Math.min(36, (snap.authorWeights.get(signal.authorKey) ?? 0) + delta)
+      );
+      snap.authorWeights.set(signal.authorKey, nextAuthor);
+    }
+    const catKey = normalizePhrase(signal.category);
+    if (catKey) {
+      const nextCat = Math.max(
+        -12,
+        Math.min(36, (snap.categoryWeights.get(catKey) ?? 0) + delta)
+      );
+      snap.categoryWeights.set(catKey, nextCat);
+    }
+    if (signal.text && delta > 0) {
+      for (const word of tokenizeInterestText(signal.text).slice(0, 8)) {
+        const nextKw = Math.min(12, (snap.keywordWeights.get(word) ?? 0) + delta * 0.25);
+        snap.keywordWeights.set(word, nextKw);
+      }
+    }
+  }
+
+  // Bound stored map sizes for performance
+  const trimMap = <V>(m: Map<string, V>, limit: number) => {
+    while (m.size > limit) {
+      const oldest = m.keys().next().value;
+      if (oldest === undefined) break;
+      m.delete(oldest);
+    }
+  };
+  trimMap(snap.authorWeights, 60);
+  trimMap(snap.categoryWeights, 40);
+  trimMap(snap.keywordWeights, 80);
+  trimMap(snap.seenCounts, 120);
+  trimMap(snap.lastSeenMs, 120);
+  if (snap.fastSkippedIds.size > 100) {
+    const trimmed = Array.from(snap.fastSkippedIds).slice(-80);
+    snap.fastSkippedIds = new Set(trimmed);
+  }
+
+  memoryBehaviorStore.set(storageKey, cloneBehaviorSnapshot(snap));
+
+  if (typeof window !== 'undefined') {
+    try {
+      const serialized: SerializedBehaviorPayload = {
+        authorWeights: Array.from(snap.authorWeights.entries()),
+        categoryWeights: Array.from(snap.categoryWeights.entries()),
+        keywordWeights: Array.from(snap.keywordWeights.entries()),
+        seenCounts: Array.from(snap.seenCounts.entries()),
+        lastSeenMs: Array.from(snap.lastSeenMs.entries()),
+        fastSkippedIds: Array.from(snap.fastSkippedIds),
+      };
+      window.localStorage.setItem(storageKey, JSON.stringify(serialized));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }
+
+  return snap;
+}
+
+export function clearFeedBehaviorCacheForTest(viewerUid?: string | null): void {
+  if (viewerUid === undefined) {
+    memoryBehaviorStore.clear();
+  } else {
+    memoryBehaviorStore.delete(`${AI_BEHAVIOR_STORAGE_PREFIX}:${viewerUid || 'guest'}`);
+  }
 }

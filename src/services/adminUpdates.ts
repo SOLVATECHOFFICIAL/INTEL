@@ -45,6 +45,7 @@ import {
 } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
+  commitFreshWriteBatchWithRetry,
   computeNextReactionTransactionState,
   isFirestoreSdkError,
   runWithFirestoreConnectionRetry,
@@ -491,42 +492,45 @@ export async function createOfficialUpdateWithMedia(input: {
         : 'Publishing official update...',
   });
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.updates, updateId), updateDoc);
-  batch.set(doc(db, COLLECTION_NAMES.adminUpdateMappings, updateId), {
-    updateId,
-    authorUid: input.actorUid,
-    authorMode,
-    createdAt: serverTimestamp(),
-  });
-
-  for (const att of effectiveAttachments) {
-    if (!att.compressed) continue;
-    const mediaRecord = buildMediaImageFirestoreRecord({
-      imageId: att.imageId,
-      targetCollection: 'updates',
-      targetId: updateId,
-      // Omit ownerUID for official_desk so underground admin UID never appears in mediaImages
-      ownerUID: authorMode === 'public_admin' ? input.actorUid : undefined,
-      compressed: att.compressed,
-      createdAtValue: serverTimestamp(),
-    });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
-  }
-
-  attachUpdateAuditLogToBatch(batch, {
-    action: 'update_created',
-    updateId,
-    targetLabel: cleanTitle || summarizeNotificationExcerpt(cleanBody, 120) || 'Official Update',
-    performedByUid: input.actorUid,
-    details: `Published ${input.format} official update (${authorMode}).`,
-  });
-
   input.onProgress?.({ percent: 72, label: 'Confirming with Firebase...' });
 
   const path = `${COLLECTION_NAMES.updates}/${updateId}`;
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.set(doc(db, COLLECTION_NAMES.updates, updateId), updateDoc);
+        batch.set(doc(db, COLLECTION_NAMES.adminUpdateMappings, updateId), {
+          updateId,
+          authorUid: input.actorUid,
+          authorMode,
+          createdAt: serverTimestamp(),
+        });
+
+        for (const att of effectiveAttachments) {
+          if (!att.compressed) continue;
+          const mediaRecord = buildMediaImageFirestoreRecord({
+            imageId: att.imageId,
+            targetCollection: 'updates',
+            targetId: updateId,
+            // Omit ownerUID for official_desk so underground admin UID never appears in mediaImages
+            ownerUID: authorMode === 'public_admin' ? input.actorUid : undefined,
+            compressed: att.compressed,
+            createdAtValue: serverTimestamp(),
+          });
+          batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
+        }
+
+        attachUpdateAuditLogToBatch(batch, {
+          action: 'update_created',
+          updateId,
+          targetLabel:
+            cleanTitle || summarizeNotificationExcerpt(cleanBody, 120) || 'Official Update',
+          performedByUid: input.actorUid,
+          details: `Published ${input.format} official update (${authorMode}).`,
+        });
+      }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
@@ -624,7 +628,6 @@ export async function updateOfficialUpdateWithMedia(input: {
 
   input.onProgress?.({ percent: 35, label: 'Saving official update changes...' });
 
-  const batch = writeBatch(db);
   const updatePayload: Record<
     string,
     FieldValue | string | boolean | PostMediaMeta[]
@@ -647,41 +650,45 @@ export async function updateOfficialUpdateWithMedia(input: {
     updatePayload.backgroundStyle = deleteField();
   }
 
-  batch.update(doc(db, COLLECTION_NAMES.updates, input.update.id), updatePayload);
-
   const imageOwnerUid =
     input.update.authorMode === 'public_admin'
       ? input.update.ownerUID ?? input.actorUid
       : undefined;
 
-  for (const att of effectiveAttachments) {
-    if (!att.compressed) continue;
-    const mediaRecord = buildMediaImageFirestoreRecord({
-      imageId: att.imageId,
-      targetCollection: 'updates',
-      targetId: input.update.id,
-      ownerUID: imageOwnerUid,
-      compressed: att.compressed,
-      createdAtValue: serverTimestamp(),
-    });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
-  }
-
-  for (const removedId of removedImageIds) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
-  }
-
-  attachUpdateAuditLogToBatch(batch, {
-    action: 'update_updated',
-    updateId: input.update.id,
-    targetLabel: cleanTitle || summarizeNotificationExcerpt(cleanBody, 120) || 'Official Update',
-    performedByUid: input.actorUid,
-    details: `Edited official ${lockedFormat} update.`,
-  });
-
   const path = `${COLLECTION_NAMES.updates}/${input.update.id}`;
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.updates, input.update.id), updatePayload);
+
+        for (const att of effectiveAttachments) {
+          if (!att.compressed) continue;
+          const mediaRecord = buildMediaImageFirestoreRecord({
+            imageId: att.imageId,
+            targetCollection: 'updates',
+            targetId: input.update.id,
+            ownerUID: imageOwnerUid,
+            compressed: att.compressed,
+            createdAtValue: serverTimestamp(),
+          });
+          batch.set(doc(db, COLLECTION_NAMES.mediaImages, att.imageId), mediaRecord);
+        }
+
+        for (const removedId of removedImageIds) {
+          batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
+        }
+
+        attachUpdateAuditLogToBatch(batch, {
+          action: 'update_updated',
+          updateId: input.update.id,
+          targetLabel:
+            cleanTitle || summarizeNotificationExcerpt(cleanBody, 120) || 'Official Update',
+          performedByUid: input.actorUid,
+          details: `Edited official ${lockedFormat} update.`,
+        });
+      }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -732,23 +739,25 @@ export async function toggleOfficialUpdatePin(input: {
   }
 
   const nextPinned = !input.update.isPinned;
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.updates, input.update.id), {
-    isPinned: nextPinned,
-    updatedAt: serverTimestamp(),
-  });
-  attachUpdateAuditLogToBatch(batch, {
-    action: 'update_updated',
-    updateId: input.update.id,
-    targetLabel:
-      input.update.title || summarizeNotificationExcerpt(input.update.body, 120),
-    performedByUid: input.actorUid,
-    details: nextPinned ? 'Pinned official update.' : 'Unpinned official update.',
-  });
-
   const path = `${COLLECTION_NAMES.updates}/${input.update.id}`;
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.updates, input.update.id), {
+          isPinned: nextPinned,
+          updatedAt: serverTimestamp(),
+        });
+        attachUpdateAuditLogToBatch(batch, {
+          action: 'update_updated',
+          updateId: input.update.id,
+          targetLabel:
+            input.update.title || summarizeNotificationExcerpt(input.update.body, 120),
+          performedByUid: input.actorUid,
+          details: nextPinned ? 'Pinned official update.' : 'Unpinned official update.',
+        });
+      }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -768,6 +777,7 @@ export async function deleteOfficialUpdateCascading(input: {
   actorUid: string;
   actorRole: UserRole;
   targetLabel?: string;
+  likesCount?: number;
 }): Promise<void> {
   const currentUser = auth.currentUser;
   if (
@@ -856,7 +866,9 @@ export async function deleteOfficialUpdateCascading(input: {
   if (existingMediaIds.length > 0) {
     evictMediaImageCacheBatch(existingMediaIds);
   }
-  notifyAdminUpdateDeleted(input.updateId);
+  notifyAdminUpdateDeleted(input.updateId, {
+    likesCount: input.likesCount,
+  });
 }
 
 export async function toggleOfficialUpdateReaction(input: {

@@ -76,14 +76,16 @@ service cloud.firestore {
     }
 
     function isModerator() {
-      return isVerifiedEmailUser() &&
+      return isActiveSignedInUser() &&
         hasRoleDoc(request.auth.uid) &&
+        (!('isPermanentOwner' in roleDoc(request.auth.uid)) || roleDoc(request.auth.uid).isPermanentOwner == false) &&
         roleDoc(request.auth.uid).role == 'moderator';
     }
 
     function isVerifiedMember() {
-      return isVerifiedEmailUser() &&
+      return isActiveSignedInUser() &&
         hasRoleDoc(request.auth.uid) &&
+        (!('isPermanentOwner' in roleDoc(request.auth.uid)) || roleDoc(request.auth.uid).isPermanentOwner == false) &&
         roleDoc(request.auth.uid).role == 'verified';
     }
 
@@ -92,6 +94,7 @@ service cloud.firestore {
         ? 'supreme_admin'
         : (hasRoleDoc(request.auth.uid) &&
             'role' in roleDoc(request.auth.uid) &&
+            (!('isPermanentOwner' in roleDoc(request.auth.uid)) || roleDoc(request.auth.uid).isPermanentOwner == false) &&
             roleDoc(request.auth.uid).role in ['moderator', 'verified', 'member']
               ? roleDoc(request.auth.uid).role
               : 'member');
@@ -100,8 +103,10 @@ service cloud.firestore {
     function isValidPublishRoleAndBadge(uid) {
       return isDesignatedSupremeAdminEmail() || (
         exists(/databases/$(database)/documents/users/$(uid)) &&
-        get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active' &&
+        (!('accountStatus' in get(/databases/$(database)/documents/users/$(uid)).data) ||
+          get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active') &&
         hasRoleDoc(uid) &&
+        (!('isPermanentOwner' in roleDoc(uid)) || roleDoc(uid).isPermanentOwner == false) &&
         roleDoc(uid).role in ['moderator', 'verified'] &&
         roleDoc(uid).badge in ['moderator', 'verified'] &&
         ((roleDoc(uid).role == 'moderator' && roleDoc(uid).badge == 'moderator') ||
@@ -1272,7 +1277,7 @@ service cloud.firestore {
             existsAfter(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid))
           )
         );
-      allow delete: if isValidId(postId) && isActiveSignedInUser() && isVerifiedEmailUser() && (
+      allow delete: if isValidId(postId) && isActiveSignedInUser() && (
         existing().ownerUID == request.auth.uid ||
         isSupremeAdmin() ||
         (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))

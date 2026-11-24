@@ -74,10 +74,12 @@ import {
   toPublicProfileProjection,
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
+import { subscribeCacheMutations } from '../../services/cacheInvalidation';
 import {
   mergeCommunityPostItems,
   mergeOrderedRecords,
   reuseSetIfUnchanged,
+  subtractPostLikesSafe,
 } from '../../utils/cacheSync';
 import {
   ALL_IMAGE_FILE_ACCEPT,
@@ -408,14 +410,14 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             posts: mergeOrderedRecords({
               existing: prev.posts,
               incoming: result.posts,
-              preferIncomingOrder: true,
-              preserveTail: false,
+              preferIncomingOrder: false,
+              preserveTail: true,
             }),
             likedPosts: mergeCommunityPostItems({
               existing: prev.likedPosts,
               incoming: result.likedPosts,
-              preferIncomingOrder: true,
-              preserveTail: false,
+              preferIncomingOrder: false,
+              preserveTail: true,
             }),
           };
         });
@@ -602,6 +604,103 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     onRefresh: () => syncProfileFromNetwork('background'),
     baseIntervalMs: 5000,
   });
+
+  const processedDeletedIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    return subscribeCacheMutations((event) => {
+      if (event.type === 'community_post_deleted') {
+        const key = `post:${event.postId}`;
+        const alreadyApplied = processedDeletedIdsRef.current.has(key);
+        processedDeletedIdsRef.current.add(key);
+
+        setBundle((prev) => {
+          if (!prev) return prev;
+          const removedOwnPost = prev.posts.find((p) => p.id === event.postId);
+          const isTargetProfileAuthor =
+            Boolean(removedOwnPost) ||
+            Boolean(prev.isOwnProfile && event.ownerUID && user?.uid && event.ownerUID === user.uid);
+          const likesToSubtract = alreadyApplied
+            ? 0
+            : Math.max(
+                0,
+                event.likesCount ?? removedOwnPost?.likesCount ?? 0
+              );
+          const nextPosts = prev.posts.filter((p) => p.id !== event.postId);
+          const nextLiked = prev.likedPosts.filter(
+            (entry) => entry.post.id !== event.postId
+          );
+          const nextTotalLikes = isTargetProfileAuthor
+            ? subtractPostLikesSafe(prev.totalLikesReceived, likesToSubtract)
+            : prev.totalLikesReceived;
+
+          return {
+            ...prev,
+            posts: nextPosts,
+            likedPosts: nextLiked,
+            totalLikesReceived: nextTotalLikes,
+          };
+        });
+        setSavedBundle((prev) =>
+          prev
+            ? {
+                ...prev,
+                posts: prev.posts.filter((e) => e.post.id !== event.postId),
+              }
+            : prev
+        );
+      } else if (event.type === 'anonymous_post_deleted') {
+        const key = `anon:${event.postId}`;
+        const alreadyApplied = processedDeletedIdsRef.current.has(key);
+        processedDeletedIdsRef.current.add(key);
+
+        let removedHistoryLikes = 0;
+        setAnonHistory((prev) => {
+          if (!prev) return prev;
+          const removed = prev.find((item) => item.id === event.postId);
+          if (removed) {
+            removedHistoryLikes = Math.max(0, removed.likesCount ?? 0);
+          }
+          return prev.filter((item) => item.id !== event.postId);
+        });
+        setSavedBundle((prev) =>
+          prev
+            ? {
+                ...prev,
+                anonymousPosts: prev.anonymousPosts.filter(
+                  (p) => p.id !== event.postId
+                ),
+              }
+            : prev
+        );
+        setBundle((prev) => {
+          if (!prev) return prev;
+          const isTargetProfileAuthor = prev.isOwnProfile;
+          if (!isTargetProfileAuthor || alreadyApplied) return prev;
+          const likesToSubtract = Math.max(
+            0,
+            event.likesCount ?? removedHistoryLikes
+          );
+          if (likesToSubtract <= 0) return prev;
+          const nextAnonLikes = subtractPostLikesSafe(
+            prev.profile.anonymousLikesReceivedCount ?? 0,
+            likesToSubtract
+          );
+          return {
+            ...prev,
+            profile: {
+              ...prev.profile,
+              anonymousLikesReceivedCount: nextAnonLikes,
+            },
+            totalLikesReceived: subtractPostLikesSafe(
+              prev.totalLikesReceived,
+              likesToSubtract
+            ),
+          };
+        });
+      }
+    });
+  }, [user?.uid]);
 
   const resolvedLoadState: typeof loadState = !effectiveUsername
     ? !authReady
@@ -1422,7 +1521,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 type="file"
                 accept={ALL_IMAGE_FILE_ACCEPT}
                 onChange={handleSelectCoverFile}
-                className="sr-only"
+                className="hidden"
                 data-testid="profile-header-cover-input"
               />
 
@@ -1559,7 +1658,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     type="file"
                     accept={ALL_IMAGE_FILE_ACCEPT}
                     onChange={handleSelectAvatarFile}
-                    className="sr-only"
+                    className="hidden"
                     data-testid="profile-header-avatar-input"
                   />
                   <button

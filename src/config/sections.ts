@@ -7,7 +7,7 @@ export const PLATFORM_SECTIONS: readonly SectionDefinition[] = [
     shortTitle: 'For You',
     group: 'Feeds',
     summary:
-      'Tailored campus updates, faculty notices, and relevant student threads organized for your academic focus.',
+      'Combined campus stream led by Official Updates and verified Campus Updates, woven with Anonymous discussions and discovery.',
     emptyTitle: 'No community updates yet',
     emptyDescription:
       'Verified campus updates and faculty notices will appear here once published.',
@@ -35,7 +35,7 @@ export const PLATFORM_SECTIONS: readonly SectionDefinition[] = [
     shortTitle: 'Latest',
     group: 'Feeds',
     summary:
-      'Chronological stream of campus briefings, academic updates, and verified community posts.',
+      'Chronological stream combining Official Updates, Campus Updates, and Anonymous discussions newest first.',
     emptyTitle: 'No campus updates published yet',
     emptyDescription:
       'The chronological campus feed is connected and ready. Published updates will appear here newest first.',

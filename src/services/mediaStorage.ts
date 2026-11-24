@@ -23,7 +23,10 @@ import {
 } from './persistentCache';
 import { notifyProfileUpdated } from './cacheInvalidation';
 import { BoundedLruMap, perfMetrics } from '../utils/cacheSync';
-import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
+import {
+  commitFreshWriteBatchWithRetry,
+  runWithFirestoreConnectionRetry,
+} from '../utils/firestoreRetry';
 import {
   buildMediaDataUrl,
   type CompressedImageResult,
@@ -828,9 +831,6 @@ export async function saveProfileMediaImage(input: {
 
   input.onProgress?.({ percent: 65, label: 'Saving image...' });
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.mediaImages, newImageId), mediaPayload);
-
   const userUpdate: UpdateData<PublicUserProfile> = {
     updatedAt: serverTimestamp(),
   };
@@ -841,15 +841,21 @@ export async function saveProfileMediaImage(input: {
     userUpdate.coverImageId = newImageId;
     userUpdate.coverUrl = '';
   }
-  batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
-
-  if (previousDocExists && input.previousImageId) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, input.previousImageId));
-  }
 
   const writePath = `${COLLECTION_NAMES.mediaImages}/${newImageId}`;
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.set(doc(db, COLLECTION_NAMES.mediaImages, newImageId), mediaPayload);
+        batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
+        if (previousDocExists && input.previousImageId) {
+          batch.delete(
+            doc(db, COLLECTION_NAMES.mediaImages, input.previousImageId)
+          );
+        }
+      }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, writePath);
   }
@@ -896,7 +902,6 @@ export async function removeProfileMediaImage(input: {
     }
   }
 
-  const batch = writeBatch(db);
   const userUpdate: UpdateData<PublicUserProfile> = {
     updatedAt: serverTimestamp(),
   };
@@ -909,14 +914,19 @@ export async function removeProfileMediaImage(input: {
     userUpdate.coverUrl = '';
   }
 
-  batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
-  if (existingDocFound && input.currentImageId) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, input.currentImageId));
-  }
-
   const path = `${COLLECTION_NAMES.users}/${input.uid}`;
   try {
-    await runWithFirestoreConnectionRetry(() => batch.commit());
+    await commitFreshWriteBatchWithRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
+        if (existingDocFound && input.currentImageId) {
+          batch.delete(
+            doc(db, COLLECTION_NAMES.mediaImages, input.currentImageId)
+          );
+        }
+      }
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

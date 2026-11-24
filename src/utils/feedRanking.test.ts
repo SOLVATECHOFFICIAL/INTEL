@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {
+  AdminUpdate,
   AnonymousPost,
   CampusEvent,
   CommunityPost,
@@ -8,15 +9,21 @@ import type {
   PublicProfileProjection,
 } from '../types/database';
 import {
+  buildCombinedHomeForYouStream,
+  buildCombinedHomeLatestStream,
   buildForYouFeedStream,
   buildInteractionAffinities,
+  clearFeedBehaviorCacheForTest,
   computeForYouPostScore,
+  computeTikTokEngagementVelocityScore,
+  diversifyCombinedHomeStream,
   normalizeInterestList,
   rankForYouCommunityPosts,
   rankRecommendedAnonymousPosts,
   rankRecommendedEvents,
   rankRecommendedOpportunities,
   rankRecommendedPeople,
+  recordFeedBehaviorSignal,
   sortChronologicalAnonymousPosts,
   sortLatestCommunityPosts,
 } from './feedRanking';
@@ -436,4 +443,205 @@ test('normalizeInterestList trims, deduplicates, caps length at 20, and removes 
     'Academic Notices',
   ]);
   assert.deepEqual(normalized, ['Campus News', 'Academic Notices']);
+});
+
+test('buildCombinedHomeForYouStream prioritizes official updates and campus posts while weaving anonymous threads cleanly', () => {
+  const nowMs = 2_000_000_000;
+  const officialUpdate: AdminUpdate = {
+    id: 'upd_1',
+    format: 'text',
+    authorMode: 'official_desk',
+    authorDisplayName: 'LASUED Intel Official',
+    authorBadge: 'verified',
+    category: 'announcement',
+    body: 'First semester exam timetable updated.',
+    backgroundStyle: 'navy_slate',
+    isPinned: false,
+    status: 'published',
+    visibility: 'public',
+    likesCount: 15,
+    commentsCount: 4,
+    createdAt: nowMs - 10_000,
+    updatedAt: nowMs - 10_000,
+  };
+  const posts = [1, 2, 3, 4].map((idx) => ({
+    post: makePost({ id: `post_${idx}`, createdAt: nowMs - idx * 5_000 }),
+    author: null,
+  }));
+  const anonPosts: AnonymousPost[] = [
+    {
+      id: 'anon_1',
+      category: 'Campus Life',
+      body: 'Quiet study room in the library?',
+      status: 'published',
+      visibility: 'public',
+      likesCount: 3,
+      commentsCount: 1,
+      createdAt: nowMs - 2_000,
+      updatedAt: nowMs - 2_000,
+    },
+    {
+      id: 'anon_2',
+      category: 'Confessions',
+      body: 'Shoutout to CSC 201 study group.',
+      status: 'published',
+      visibility: 'public',
+      likesCount: 8,
+      commentsCount: 2,
+      createdAt: nowMs - 6_000,
+      updatedAt: nowMs - 6_000,
+    },
+  ];
+
+  const stream = buildCombinedHomeForYouStream({
+    updates: [
+      { update: officialUpdate, author: null },
+      { update: officialUpdate, author: null },
+    ],
+    posts: [...posts, posts[0]],
+    anonymousPosts: [...anonPosts, anonPosts[0]],
+    nowMs,
+  });
+
+  const updateEntries = stream.filter((item) => item.kind === 'update');
+  const postEntries = stream.filter((item) => item.kind === 'post');
+  const anonEntries = stream.filter((item) => item.kind === 'anonymous');
+
+  assert.equal(updateEntries.length, 1);
+  assert.equal(postEntries.length, 4);
+  assert.equal(anonEntries.length, 2);
+  // First 3 primary items (official update + top campus posts) appear before the first woven anonymous post
+  const firstAnonIndex = stream.findIndex((item) => item.kind === 'anonymous');
+  assert.ok(firstAnonIndex >= 3);
+});
+
+test('buildCombinedHomeLatestStream sorts updates, campus posts, and anonymous posts newest-first without duplicates', () => {
+  const officialUpdate: AdminUpdate = {
+    id: 'upd_latest',
+    format: 'text',
+    authorMode: 'official_desk',
+    authorDisplayName: 'LASUED Intel Official',
+    authorBadge: 'verified',
+    category: 'urgent',
+    body: 'Urgent senate update.',
+    backgroundStyle: 'navy_slate',
+    isPinned: false,
+    status: 'published',
+    visibility: 'public',
+    likesCount: 0,
+    commentsCount: 0,
+    createdAt: 30_000,
+    updatedAt: 30_000,
+  };
+  const campusPost = {
+    post: makePost({ id: 'post_latest', createdAt: 10_000 }),
+    author: null,
+  };
+  const anonPost: AnonymousPost = {
+    id: 'anon_latest',
+    category: 'Campus Life',
+    body: 'New shuttle bus schedule.',
+    status: 'published',
+    visibility: 'public',
+    likesCount: 0,
+    commentsCount: 0,
+    createdAt: 20_000,
+    updatedAt: 20_000,
+  };
+
+  const latest = buildCombinedHomeLatestStream({
+    updates: [{ update: officialUpdate, author: null }],
+    posts: [campusPost],
+    anonymousPosts: [anonPost],
+  });
+
+  assert.deepEqual(
+    latest.map((item) => item.id),
+    ['update_upd_latest', 'anon_anon_latest', 'post_post_latest']
+  );
+});
+
+test('TikTok AI algorithm prioritizes fast-engaging media posts, penalizes fast skips, and enforces anti-repetition spacing', () => {
+  const nowMs = 5_000_000_000;
+  clearFeedBehaviorCacheForTest('ai_tester');
+
+  const highVelocityMedia = computeTikTokEngagementVelocityScore({
+    likesCount: 18,
+    commentsCount: 6,
+    viewsCount: 140,
+    mediaCount: 2,
+    ageHours: 1,
+  });
+  const lowVelocityText = computeTikTokEngagementVelocityScore({
+    likesCount: 2,
+    commentsCount: 0,
+    viewsCount: 15,
+    mediaCount: 0,
+    ageHours: 1,
+  });
+  assert.ok(highVelocityMedia > lowVelocityText);
+
+  // Record strong dwell/completion affinity for author_a and fast-skip on post_skip
+  recordFeedBehaviorSignal('ai_tester', {
+    targetId: 'post_completed',
+    authorKey: 'author_a',
+    category: 'Tech & Digital Skills',
+    text: 'TypeScript campus workshop notes',
+    dwellMs: 6500,
+    completed: true,
+    timestampMs: nowMs - 10_000,
+  });
+  const snapshot = recordFeedBehaviorSignal('ai_tester', {
+    targetId: 'post_skip',
+    authorKey: 'author_b',
+    category: 'General',
+    dwellMs: 400,
+    skippedFast: true,
+    timestampMs: nowMs - 5_000,
+  });
+
+  const boostedPost = makePost({
+    id: 'candidate_a',
+    ownerUID: 'author_a',
+    category: 'Tech & Digital Skills',
+    body: 'New TypeScript campus workshop notes ready.',
+    createdAt: nowMs - 3_600_000,
+  });
+  const skippedPost = makePost({
+    id: 'skip',
+    ownerUID: 'author_b',
+    category: 'General',
+    body: 'Random chatter',
+    createdAt: nowMs - 3_600_000,
+  });
+
+  const boostedScore = computeForYouPostScore(boostedPost, {
+    interactedAuthorWeights: snapshot.authorWeights,
+    interactedCategoryWeights: snapshot.categoryWeights,
+    interactedKeywords: snapshot.keywordWeights,
+    seenCounts: snapshot.seenCounts,
+    lastSeenMs: snapshot.lastSeenMs,
+    fastSkippedIds: snapshot.fastSkippedIds,
+    nowMs,
+  });
+  const skippedScore = computeForYouPostScore(skippedPost, {
+    interactedAuthorWeights: snapshot.authorWeights,
+    interactedCategoryWeights: snapshot.categoryWeights,
+    interactedKeywords: snapshot.keywordWeights,
+    seenCounts: snapshot.seenCounts,
+    lastSeenMs: snapshot.lastSeenMs,
+    fastSkippedIds: snapshot.fastSkippedIds,
+    nowMs,
+  });
+  assert.ok(boostedScore > skippedScore);
+
+  // Anti-repetition spacing avoids adjacent posts by same author when another author is available
+  const a1 = { kind: 'post' as const, id: 'post_a1', item: { post: makePost({ id: 'a1', ownerUID: 'same_author', category: 'News' }), author: null } };
+  const a2 = { kind: 'post' as const, id: 'post_a2', item: { post: makePost({ id: 'a2', ownerUID: 'same_author', category: 'News' }), author: null } };
+  const b1 = { kind: 'post' as const, id: 'post_b1', item: { post: makePost({ id: 'b1', ownerUID: 'other_author', category: 'Events' }), author: null } };
+  const spaced = diversifyCombinedHomeStream([a1, a2, b1]);
+  assert.deepEqual(
+    spaced.map((e) => e.id),
+    ['post_a1', 'post_b1', 'post_a2']
+  );
 });

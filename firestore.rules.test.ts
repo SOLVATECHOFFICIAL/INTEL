@@ -684,3 +684,52 @@ test('Rebuilt rules enforce Supreme Admin self-sync, orphaned reaction cleanup, 
   assert.equal(hasIndex('savedPosts', ['ownerUID', 'targetCollection', 'targetId']), true);
 });
 
+test('Granted verified and moderator roles exercise real permissions without email_verified blocker while Supreme Admin retains strict email_verified lock', () => {
+  const helpersBlock = rulesText.slice(
+    rulesText.indexOf('function isDesignatedSupremeAdminEmail()'),
+    rulesText.indexOf('function canPublishFeed()')
+  );
+
+  // Strict email_verified lock preserved on designated Supreme Admins
+  assert.match(
+    helpersBlock,
+    /function isDesignatedSupremeAdminEmail\(\) \{\s*return isVerifiedEmailUser\(\)/
+  );
+  assert.match(
+    helpersBlock,
+    /function isUndergroundSupremeAdminEmail\(\) \{\s*return isVerifiedEmailUser\(\)/
+  );
+
+  // Granted moderator & verified roles do not require isVerifiedEmailUser(), and explicitly block legacy isPermanentOwner == true
+  const modBlock = rulesText.slice(
+    rulesText.indexOf('function isModerator()'),
+    rulesText.indexOf('function isVerifiedMember()')
+  );
+  assert.doesNotMatch(modBlock, /isVerifiedEmailUser\(\)/);
+  assert.match(modBlock, /isActiveSignedInUser\(\)/);
+  assert.match(modBlock, /isPermanentOwner == false/);
+
+  const verifiedBlock = rulesText.slice(
+    rulesText.indexOf('function isVerifiedMember()'),
+    rulesText.indexOf('function currentRoleString()')
+  );
+  assert.doesNotMatch(verifiedBlock, /isVerifiedEmailUser\(\)/);
+  assert.match(verifiedBlock, /isActiveSignedInUser\(\)/);
+  assert.match(verifiedBlock, /isPermanentOwner == false/);
+
+  const publishBlock = rulesText.slice(
+    rulesText.indexOf('function isValidPublishRoleAndBadge(uid)'),
+    rulesText.indexOf('function canPublishFeed()')
+  );
+  assert.match(publishBlock, /isPermanentOwner == false/);
+
+  // Ordinary community post deletion allows active authors (e.g. granted verified/moderator) and moderators without global email_verified gate
+  const postsDeleteLine = rulesText.slice(
+    rulesText.indexOf('allow delete: if isValidId(postId)'),
+    rulesText.indexOf('match /postComments/{commentId}')
+  );
+  assert.doesNotMatch(postsDeleteLine, /isVerifiedEmailUser\(\)/);
+  assert.match(postsDeleteLine, /isActiveSignedInUser\(\)/);
+});
+
+

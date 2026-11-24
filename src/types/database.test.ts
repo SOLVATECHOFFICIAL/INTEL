@@ -28,6 +28,7 @@ import {
   validateAnonymousPostPayload,
   validateAnonymousReportPayload,
   validateCommunityPostPayload,
+  validateMarketplaceListingInput,
   validateMediaImagePayload,
   validatePostMediaItems,
   validateTrustedContactPayload,
@@ -715,6 +716,64 @@ test('marketplace approval, 7-day expiry, and quantity=0 sold transition work ac
     quantity: 3,
     status: 'active',
   });
+
+  // Product listings require at least 1 photograph
+  assert.match(
+    validateMarketplaceListingInput({
+      listingKind: 'product',
+      title: 'CASIO Scientific Calculator',
+      description: 'Neatly used scientific calculator available at Main Gate.',
+      category: 'Electronics',
+      price: 4500,
+      quantity: 1,
+      whatsappNumber: '+2348012345678',
+      mediaCount: 0,
+    }) ?? '',
+    /require at least 1 photograph/i
+  );
+
+  assert.equal(
+    validateMarketplaceListingInput({
+      listingKind: 'product',
+      title: 'CASIO Scientific Calculator',
+      description: 'Neatly used scientific calculator available at Main Gate.',
+      category: 'Electronics',
+      price: 4500,
+      quantity: 1,
+      whatsappNumber: '+2348012345678',
+      mediaCount: 2,
+    }),
+    null
+  );
+
+  // Services and accommodation can optionally omit photos
+  assert.equal(
+    validateMarketplaceListingInput({
+      listingKind: 'service',
+      title: 'Graphic Design & Typesetting',
+      description: 'Fast student assignment formatting and flyer design.',
+      category: 'Services',
+      price: 2000,
+      quantity: 1,
+      whatsappNumber: '+2348012345678',
+      mediaCount: 0,
+    }),
+    null
+  );
+
+  assert.match(
+    validateMarketplaceListingInput({
+      listingKind: 'product',
+      title: 'CASIO Scientific Calculator',
+      description: 'Neatly used scientific calculator available at Main Gate.',
+      category: 'Electronics',
+      price: 4500,
+      quantity: 1,
+      whatsappNumber: '+2348012345678',
+      mediaCount: 5,
+    }) ?? '',
+    /maximum of 4 photographs/i
+  );
 });
 
 test('trusted contact validator enforces admin-listed contact non-account status and compulsory WhatsApp contact', () => {

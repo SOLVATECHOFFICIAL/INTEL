@@ -117,7 +117,6 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
     authReady,
     user,
     profile,
-    roleRecord,
     effectiveTier,
     isSuspended,
     refreshAccountState,
@@ -125,17 +124,20 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
 
   const isEmailVerified = Boolean(user?.emailVerified);
   const normalizedUserEmail = user?.email?.trim().toLowerCase() ?? '';
-  const hasPrivilegedEmailOrRole = Boolean(
+  const hasDesignatedSupremeAdminEmail = Boolean(
     user &&
-      ((DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
+      (DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
         normalizedUserEmail
-      ) ||
-        (!roleRecord?.isPermanentOwner && roleRecord?.role === 'moderator'))
+      )
   );
   const hasAccess =
-    isEmailVerified && canAccessAdminDashboard(effectiveTier, isSuspended);
+    canAccessAdminDashboard(effectiveTier, isSuspended) &&
+    (effectiveTier !== 'supreme_admin' || isEmailVerified);
   const needsEmailVerificationForAdmin =
-    Boolean(user) && !isEmailVerified && !isSuspended && hasPrivilegedEmailOrRole;
+    Boolean(user) &&
+    !isEmailVerified &&
+    !isSuspended &&
+    hasDesignatedSupremeAdminEmail;
   const isFullAdmin = canAccessFullAdminDashboard(effectiveTier, isSuspended);
 
   const visibleSections = getVisibleAdminSections(effectiveTier, isSuspended);
@@ -433,8 +435,8 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-[#0B1A2E]">
                 email_verified == true
               </code>{' '}
-              in your auth token before allowing any Moderator or Supreme Admin
-              queries or moderation writes. Verify{' '}
+              in your auth token before allowing Supreme Admin governance
+              queries or platform writes. Verify{' '}
               <strong>{user.email}</strong> and refresh your session to enter the
               dashboard without permission errors.
             </p>
