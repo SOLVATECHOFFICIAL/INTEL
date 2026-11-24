@@ -14,7 +14,7 @@ export default async function handler(
     return;
   }
 
-  const config = getServerPushConfigStatus();
+  const config = getServerPushConfigStatus(req.headers);
   const configured = config.vapidConfigured && config.firebaseAdminConfigured;
 
   sendJson(res, 200, {

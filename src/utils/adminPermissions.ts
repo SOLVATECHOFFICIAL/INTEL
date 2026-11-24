@@ -111,7 +111,7 @@ export const ADMIN_DASHBOARD_SECTIONS: readonly AdminDashboardSectionMeta[] = [
     id: 'settings',
     number: 10,
     label: 'Settings',
-    description: 'Platform notices, pinned announcements, and owner/admin authority configuration.',
+    description: 'Platform notices, pinned announcements, and Supreme Admin authority configuration.',
     supremeAdminOnly: true,
   },
 ] as const;
@@ -126,7 +126,13 @@ export function getVisibleAdminSections(
   tier: EffectiveAccountTier,
   suspended: boolean
 ): AdminDashboardSectionMeta[] {
-  if (suspended || tier === 'guest' || tier === 'member' || tier === 'verified') {
+  if (
+    suspended ||
+    tier === 'guest' ||
+    tier === 'member' ||
+    tier === 'verified' ||
+    tier === 'owner'
+  ) {
     return [];
   }
   if (tier === 'moderator') {
@@ -155,7 +161,7 @@ export function canActorModerateMarketplaceListing(
   if (approvalStatus !== 'pending_approval') {
     return false;
   }
-  if (actorRole === 'owner' || actorRole === 'supreme_admin') {
+  if (actorRole === 'supreme_admin') {
     return true;
   }
   if (actorRole === 'moderator') {
@@ -165,14 +171,14 @@ export function canActorModerateMarketplaceListing(
 }
 
 export function canActorDeleteMarketplaceListing(actorRole: UserRole): boolean {
-  return actorRole === 'owner' || actorRole === 'supreme_admin';
+  return actorRole === 'supreme_admin';
 }
 
 export function canActorDeleteCommentByBadge(
   actorRole: UserRole,
   authorBadge: BadgeType | null | undefined
 ): boolean {
-  if (actorRole === 'owner' || actorRole === 'supreme_admin') {
+  if (actorRole === 'supreme_admin') {
     return true;
   }
   if (actorRole === 'moderator') {

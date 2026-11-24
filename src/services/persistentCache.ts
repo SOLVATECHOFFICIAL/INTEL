@@ -3,6 +3,7 @@ import {
   isPersistableCacheKey,
   perfMetrics,
 } from '../utils/cacheSync';
+import { parseImageDataUrlToBinary } from '../utils/mediaCache';
 
 const DB_NAME = 'lasued-intel-cache-v1';
 const DB_VERSION = 1;
@@ -28,9 +29,18 @@ interface ContentRecord<T = unknown> {
   byteEstimate: number;
 }
 
+export interface MediaIdbAsset {
+  blob?: Blob;
+  mimeType?: string;
+  dataUrl?: string;
+  byteSize: number;
+}
+
 interface MediaIdbRecord {
   key: string;
-  dataUrl: string;
+  blob?: Blob;
+  mimeType?: string;
+  dataUrl?: string;
   byteSize: number;
   cachedAt: number;
   lastAccessedAt: number;
@@ -503,9 +513,29 @@ export async function clearViewerPersistentCaches(
   });
 }
 
-export async function readPersistentMediaRecord(
+function normalizeMediaAssetFromRecord(
+  record: MediaIdbRecord
+): MediaIdbAsset | null {
+  if (record.blob instanceof Blob && record.blob.size > 0) {
+    return {
+      blob: record.blob,
+      mimeType: record.mimeType || record.blob.type || 'image/webp',
+      byteSize: record.blob.size,
+    };
+  }
+  if (typeof record.dataUrl === 'string' && record.dataUrl.startsWith('data:image/')) {
+    return {
+      dataUrl: record.dataUrl,
+      mimeType: record.mimeType,
+      byteSize: record.byteSize || record.dataUrl.length * 2,
+    };
+  }
+  return null;
+}
+
+export async function readPersistentMediaAsset(
   cacheKey: string
-): Promise<string | null> {
+): Promise<MediaIdbAsset | null> {
   const fallback = memoryMediaFallback.get(cacheKey);
   const database = await openCacheDb();
   if (!database) {
@@ -514,7 +544,7 @@ export async function readPersistentMediaRecord(
       memoryMediaFallback.delete(cacheKey);
       return null;
     }
-    return fallback.dataUrl;
+    return normalizeMediaAssetFromRecord(fallback);
   }
 
   try {
@@ -523,41 +553,47 @@ export async function readPersistentMediaRecord(
       tx.objectStore(STORE_MEDIA).get(cacheKey)
     )) as MediaIdbRecord | undefined;
     if (!record) return null;
-    if (
-      Date.now() - record.cachedAt > MEDIA_MAX_AGE_MS ||
-      !record.dataUrl.startsWith('data:image/')
-    ) {
+    if (Date.now() - record.cachedAt > MEDIA_MAX_AGE_MS) {
       void deletePersistentMediaByPredicate((k) => k === cacheKey);
       return null;
     }
-    return record.dataUrl;
+    const asset = normalizeMediaAssetFromRecord(record);
+    if (!asset) {
+      void deletePersistentMediaByPredicate((k) => k === cacheKey);
+      return null;
+    }
+    return asset;
   } catch {
-    return null;
+    return fallback ? normalizeMediaAssetFromRecord(fallback) : null;
   }
 }
 
-export async function writePersistentMediaRecord(
+export async function writePersistentMediaAsset(
   cacheKey: string,
-  dataUrl: string
+  asset: MediaIdbAsset
 ): Promise<void> {
-  if (!cacheKey || !dataUrl.startsWith('data:image/')) return;
+  if (!cacheKey) return;
+  if (!asset.blob && !asset.dataUrl?.startsWith('data:image/')) return;
   const now = Date.now();
   const record: MediaIdbRecord = {
     key: cacheKey,
-    dataUrl,
-    byteSize: dataUrl.length * 2,
+    ...(asset.blob ? { blob: asset.blob } : {}),
+    ...(asset.mimeType ? { mimeType: asset.mimeType } : {}),
+    ...(asset.dataUrl && !asset.blob ? { dataUrl: asset.dataUrl } : {}),
+    byteSize: Math.max(1, asset.byteSize),
     cachedAt: now,
     lastAccessedAt: now,
   };
 
-  if (memoryMediaFallback.size >= 40 && !memoryMediaFallback.has(cacheKey)) {
-    const oldest = memoryMediaFallback.keys().next().value;
-    if (oldest) memoryMediaFallback.delete(oldest);
-  }
-  memoryMediaFallback.set(cacheKey, record);
-
   const database = await openCacheDb();
-  if (!database) return;
+  if (!database) {
+    if (memoryMediaFallback.size >= 24 && !memoryMediaFallback.has(cacheKey)) {
+      const oldest = memoryMediaFallback.keys().next().value;
+      if (oldest) memoryMediaFallback.delete(oldest);
+    }
+    memoryMediaFallback.set(cacheKey, record);
+    return;
+  }
 
   const attemptPut = async () => {
     const tx = database.transaction(STORE_MEDIA, 'readwrite');
@@ -579,6 +615,47 @@ export async function writePersistentMediaRecord(
       await attemptPut().catch(() => undefined);
     }
   }
+}
+
+export async function readPersistentMediaRecord(
+  cacheKey: string
+): Promise<string | null> {
+  const asset = await readPersistentMediaAsset(cacheKey);
+  if (!asset) return null;
+  if (asset.dataUrl) return asset.dataUrl;
+  if (asset.blob && typeof FileReader !== 'undefined') {
+    return new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(asset.blob!);
+    });
+  }
+  return null;
+}
+
+export async function writePersistentMediaRecord(
+  cacheKey: string,
+  dataUrl: string
+): Promise<void> {
+  if (!cacheKey || !dataUrl.startsWith('data:image/')) return;
+  const parsed = parseImageDataUrlToBinary(dataUrl);
+  if (parsed && typeof Blob !== 'undefined') {
+    const blob = new Blob([parsed.bytes.buffer as ArrayBuffer], {
+      type: parsed.mimeType,
+    });
+    await writePersistentMediaAsset(cacheKey, {
+      blob,
+      mimeType: parsed.mimeType,
+      byteSize: blob.size,
+    });
+    return;
+  }
+  await writePersistentMediaAsset(cacheKey, {
+    dataUrl,
+    byteSize: dataUrl.length * 2,
+  });
 }
 
 export async function deletePersistentMediaByPredicate(

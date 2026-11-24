@@ -88,8 +88,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const viewerUid = user?.uid ?? null;
   const viewerKey = viewerUid ?? 'guest';
-  const isAdminOrOwner =
-    effectiveTier === 'supreme_admin' || effectiveTier === 'owner';
+  const isAdminOrOwner = effectiveTier === 'supreme_admin';
 
   const currentThreadKey = `${viewerKey}:events:${eventId}`;
   const initialThreadSnap = getThreadCommentsSnapshot(

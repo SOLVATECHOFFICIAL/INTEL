@@ -103,10 +103,8 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
 }) => {
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const isSupremeAdminOrOwner =
-    !isSuspended &&
-    (effectiveTier === 'supreme_admin' || effectiveTier === 'owner');
-  const actorRole: UserRole =
-    effectiveTier === 'owner' ? 'owner' : 'supreme_admin';
+    !isSuspended && effectiveTier === 'supreme_admin';
+  const actorRole: UserRole = 'supreme_admin';
 
   const viewerKey = user?.uid ?? 'guest';
   const initialCache = getTrustedCircleSnapshot(viewerKey);

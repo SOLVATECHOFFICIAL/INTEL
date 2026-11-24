@@ -83,7 +83,6 @@ export interface AdminManagedMember {
   profile: PublicUserProfile;
   roleRecord: UserRoleRecord | null;
   effectiveRole: UserRole;
-  isPermanentOwner: boolean;
 }
 
 export interface CreateMarketplaceListingInput {
@@ -123,65 +122,17 @@ function sortByCreatedAtDesc<T extends { createdAt: unknown }>(items: T[]): T[] 
   });
 }
 
-function getAuditActorRole(role: UserRole): 'owner' | 'supreme_admin' {
-  return role === 'owner' ? 'owner' : 'supreme_admin';
-}
-
-export async function bootstrapPermanentOwnerRoleRecord(uid: string): Promise<void> {
-  if (!isValidFirestoreId(uid)) {
-    throw new Error('Invalid owner UID.');
-  }
-
-  const roleRef = doc(db, COLLECTION_NAMES.userRoles, uid);
-  const userRef = doc(db, COLLECTION_NAMES.users, uid);
-
-  try {
-    await runTransaction(db, async (tx) => {
-      const [roleSnap, userSnap] = await Promise.all([
-        tx.get(roleRef),
-        tx.get(userRef),
-      ]);
-
-      const rolePayload = {
-        uid,
-        role: 'owner' as const,
-        badge: 'supreme_admin' as const,
-        isPermanentOwner: true,
-        isHiddenFromDirectory: true,
-        grantedBy: uid,
-        updatedAt: serverTimestamp(),
-      };
-
-      if (roleSnap.exists()) {
-        tx.update(roleRef, rolePayload);
-      } else {
-        tx.set(roleRef, rolePayload);
-      }
-
-      if (userSnap.exists()) {
-        tx.update(userRef, {
-          badge: 'supreme_admin',
-          accountStatus: 'active',
-          isHiddenFromDirectory: true,
-          updatedAt: serverTimestamp(),
-        });
-      }
-    });
-  } catch (error) {
-    handleFirestoreError(
-      error,
-      OperationType.WRITE,
-      `${COLLECTION_NAMES.userRoles}/${uid}`
-    );
-  }
+function getAuditActorRole(_role: UserRole): 'supreme_admin' {
+  return 'supreme_admin';
 }
 
 export async function fetchAdminMemberDirectory(
   searchTerm = '',
-  includeHiddenForOwner = false
+  includeHiddenForUnderground = false
 ): Promise<AdminManagedMember[]> {
   const canQueryHidden =
-    includeHiddenForOwner && isUndergroundSupremeAdminUser(auth.currentUser);
+    includeHiddenForUnderground &&
+    isUndergroundSupremeAdminUser(auth.currentUser);
   try {
     const usersSnap = await getDocs(
       canQueryHidden
@@ -215,28 +166,32 @@ export async function fetchAdminMemberDirectory(
     const mapped: AdminManagedMember[] = profiles
       .map((profile) => {
         const roleRecord = roleMap.get(profile.uid) ?? null;
-        const isPermanentOwner = Boolean(
+        const isStaleLegacyOwner = Boolean(
           roleRecord?.isPermanentOwner || roleRecord?.role === 'owner'
         );
-        const effectiveRole: UserRole =
-          roleRecord?.role ??
-          (profile.badge === 'verified'
-            ? 'verified'
-            : profile.badge === 'moderator'
-            ? 'moderator'
-            : profile.badge === 'supreme_admin'
-            ? 'supreme_admin'
-            : 'member');
+        const effectiveRole: UserRole = isStaleLegacyOwner
+          ? 'member'
+          : roleRecord?.role === 'supreme_admin' ||
+              roleRecord?.role === 'moderator' ||
+              roleRecord?.role === 'verified' ||
+              roleRecord?.role === 'member'
+            ? roleRecord.role
+            : profile.badge === 'verified'
+              ? 'verified'
+              : profile.badge === 'moderator'
+                ? 'moderator'
+                : profile.badge === 'supreme_admin'
+                  ? 'supreme_admin'
+                  : 'member';
 
         return {
           profile,
           roleRecord,
           effectiveRole,
-          isPermanentOwner,
         };
       })
       .filter((entry) => {
-        if (!canQueryHidden && (entry.isPermanentOwner || entry.profile.isHiddenFromDirectory)) {
+        if (!canQueryHidden && entry.profile.isHiddenFromDirectory) {
           return false;
         }
         if (!term) return true;
@@ -254,11 +209,11 @@ export async function fetchAdminMemberDirectory(
       });
 
     const rankOrder: Record<UserRole, number> = {
-      owner: 0,
-      supreme_admin: 1,
-      moderator: 2,
-      verified: 3,
-      member: 4,
+      owner: 4,
+      supreme_admin: 0,
+      moderator: 1,
+      verified: 2,
+      member: 3,
     };
 
     return mapped.sort((a, b) => {
@@ -275,18 +230,18 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
   actorUid: string;
   actorRole: UserRole;
   targetUid: string;
-  nextRole: Exclude<UserRole, 'owner'>;
+  nextRole: 'member' | 'verified' | 'moderator';
   reason?: string;
 }): Promise<{
   action: BadgeAuditAction;
-  nextRole: Exclude<UserRole, 'owner'>;
+  nextRole: 'member' | 'verified' | 'moderator';
   nextBadge: ReturnType<typeof resolveBadgeForRole>;
 }> {
   if (!isValidFirestoreId(input.actorUid) || !isValidFirestoreId(input.targetUid)) {
     throw new Error('Invalid administrator or member identifier.');
   }
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Permanent Owner can manage badges.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can manage badges.');
   }
 
   const cleanReason = input.reason?.trim().slice(0, BLUEPRINT_LIMITS.auditReasonMax);
@@ -312,16 +267,19 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
       const existingRole = roleSnap.exists()
         ? (roleSnap.data() as UserRoleRecord)
         : null;
-      const previousRole: UserRole = existingRole?.role ?? 'member';
-      const previousBadge = existingRole?.badge ?? targetProfile.badge ?? 'none';
-      const targetIsPermanentOwner = Boolean(
-        existingRole?.isPermanentOwner || previousRole === 'owner'
+      const rawPreviousRole: UserRole = existingRole?.role ?? 'member';
+      const isStaleLegacyOwner = Boolean(
+        existingRole?.isPermanentOwner || rawPreviousRole === 'owner'
       );
+      const previousRole: UserRole = isStaleLegacyOwner ? 'member' : rawPreviousRole;
+      const previousBadge = isStaleLegacyOwner
+        ? 'none'
+        : (existingRole?.badge ?? targetProfile.badge ?? 'none');
 
       if (
         !canActorUpdateTargetRoleRecord(
           input.actorRole,
-          targetIsPermanentOwner,
+          false,
           previousRole,
           input.nextRole,
           input.actorUid,
@@ -426,8 +384,8 @@ export async function toggleModeratorVerifiedStatusAtomically(input: {
   if (!isValidFirestoreId(input.actorUid) || !isValidFirestoreId(input.targetUid)) {
     throw new Error('Invalid administrator or member identifier.');
   }
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Permanent Owner can manage Verified badges.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can manage Verified badges.');
   }
 
   const cleanReason = input.reason?.trim().slice(0, BLUEPRINT_LIMITS.auditReasonMax);
@@ -454,12 +412,9 @@ export async function toggleModeratorVerifiedStatusAtomically(input: {
         ? (roleSnap.data() as UserRoleRecord)
         : null;
       const currentRole: UserRole = existingRole?.role ?? 'member';
-      const targetIsPermanentOwner = Boolean(
-        existingRole?.isPermanentOwner || currentRole === 'owner'
-      );
 
       if (
-        targetIsPermanentOwner ||
+        existingRole?.isPermanentOwner ||
         input.actorUid === input.targetUid ||
         currentRole !== 'moderator'
       ) {
@@ -551,8 +506,8 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
   if (!isValidFirestoreId(input.actorUid) || !isValidFirestoreId(input.targetUid)) {
     throw new Error('Invalid administrator or member identifier.');
   }
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Permanent Owner can suspend accounts.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can suspend accounts.');
   }
 
   const cleanReason = input.reason?.trim().slice(0, BLUEPRINT_LIMITS.auditReasonMax);
@@ -578,16 +533,17 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
       const existingRole = roleSnap.exists()
         ? (roleSnap.data() as UserRoleRecord)
         : null;
-      const currentRole: UserRole = existingRole?.role ?? 'member';
+      const rawCurrentRole: UserRole = existingRole?.role ?? 'member';
+      const currentRole: UserRole =
+        existingRole?.isPermanentOwner || rawCurrentRole === 'owner'
+          ? 'member'
+          : rawCurrentRole;
       const currentBadge = resolveBadgeForRole(currentRole);
-      const targetIsPermanentOwner = Boolean(
-        existingRole?.isPermanentOwner || currentRole === 'owner'
-      );
 
       if (
         !canActorUpdateTargetRoleRecord(
           input.actorRole,
-          targetIsPermanentOwner,
+          false,
           currentRole,
           undefined,
           input.actorUid,
@@ -595,7 +551,7 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
         )
       ) {
         throw new Error(
-          'Protected Owner, peer Supreme Admin, or self-account suspension is forbidden.'
+          'Peer Supreme Admin or self-account suspension is forbidden.'
         );
       }
 
@@ -1485,9 +1441,9 @@ export async function createMarketplaceUpdateRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<MarketplaceUpdate> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+  if (input.actorRole !== 'supreme_admin') {
     throw new Error(
-      'Only Supreme Admin or Permanent Owner accounts can publish marketplace notices.'
+      'Only Supreme Admin accounts can publish marketplace notices.'
     );
   }
   if (!isValidFirestoreId(input.actorUid)) {
@@ -1536,9 +1492,9 @@ export async function updateMarketplaceUpdateRecord(input: {
   published: boolean;
   actorRole: UserRole;
 }): Promise<MarketplaceUpdate> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+  if (input.actorRole !== 'supreme_admin') {
     throw new Error(
-      'Only Supreme Admin or Permanent Owner accounts can edit marketplace notices.'
+      'Only Supreme Admin accounts can edit marketplace notices.'
     );
   }
   const valid = validateMarketplaceUpdateFields(input);
@@ -1574,9 +1530,9 @@ export async function deleteMarketplaceUpdateRecord(input: {
   updateId: string;
   actorRole: UserRole;
 }): Promise<void> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+  if (input.actorRole !== 'supreme_admin') {
     throw new Error(
-      'Only Supreme Admin or Permanent Owner accounts can delete marketplace notices.'
+      'Only Supreme Admin accounts can delete marketplace notices.'
     );
   }
   if (!isValidFirestoreId(input.updateId)) return;

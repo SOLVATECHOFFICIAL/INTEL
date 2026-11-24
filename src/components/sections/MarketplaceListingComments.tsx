@@ -89,8 +89,7 @@ export const MarketplaceListingComments: React.FC<
   const { user, profile, effectiveTier, isSuspended } = useFirebase();
   const viewerUid = user?.uid ?? null;
   const viewerKey = viewerUid ?? 'guest';
-  const isAdminOrOwner =
-    effectiveTier === 'supreme_admin' || effectiveTier === 'owner';
+  const isAdminOrOwner = effectiveTier === 'supreme_admin';
 
   const currentThreadKey = `${viewerKey}:marketplaceListings:${listingId}`;
   const initialThreadSnap = getThreadCommentsSnapshot(

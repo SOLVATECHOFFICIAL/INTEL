@@ -17,13 +17,14 @@ import {
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import { useActiveBackgroundRefresh } from '../hooks/useActiveBackgroundRefresh';
+import { subscribeCacheMutations } from '../services/cacheInvalidation';
 import { toggleEventReaction } from '../services/events';
 import {
   fetchCommunityFeedPage,
   type CommunityFeedCursor,
   type CommunityPostWithAuthor,
 } from '../services/firestoreFoundation';
-import { prefetchMediaImages } from '../services/mediaStorage';
+import { prefetchMediaImagesPriority } from '../services/mediaStorage';
 import {
   clearHomeFeedSessionCache,
   getHomeFeedSessionSnapshot,
@@ -256,16 +257,44 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   ]);
 
   const prefetchLeadPostMedia = useCallback(
-    (items: readonly CommunityPostWithAuthor[]) => {
+    (
+      items: readonly CommunityPostWithAuthor[],
+      recommendedPeople?: ForYouDiscoveryBundle['recommendedPeople']
+    ) => {
       if (isDataSaverConnection()) return;
-      const imageIds = items
-        .slice(0, 5)
-        .flatMap((entry) => [
-          entry.author?.photoImageId,
-          entry.post.mediaItems?.[0]?.imageId,
-        ]);
-      if (imageIds.some(Boolean)) {
-        void prefetchMediaImages(imageIds);
+      const highPriority: Array<string | null | undefined> = [];
+      const normalPriority: Array<string | null | undefined> = [];
+
+      items.slice(0, 6).forEach((entry, index) => {
+        if (index < 3) {
+          highPriority.push(
+            entry.author?.photoImageId,
+            entry.post.mediaItems?.[0]?.imageId
+          );
+          if (entry.post.mediaItems?.[1]?.imageId) {
+            normalPriority.push(entry.post.mediaItems[1].imageId);
+          }
+        } else {
+          normalPriority.push(
+            entry.author?.photoImageId,
+            entry.post.mediaItems?.[0]?.imageId
+          );
+        }
+      });
+
+      if (recommendedPeople?.length) {
+        recommendedPeople.slice(0, 5).forEach((rec) => {
+          normalPriority.push(rec.member.photoImageId);
+        });
+      }
+
+      if (highPriority.some(Boolean) || normalPriority.some(Boolean)) {
+        void prefetchMediaImagesPriority({
+          highPriority,
+          normalPriority,
+          predecode: false,
+          maxTotal: 14,
+        });
       }
     },
     []
@@ -392,10 +421,66 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       }
       setDismissedKeys(loadDismissedRecommendationKeys(uid));
       setLoadState('ready');
-      prefetchLeadPostMedia(page.items);
+      prefetchLeadPostMedia(page.items, nextDiscovery?.recommendedPeople);
     },
     [prefetchLeadPostMedia]
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeCacheMutations((event) => {
+      if (event.type === 'follow_toggled') {
+        const lower = event.targetUsername.trim().toLowerCase();
+        const delta = event.following ? 1 : -1;
+        setFollowingCount((prev) => Math.max(0, prev + delta));
+        setPostItems((prev) => {
+          let changed = false;
+          const next = prev.map((entry) => {
+            if (!entry.author || entry.author.username.toLowerCase() !== lower) {
+              return entry;
+            }
+            changed = true;
+            return {
+              ...entry,
+              author: {
+                ...entry.author,
+                followersCount: Math.max(
+                  0,
+                  (entry.author.followersCount ?? 0) + delta
+                ),
+              },
+            };
+          });
+          return changed ? next : prev;
+        });
+        setDiscovery((prev) => {
+          if (!prev || prev.recommendedPeople.length === 0) return prev;
+          let changed = false;
+          const nextRec = prev.recommendedPeople.map((rec) => {
+            if (rec.member.username.toLowerCase() !== lower) return rec;
+            changed = true;
+            return {
+              ...rec,
+              member: {
+                ...rec.member,
+                followersCount: Math.max(
+                  0,
+                  (rec.member.followersCount ?? 0) + delta
+                ),
+              },
+            };
+          });
+          return changed ? { ...prev, recommendedPeople: nextRec } : prev;
+        });
+      } else if (event.type === 'profile_updated') {
+        const snap = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
+        if (snap) {
+          setPostItems(snap.postItems);
+          if (snap.discovery) setDiscovery(snap.discovery);
+        }
+      }
+    });
+    return unsubscribe;
+  }, [viewerKey, activeFeedTab]);
 
   useEffect(() => {
     if (activeFeedTab === 'following' && !activeViewerUid) {
@@ -451,7 +536,10 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           setSavedPostIds(persisted.savedPostIds);
           if (persisted.discovery) setDiscovery(persisted.discovery);
           setLoadState('ready');
-          prefetchLeadPostMedia(persisted.postItems);
+          prefetchLeadPostMedia(
+            persisted.postItems,
+            persisted.discovery?.recommendedPeople
+          );
 
           // Revalidate silently in background
           await syncHomeFeedFromNetwork('background', () => !active).catch(

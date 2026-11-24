@@ -287,6 +287,7 @@ export function sanitizePublicProfileProjection(
     department: profile.department,
     faculty: profile.faculty,
     level: profile.level,
+    accountCategory: profile.accountCategory,
     photoUrl: profile.photoUrl,
     coverUrl: profile.coverUrl,
     photoImageId: profile.photoImageId,
@@ -296,9 +297,18 @@ export function sanitizePublicProfileProjection(
       : undefined,
     showWhatsappPublicly: profile.showWhatsappPublicly,
     badge: profile.badge,
+    isVerified: profile.isVerified,
     accountStatus: profile.accountStatus,
-    followersCount: profile.followersCount,
-    followingCount: profile.followingCount,
+    followersCount:
+      typeof profile.followersCount === 'number' &&
+      Number.isFinite(profile.followersCount)
+        ? Math.max(0, profile.followersCount)
+        : 0,
+    followingCount:
+      typeof profile.followingCount === 'number' &&
+      Number.isFinite(profile.followingCount)
+        ? Math.max(0, profile.followingCount)
+        : 0,
     createdAt: profile.createdAt,
   };
 }
@@ -882,6 +892,11 @@ export interface SearchSuggestionItem {
   query: string;
   targetScope?: SearchScopeId;
   username?: string;
+  fullName?: string;
+  photoImageId?: string;
+  photoUrl?: string;
+  followersCount?: number;
+  followingCount?: number;
 }
 
 export const DISCOVERY_CATEGORY_SUGGESTIONS: Array<{
@@ -1077,30 +1092,45 @@ export function buildSearchSuggestions(input: {
   // 2. Matching people / usernames (skip when strictly scoped to anonymous)
   if (input.scope !== 'anonymous' && input.members && input.members.length > 0) {
     const matchedMembers = input.members
-      .filter((m) => {
-        if (m.accountStatus !== 'active') return false;
-        const uname = m.username.toLowerCase();
-        const fname = m.fullName.toLowerCase();
-        const dept = (m.department ?? '').toLowerCase();
-        return (
-          uname.includes(cleanNeedle) ||
-          fname.includes(cleanNeedle) ||
-          dept.includes(cleanNeedle)
-        );
+      .filter((m) => m.accountStatus === 'active')
+      .map((m) => ({
+        member: m,
+        score: scoreSearchFields(
+          [
+            { text: m.username, weight: 3.5 },
+            { text: m.fullName, weight: 3.0 },
+            { text: m.department, weight: 1.4 },
+            { text: m.faculty, weight: 1.0 },
+          ],
+          cleanNeedle
+        ),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.member.followersCount ?? 0) - (a.member.followersCount ?? 0);
       })
-      .slice(0, 3);
+      .slice(0, 4);
 
-    for (const member of matchedMembers) {
+    for (const { member } of matchedMembers) {
+      const followersLabel = `${member.followersCount ?? 0} ${
+        (member.followersCount ?? 0) === 1 ? 'follower' : 'followers'
+      }`;
       pushUnique({
         id: `person:${member.username}`,
         kind: 'person',
         label: `${member.fullName} (@${member.username})`,
         subtitle: member.department
-          ? `Member · ${member.department}`
-          : 'Campus Member',
+          ? `${followersLabel} · ${member.department}`
+          : followersLabel,
         query: `@${member.username}`,
         targetScope: 'people',
         username: member.username,
+        fullName: member.fullName,
+        photoImageId: member.photoImageId,
+        photoUrl: member.photoUrl,
+        followersCount: member.followersCount ?? 0,
+        followingCount: member.followingCount ?? 0,
       });
     }
   }

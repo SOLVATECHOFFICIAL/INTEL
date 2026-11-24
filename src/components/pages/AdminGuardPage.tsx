@@ -7,7 +7,6 @@ import {
   Calendar,
   CheckCircle2,
   ClipboardList,
-  Crown,
   FileText,
   Loader2,
   Mail,
@@ -36,12 +35,10 @@ import {
   type UnifiedAuditEntry,
 } from '../../services/adminDashboard';
 import {
-  bootstrapPermanentOwnerRoleRecord,
   fetchAdminMemberDirectory,
   fetchTrustedCircleDirectory,
   type AdminManagedMember,
 } from '../../services/governance';
-import { updateUndergroundBadgeVisibilitySetting } from '../../services/firestoreFoundation';
 import type {
   AnonymousPost,
   AnonymousReport,
@@ -60,13 +57,11 @@ import {
 } from '../../utils/adminPermissions';
 import {
   DESIGNATED_SUPREME_ADMIN_EMAILS,
-  PERMANENT_OWNER_EMAIL,
   canAccessAdminDashboard,
   canAccessFullAdminDashboard,
   canRevealAnonymousAuthor,
   formatFirestoreOrAppError,
   getAccountTierDisplayLabel,
-  isPermanentOwnerUser,
   isUndergroundSupremeAdminUser,
   mapFirebaseAuthError,
 } from '../../utils/authValidation';
@@ -127,22 +122,16 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const normalizedUserEmail = user?.email?.trim().toLowerCase() ?? '';
   const hasPrivilegedEmailOrRole = Boolean(
     user &&
-      (normalizedUserEmail === PERMANENT_OWNER_EMAIL ||
-        (DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
-          normalizedUserEmail
-        ) ||
-        roleRecord?.role === 'owner' ||
-        roleRecord?.role === 'supreme_admin' ||
-        roleRecord?.role === 'moderator')
+      ((DESIGNATED_SUPREME_ADMIN_EMAILS as readonly string[]).includes(
+        normalizedUserEmail
+      ) ||
+        (!roleRecord?.isPermanentOwner && roleRecord?.role === 'moderator'))
   );
   const hasAccess =
     isEmailVerified && canAccessAdminDashboard(effectiveTier, isSuspended);
   const needsEmailVerificationForAdmin =
     Boolean(user) && !isEmailVerified && !isSuspended && hasPrivilegedEmailOrRole;
   const isFullAdmin = canAccessFullAdminDashboard(effectiveTier, isSuspended);
-  const isOwnerEmail = isPermanentOwnerUser(user);
-  const needsOwnerBootstrap =
-    isOwnerEmail && roleRecord?.role !== 'owner';
 
   const visibleSections = getVisibleAdminSections(effectiveTier, isSuspended);
   const [requestedSection, setRequestedSection] =
@@ -162,8 +151,6 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
-  const [bootstrappingOwner, setBootstrappingOwner] = useState(false);
-  const [togglingBadgeVisibility, setTogglingBadgeVisibility] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [refreshingSession, setRefreshingSession] = useState(false);
   const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
@@ -171,39 +158,6 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isUndergroundAdmin = isUndergroundSupremeAdminUser(user);
-  const isSupremeBadgeVisible =
-    isUndergroundAdmin && profile?.badge === 'supreme_admin';
-
-  const handleToggleSelfSupremeBadge = async () => {
-    if (!user || !isUndergroundAdmin || isSuspended || togglingBadgeVisibility) {
-      return;
-    }
-    setTogglingBadgeVisibility(true);
-    setErrorMessage(null);
-    setStatusMessage(null);
-    try {
-      const nextShow = !isSupremeBadgeVisible;
-      const savedShow = await updateUndergroundBadgeVisibilitySetting(
-        user.uid,
-        nextShow
-      );
-      await refreshAccountState();
-      setStatusMessage(
-        savedShow
-          ? 'Your Supreme Admin badge is now visible on your profile and posts.'
-          : 'Your Supreme Admin badge is now hidden while your full Supreme Admin permissions remain active.'
-      );
-    } catch (error) {
-      setErrorMessage(
-        formatFirestoreOrAppError(
-          error,
-          'Unable to update your Supreme Admin badge visibility.'
-        )
-      );
-    } finally {
-      setTogglingBadgeVisibility(false);
-    }
-  };
 
   // Per-section real Firebase state
   const [overviewBundle, setOverviewBundle] =
@@ -238,11 +192,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   );
 
   const actorRole: UserRole =
-    effectiveTier === 'owner'
-      ? 'owner'
-      : effectiveTier === 'supreme_admin'
-      ? 'supreme_admin'
-      : 'moderator';
+    effectiveTier === 'supreme_admin' ? 'supreme_admin' : 'moderator';
 
   const currentLoadKey = `${activeSection}:${actorRole}:${memberSearchQuery}:${refreshToken}`;
   const loadingSection = hasAccess && loadedKey !== currentLoadKey;
@@ -280,7 +230,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
       case 'badges':
         loadPromise = fetchAdminMemberDirectory(
           memberSearchQuery,
-          effectiveTier === 'owner'
+          isUndergroundAdmin
         ).then((list) => {
           if (active) setMembers(list);
         });
@@ -346,7 +296,7 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
     hasAccess,
     activeSection,
     actorRole,
-    effectiveTier,
+    isUndergroundAdmin,
     memberSearchQuery,
     refreshToken,
     currentLoadKey,
@@ -387,8 +337,8 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
           Administrator &amp; Moderation Access Required
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          This area is restricted to authorized LASUED Intel Supreme Admins,
-          Moderators, and the Platform Owner.
+          This area is restricted to authorized LASUED Intel Supreme Admins and
+          Moderators.
         </p>
         <div className="mt-5">
           <GuestPromptCard
@@ -475,8 +425,8 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-[#0B1A2E]">
                 email_verified == true
               </code>{' '}
-              in your auth token before allowing any Moderator, Supreme Admin, or
-              Owner queries or moderation writes. Verify{' '}
+              in your auth token before allowing any Moderator or Supreme Admin
+              queries or moderation writes. Verify{' '}
               <strong>{user.email}</strong> and refresh your session to enter the
               dashboard without permission errors.
             </p>
@@ -572,30 +522,6 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
     );
   }
 
-  const handleBootstrapOwner = async () => {
-    if (bootstrappingOwner) return;
-    setBootstrappingOwner(true);
-    setErrorMessage(null);
-    setStatusMessage(null);
-    try {
-      await bootstrapPermanentOwnerRoleRecord(user.uid);
-      await refreshAccountState();
-      setStatusMessage(
-        'Permanent Owner authority and Supreme Admin badge have been synchronized in Firestore.'
-      );
-      reloadCurrentSection();
-    } catch (error) {
-      setErrorMessage(
-        formatFirestoreOrAppError(
-          error,
-          'Could not synchronize Permanent Owner authority record.'
-        )
-      );
-    } finally {
-      setBootstrappingOwner(false);
-    }
-  };
-
   const activeMeta =
     visibleSections.find((sec) => sec.id === activeSection) ??
     visibleSections[0];
@@ -635,7 +561,13 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
                     : 'LASUED Intel Moderation Console'}
                 </h1>
                 {isFullAdmin ? (
-                  <RoleBadge badge="supreme_admin" size="sm" />
+                  isUndergroundAdmin ? (
+                    <span className="rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700">
+                      Underground Supreme Admin
+                    </span>
+                  ) : (
+                    <RoleBadge badge="supreme_admin" size="sm" />
+                  )
                 ) : (
                   <ProfileBadgesRow
                     profile={{
@@ -649,35 +581,15 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               <p className="mt-0.5 text-xs text-slate-600">
                 Authority: {getAccountTierDisplayLabel(effectiveTier)} ·{' '}
                 {isFullAdmin
-                  ? 'Full 10-section governance enforced by Firebase Security Rules.'
+                  ? isUndergroundAdmin
+                    ? 'Full 10-section governance active (public badge & directory visibility permanently hidden).'
+                    : 'Full 10-section governance enforced by Firebase Security Rules.'
                   : 'Scoped 3-section moderation console enforced by Firebase Security Rules.'}
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {isUndergroundAdmin && (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isSupremeBadgeVisible}
-                onClick={() => void handleToggleSelfSupremeBadge()}
-                disabled={isSuspended || togglingBadgeVisibility}
-                className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
-                  isSupremeBadgeVisible
-                    ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#0B1A2E]'
-                    : 'border-slate-300 bg-slate-50 text-[#0B1A2E] hover:bg-slate-100'
-                }`}
-              >
-                {togglingBadgeVisibility ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Crown className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
-                )}
-                {isSupremeBadgeVisible ? 'Public Badge: ON' : 'Public Badge: OFF'}
-              </button>
-            )}
-
             <button
               type="button"
               onClick={reloadCurrentSection}
@@ -693,33 +605,6 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
             </button>
           </div>
         </div>
-
-        {needsOwnerBootstrap && (
-          <div className="mt-4 flex flex-col justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50 p-4 text-xs text-purple-950 sm:flex-row sm:items-center">
-            <div className="flex items-start gap-2.5">
-              <Crown
-                className="mt-0.5 h-4 w-4 shrink-0 text-purple-700"
-                aria-hidden="true"
-              />
-              <span>
-                Your verified Permanent Owner email is active. Sync your hidden
-                Permanent Owner authority record into Firestore so server-side
-                rules reflect full owner privileges.
-              </span>
-            </div>
-            <button
-              type="button"
-              disabled={bootstrappingOwner}
-              onClick={() => void handleBootstrapOwner()}
-              className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg bg-purple-800 px-3.5 py-1.5 font-semibold text-white hover:bg-purple-900 disabled:opacity-60"
-            >
-              {bootstrappingOwner && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              )}
-              Sync Owner Authority
-            </button>
-          </div>
-        )}
 
         {statusMessage && (
           <div
@@ -967,8 +852,6 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
               loading={loadingSection}
               actorUid={user.uid}
               actorRole={actorRole}
-              isPermanentOwner={effectiveTier === 'owner'}
-              onJumpToBadges={() => selectSection('badges')}
               onSuccess={(msg) => {
                 setErrorMessage(null);
                 setStatusMessage(msg);

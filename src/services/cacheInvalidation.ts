@@ -18,6 +18,7 @@ import {
   updateAllCachedMarketplaceSnapshots,
   updateAllCachedOpportunitiesSnapshots,
   updateAllCachedProfileSnapshots,
+  updateAllCachedSearchSnapshots,
   updateAllCachedTrustedCircleSnapshots,
   updateCachedPostUiSnapshot,
 } from './navigationStateCache';
@@ -63,6 +64,7 @@ let searchCacheHandlers: {
   clearAuthorCache: () => void;
   patchAuthor: (uid: string, profile: PublicProfileProjection) => void;
   patchAuthorPartial?: (uid: string, patch: Partial<PublicProfileProjection>) => void;
+  patchFollowCount?: (targetUsername: string, following: boolean) => void;
 } | null = null;
 
 let foundationProjectionHandlers: {
@@ -78,6 +80,7 @@ export function registerSearchCacheInvalidator(handlers: {
   clearAuthorCache: () => void;
   patchAuthor: (uid: string, profile: PublicProfileProjection) => void;
   patchAuthorPartial?: (uid: string, patch: Partial<PublicProfileProjection>) => void;
+  patchFollowCount?: (targetUsername: string, following: boolean) => void;
 }): void {
   searchCacheHandlers = handlers;
 }
@@ -1083,6 +1086,58 @@ export function notifyProfileUpdated(input: {
   if (!hasFreshProfileData && input.username) {
     void deletePersistentContent(`profile:pub:v1:${input.username.toLowerCase()}`);
   }
+  if (input.projection || input.patch) {
+    const matchUsernameLower = (
+      input.previousUsername ||
+      input.username ||
+      input.projection?.username ||
+      input.patch?.username ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    updateAllCachedSearchSnapshots((bundle) => {
+      let changed = false;
+      const nextPeople = bundle.people.items.map((member) => {
+        if (!matchUsernameLower || member.username.toLowerCase() !== matchUsernameLower) {
+          return member;
+        }
+        changed = true;
+        return input.projection
+          ? input.projection
+          : { ...member, ...input.patch };
+      });
+      const nextPosts = bundle.posts.items.map((entry) => {
+        if (entry.post.ownerUID !== input.uid || !entry.author) return entry;
+        changed = true;
+        return {
+          ...entry,
+          author: input.projection
+            ? input.projection
+            : { ...entry.author, ...input.patch },
+        };
+      });
+      const nextSellers = new Map(bundle.marketplaceSellers);
+      const existingSeller = nextSellers.get(input.uid);
+      if (existingSeller) {
+        changed = true;
+        nextSellers.set(
+          input.uid,
+          input.projection
+            ? input.projection
+            : { ...existingSeller, ...input.patch }
+        );
+      }
+      if (!changed) return bundle;
+      return {
+        ...bundle,
+        people: { ...bundle.people, items: nextPeople },
+        posts: { ...bundle.posts, items: nextPosts },
+        marketplaceSellers: nextSellers,
+      };
+    });
+  }
+
   emitMutation({
     type: 'profile_updated',
     uid: input.uid,
@@ -1095,11 +1150,11 @@ export function notifyFollowToggled(input: {
   following: boolean;
 }): void {
   const lower = input.targetUsername.trim().toLowerCase();
+  const delta = input.following ? 1 : -1;
   updateAllCachedProfileSnapshots((snap) => {
     if (snap.bundle.resolvedUsername.toLowerCase() !== lower) {
       return snap;
     }
-    const delta = input.following ? 1 : -1;
     const prevFollowing = snap.bundle.isFollowing;
     if (prevFollowing === input.following) return snap;
     return {
@@ -1116,6 +1171,107 @@ export function notifyFollowToggled(input: {
         },
       },
       cachedAt: Date.now(),
+    };
+  });
+
+  searchCacheHandlers?.patchFollowCount?.(lower, input.following);
+  foundationProjectionHandlers?.invalidateUid();
+  personalisationPoolHandlers?.invalidateAll();
+
+  updateAllCachedSearchSnapshots((bundle) => {
+    let changed = false;
+    const nextPeople = bundle.people.items.map((member) => {
+      if (member.username.toLowerCase() !== lower) return member;
+      changed = true;
+      return {
+        ...member,
+        followersCount: Math.max(0, (member.followersCount ?? 0) + delta),
+      };
+    });
+    const nextPosts = bundle.posts.items.map((entry) => {
+      if (!entry.author || entry.author.username.toLowerCase() !== lower) {
+        return entry;
+      }
+      changed = true;
+      return {
+        ...entry,
+        author: {
+          ...entry.author,
+          followersCount: Math.max(
+            0,
+            (entry.author.followersCount ?? 0) + delta
+          ),
+        },
+      };
+    });
+    const nextSellers = new Map(bundle.marketplaceSellers);
+    nextSellers.forEach((seller, sellerUid) => {
+      if (seller.username.toLowerCase() === lower) {
+        changed = true;
+        nextSellers.set(sellerUid, {
+          ...seller,
+          followersCount: Math.max(0, (seller.followersCount ?? 0) + delta),
+        });
+      }
+    });
+    if (!changed) return bundle;
+    return {
+      ...bundle,
+      people: { ...bundle.people, items: nextPeople },
+      posts: { ...bundle.posts, items: nextPosts },
+      marketplaceSellers: nextSellers,
+      updatedAt: Date.now(),
+    };
+  });
+
+  updateAllCachedHomeFeedSnapshots((snap) => {
+    let changed = false;
+    const nextPostItems = snap.postItems.map((entry) => {
+      if (!entry.author || entry.author.username.toLowerCase() !== lower) {
+        return entry;
+      }
+      changed = true;
+      return {
+        ...entry,
+        author: {
+          ...entry.author,
+          followersCount: Math.max(
+            0,
+            (entry.author.followersCount ?? 0) + delta
+          ),
+        },
+      };
+    });
+    let nextDiscovery = snap.discovery;
+    if (nextDiscovery && nextDiscovery.recommendedPeople.length > 0) {
+      let recChanged = false;
+      const nextRecPeople = nextDiscovery.recommendedPeople.map((rec) => {
+        if (rec.member.username.toLowerCase() !== lower) return rec;
+        recChanged = true;
+        return {
+          ...rec,
+          member: {
+            ...rec.member,
+            followersCount: Math.max(
+              0,
+              (rec.member.followersCount ?? 0) + delta
+            ),
+          },
+        };
+      });
+      if (recChanged) {
+        changed = true;
+        nextDiscovery = {
+          ...nextDiscovery,
+          recommendedPeople: nextRecPeople,
+        };
+      }
+    }
+    if (!changed) return snap;
+    return {
+      ...snap,
+      postItems: nextPostItems,
+      discovery: nextDiscovery,
     };
   });
 

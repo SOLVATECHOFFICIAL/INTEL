@@ -310,8 +310,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   }, [initialPost]);
 
   const canMarkOfficial =
-    mode === 'ordinary' &&
-    (actorRole === 'owner' || actorRole === 'supreme_admin');
+    mode === 'ordinary' && actorRole === 'supreme_admin';
 
   const handleSwitchOrdinaryType = (nextType: OrdinaryPostType) => {
     if (isEditing || isSubmitting || nextType === ordinaryPostType) return;

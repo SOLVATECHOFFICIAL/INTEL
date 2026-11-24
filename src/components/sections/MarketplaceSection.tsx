@@ -165,12 +165,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
   const canModerateApprovals =
     !isSuspended &&
-    (effectiveTier === 'moderator' ||
-      effectiveTier === 'supreme_admin' ||
-      effectiveTier === 'owner');
+    (effectiveTier === 'moderator' || effectiveTier === 'supreme_admin');
   const isSupremeAdminOrOwner =
-    !isSuspended &&
-    (effectiveTier === 'supreme_admin' || effectiveTier === 'owner');
+    !isSuspended && effectiveTier === 'supreme_admin';
   const actorRole: UserRole = (
     effectiveTier === 'guest' ? 'member' : effectiveTier
   ) as UserRole;

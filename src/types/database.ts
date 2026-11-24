@@ -1283,7 +1283,6 @@ export function resolveBadgeForRole(role: UserRole): BadgeType {
 
 export function canRolePublishCommunityFeed(role: UserRole): boolean {
   return (
-    role === 'owner' ||
     role === 'supreme_admin' ||
     role === 'moderator' ||
     role === 'verified'
@@ -1293,7 +1292,7 @@ export function canRolePublishCommunityFeed(role: UserRole): boolean {
 /**
  * Enforces the permission boundary:
  * Moderators can only moderate/delete ordinary members' content (including anonymous posts).
- * Verified, Moderator, Supreme Admin, and Owner content is protected from Moderator deletion.
+ * Verified, Moderator, and Supreme Admin content is protected from Moderator deletion.
  */
 export function canModeratorDeleteTargetRole(targetRole: UserRole): boolean {
   return targetRole === 'member';
@@ -1317,7 +1316,7 @@ export function canActorDeleteOrdinaryPost(input: {
   if (input.postOwnerUid === input.viewerUid) {
     return true;
   }
-  if (input.viewerTier === 'owner' || input.viewerTier === 'supreme_admin') {
+  if (input.viewerTier === 'supreme_admin') {
     return true;
   }
   if (input.viewerTier === 'moderator') {
@@ -1333,34 +1332,28 @@ export function canActorDeleteOrdinaryPost(input: {
 
 export function canActorUpdateTargetRoleRecord(
   actorRole: UserRole,
-  targetIsPermanentOwner: boolean,
+  _targetIsLegacyOwner: boolean,
   currentTargetRole: UserRole,
   nextTargetRole?: UserRole,
   actorUid?: string,
   targetUid?: string
 ): boolean {
-  if (targetIsPermanentOwner || currentTargetRole === 'owner') {
-    return false;
-  }
   if (actorUid && targetUid && actorUid === targetUid) {
     return false;
   }
-  if (actorRole === 'owner') {
-    return nextTargetRole !== 'owner';
+  if (actorRole !== 'supreme_admin') {
+    return false;
   }
-  if (actorRole === 'supreme_admin') {
-    if (currentTargetRole === 'supreme_admin') {
-      return false;
-    }
-    if (
-      nextTargetRole &&
-      (nextTargetRole === 'owner' || nextTargetRole === 'supreme_admin')
-    ) {
-      return false;
-    }
-    return true;
+  if (currentTargetRole === 'supreme_admin') {
+    return false;
   }
-  return false;
+  if (
+    nextTargetRole &&
+    (nextTargetRole === 'owner' || nextTargetRole === 'supreme_admin')
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function resolveBadgeAuditAction(
@@ -1401,11 +1394,7 @@ export function canApproveMarketplaceListing(
   if (currentApprovalStatus !== 'pending_approval') {
     return false;
   }
-  return (
-    actorRole === 'owner' ||
-    actorRole === 'supreme_admin' ||
-    actorRole === 'moderator'
-  );
+  return actorRole === 'supreme_admin' || actorRole === 'moderator';
 }
 
 export function computeMarketplaceExpiryDate(

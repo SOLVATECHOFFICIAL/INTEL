@@ -58,7 +58,6 @@ import {
 import {
   isDesignatedSupremeAdminUser,
   isFirebaseErrorCode,
-  isPermanentOwnerUser,
   isProfileAccessibleByDirectInteraction,
   isPublicSupremeAdminUser,
   isUndergroundSupremeAdminUser,
@@ -408,79 +407,74 @@ export async function ensureDesignatedSupremeAdminAccountState(
     return;
   }
   const isUnderground = isUndergroundSupremeAdminUser(user);
+  const expectedPublicBadge: BadgeType = isUnderground ? 'none' : 'supreme_admin';
   const roleRef = doc(db, COLLECTION_NAMES.userRoles, user.uid);
+  const userRef = doc(db, COLLECTION_NAMES.users, user.uid);
+  const privRef = doc(db, COLLECTION_NAMES.privateUserData, user.uid);
+
   try {
-    const roleSnap = await getDoc(roleRef);
-    if (!roleSnap.exists()) {
-      await setDoc(roleRef, {
+    const [roleSnap, userSnap, privSnap] = await Promise.all([
+      getDoc(roleRef),
+      getDoc(userRef),
+      isUnderground ? getDoc(privRef) : Promise.resolve(null),
+    ]);
+
+    const roleData = roleSnap.exists() ? (roleSnap.data() as UserRoleRecord) : null;
+    if (
+      !roleData ||
+      roleData.role !== 'supreme_admin' ||
+      roleData.badge !== 'supreme_admin' ||
+      roleData.isPermanentOwner !== false ||
+      roleData.isHiddenFromDirectory !== isUnderground
+    ) {
+      const rolePayload = {
         uid: user.uid,
-        role: 'supreme_admin',
-        badge: 'supreme_admin',
+        role: 'supreme_admin' as const,
+        badge: 'supreme_admin' as const,
         isPermanentOwner: false,
         isHiddenFromDirectory: isUnderground,
         grantedBy: user.uid,
         updatedAt: serverTimestamp(),
-      });
+      };
+      if (roleSnap.exists()) {
+        await updateDoc(roleRef, rolePayload);
+      } else {
+        await setDoc(roleRef, rolePayload);
+      }
+    }
+
+    if (userSnap.exists()) {
+      const userData = userSnap.data() as PublicUserProfile;
+      if (
+        userData.badge !== expectedPublicBadge ||
+        userData.isHiddenFromDirectory !== isUnderground
+      ) {
+        await updateDoc(userRef, {
+          badge: expectedPublicBadge,
+          isHiddenFromDirectory: isUnderground,
+          updatedAt: serverTimestamp(),
+        });
+        notifyProfileUpdated({
+          uid: user.uid,
+          patch: {
+            badge: expectedPublicBadge,
+            isHiddenFromDirectory: isUnderground,
+          },
+        });
+      }
+    }
+
+    if (isUnderground && privSnap?.exists()) {
+      const privData = privSnap.data() as PrivateUserData;
+      if (privData.showSupremeAdminBadge !== false) {
+        await updateDoc(privRef, {
+          showSupremeAdminBadge: false,
+          updatedAt: serverTimestamp(),
+        });
+      }
     }
   } catch {
-    // Non-blocking role initialization
-  }
-}
-
-export async function updateUndergroundBadgeVisibilitySetting(
-  uid: string,
-  showBadge: boolean
-): Promise<boolean> {
-  if (!isValidFirestoreId(uid)) {
-    throw new Error('Invalid user UID.');
-  }
-  const currentUser = auth.currentUser?.uid === uid ? auth.currentUser : null;
-  if (!isUndergroundSupremeAdminUser(currentUser)) {
-    throw new Error('This privacy control is restricted to the designated underground Supreme Admin account.');
-  }
-
-  const nextBadge: BadgeType = showBadge ? 'supreme_admin' : 'none';
-  const privRef = doc(db, COLLECTION_NAMES.privateUserData, uid);
-  let privExists: boolean;
-  try {
-    const privSnap = await getDoc(privRef);
-    privExists = privSnap.exists();
-  } catch {
-    privExists = true;
-  }
-
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.users, uid), {
-    badge: nextBadge,
-    updatedAt: serverTimestamp(),
-  });
-  if (privExists) {
-    batch.update(privRef, {
-      showSupremeAdminBadge: showBadge,
-      updatedAt: serverTimestamp(),
-    });
-  } else {
-    batch.set(privRef, {
-      uid,
-      authEmail: currentUser?.email ?? '',
-      showSupremeAdminBadge: showBadge,
-      updatedAt: serverTimestamp(),
-    });
-  }
-
-  try {
-    await batch.commit();
-    notifyProfileUpdated({
-      uid,
-      patch: { badge: nextBadge },
-    });
-    return showBadge;
-  } catch (error) {
-    handleFirestoreError(
-      error,
-      OperationType.UPDATE,
-      `${COLLECTION_NAMES.users}/${uid}`
-    );
+    // Non-blocking role & privacy synchronization
   }
 }
 
@@ -2715,8 +2709,8 @@ export async function deleteOwnMemberFirestoreData(uid: string): Promise<void> {
     });
   }
 
-  // Delete savedPosts and notifications owned by user
-  const [savedSnap, notifSnap] = await Promise.all([
+  // Delete savedPosts, notifications, and privateUserData subcollections owned by user
+  const [savedSnap, notifSnap, anonHistSnap, pushSubSnap] = await Promise.all([
     getDocs(
       query(
         collection(db, COLLECTION_NAMES.savedPosts),
@@ -2731,34 +2725,61 @@ export async function deleteOwnMemberFirestoreData(uid: string): Promise<void> {
         limit(100)
       )
     ),
+    getDocs(
+      query(
+        collection(
+          db,
+          COLLECTION_NAMES.privateUserData,
+          uid,
+          SUBCOLLECTION_NAMES.anonymousHistory
+        ),
+        limit(150)
+      )
+    ).catch(() => null),
+    getDocs(
+      query(
+        collection(
+          db,
+          COLLECTION_NAMES.privateUserData,
+          uid,
+          SUBCOLLECTION_NAMES.pushSubscriptions
+        ),
+        limit(50)
+      )
+    ).catch(() => null),
   ]);
 
-  const batch = writeBatch(db);
-
-  for (const docItem of savedSnap.docs) {
-    batch.delete(docItem.ref);
-  }
-  for (const docItem of notifSnap.docs) {
-    batch.delete(docItem.ref);
-  }
+  const deleteRefs = [
+    ...savedSnap.docs.map((docItem) => docItem.ref),
+    ...notifSnap.docs.map((docItem) => docItem.ref),
+    ...(anonHistSnap?.docs.map((docItem) => docItem.ref) ?? []),
+    ...(pushSubSnap?.docs.map((docItem) => docItem.ref) ?? []),
+  ];
 
   for (const uname of usernameCandidates) {
     const uRef = doc(db, COLLECTION_NAMES.usernames, uname);
     const uSnap = await getDoc(uRef);
     if (uSnap.exists() && (uSnap.data() as UsernameReservation).ownerUID === uid) {
-      batch.delete(uRef);
+      deleteRefs.push(uRef);
     }
   }
 
   if (privateSnap.exists()) {
-    batch.delete(privateRef);
+    deleteRefs.push(privateRef);
   }
   if (publicSnap.exists()) {
-    batch.delete(publicRef);
+    deleteRefs.push(publicRef);
   }
 
   try {
-    await batch.commit();
+    const CHUNK_SIZE = 380;
+    for (let i = 0; i < deleteRefs.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      for (const ref of deleteRefs.slice(i, i + CHUNK_SIZE)) {
+        batch.delete(ref);
+      }
+      await batch.commit();
+    }
   } catch (error) {
     handleFirestoreError(
       error,
@@ -2804,28 +2825,24 @@ export async function createAnonymousPostAtomically(
   const currentUser =
     auth.currentUser?.uid === input.authorUid ? auth.currentUser : null;
   let mappingRole: UserRole;
-  if (isPermanentOwnerUser(currentUser)) {
-    mappingRole = 'owner';
-  } else {
-    try {
-      const roleSnap = await getDoc(
-        doc(db, COLLECTION_NAMES.userRoles, input.authorUid)
-      );
-      const rawRoleDoc = roleSnap.exists()
-        ? (roleSnap.data() as Partial<UserRoleRecord>)
-        : null;
-      mappingRole = resolveAuthoritativeMappingRole(
-        currentUser,
-        rawRoleDoc,
-        input.authorRole
-      );
-    } catch {
-      mappingRole = resolveAuthoritativeMappingRole(
-        currentUser,
-        undefined,
-        input.authorRole
-      );
-    }
+  try {
+    const roleSnap = await getDoc(
+      doc(db, COLLECTION_NAMES.userRoles, input.authorUid)
+    );
+    const rawRoleDoc = roleSnap.exists()
+      ? (roleSnap.data() as Partial<UserRoleRecord>)
+      : null;
+    mappingRole = resolveAuthoritativeMappingRole(
+      currentUser,
+      rawRoleDoc,
+      input.authorRole
+    );
+  } catch {
+    mappingRole = resolveAuthoritativeMappingRole(
+      currentUser,
+      undefined,
+      input.authorRole
+    );
   }
 
   const batch = writeBatch(db);

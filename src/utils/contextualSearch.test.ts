@@ -487,7 +487,13 @@ test('buildSearchSuggestions excludes member profiles in anonymous scope and omi
     members,
     scope: 'all',
   });
-  assert.ok(suggestions.some((s) => s.kind === 'person' && s.username === 'solomon'));
+  const solomonSuggestion = suggestions.find(
+    (s) => s.kind === 'person' && s.username === 'solomon'
+  );
+  assert.ok(solomonSuggestion);
+  assert.equal(solomonSuggestion.followersCount, 15);
+  assert.equal(solomonSuggestion.followingCount, 8);
+  assert.ok(solomonSuggestion.subtitle?.includes('15 followers'));
   assert.ok(suggestions.some((s) => s.kind === 'recent'));
 
   const anonSuggestions = buildSearchSuggestions({

@@ -35,7 +35,7 @@ export type VerifiedCaller =
       kind: 'user';
       uid: string;
       email: string;
-      role: 'owner' | 'supreme_admin' | 'moderator' | 'verified' | 'member';
+      role: 'supreme_admin' | 'moderator' | 'verified' | 'member';
       isSuspended: boolean;
     };
 
@@ -46,7 +46,6 @@ export interface PushDeliverySummary {
   failed: number;
 }
 
-const PERMANENT_OWNER_EMAIL = 'estheriawoyinfa52@gmail.com';
 const PUBLIC_SUPREME_ADMIN_EMAIL = 'lasuedintel@gmail.com';
 const UNDERGROUND_SUPREME_ADMIN_EMAIL = 'awoyinfasolomon1@gmail.com';
 const DEFAULT_FIRESTORE_DB_ID = 'ai-studio-intel-5bda81a4-c388-4f50-b629-ca521ae04516';
@@ -166,7 +165,9 @@ function parseServiceAccountJson(raw: string | undefined): ServiceAccount | null
   return null;
 }
 
-export function getServerPushConfigStatus(): {
+export function getServerPushConfigStatus(
+  reqHeaders?: Record<string, string | string[] | undefined>
+): {
   vapidConfigured: boolean;
   firebaseAdminConfigured: boolean;
   vapidPublicKey: string | null;
@@ -183,7 +184,7 @@ export function getServerPushConfigStatus(): {
   const serviceAccount = parseServiceAccountJson(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON
   );
-  const allowedOrigin = resolveServerPublicOrigin();
+  const allowedOrigin = resolveServerPublicOrigin(reqHeaders);
 
   const vapidConfigured =
     isValidVapidPublicKey(publicKey) && isValidVapidPrivateKey(privateKey);
@@ -271,11 +272,8 @@ export async function verifyPushApiCaller(
     const accountStatus = userSnap?.data()?.accountStatus;
     const isSuspended = accountStatus === 'suspended';
 
-    let role: 'owner' | 'supreme_admin' | 'moderator' | 'verified' | 'member' =
-      'member';
-    if (emailVerified && email === PERMANENT_OWNER_EMAIL) {
-      role = 'owner';
-    } else if (
+    let role: 'supreme_admin' | 'moderator' | 'verified' | 'member' = 'member';
+    if (
       emailVerified &&
       (email === PUBLIC_SUPREME_ADMIN_EMAIL ||
         email === UNDERGROUND_SUPREME_ADMIN_EMAIL)
@@ -285,17 +283,10 @@ export async function verifyPushApiCaller(
       const roleData = roleSnap?.data();
       const rawRole = roleData?.role;
       if (
-        rawRole === 'supreme_admin' ||
-        rawRole === 'moderator' ||
-        rawRole === 'verified'
+        !roleData?.isPermanentOwner &&
+        (rawRole === 'moderator' || rawRole === 'verified')
       ) {
         role = rawRole;
-      } else if (
-        rawRole === 'owner' &&
-        roleData?.isPermanentOwner === true &&
-        email === PERMANENT_OWNER_EMAIL
-      ) {
-        role = 'owner';
       }
     }
 

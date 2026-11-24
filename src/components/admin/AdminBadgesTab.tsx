@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Crown, Loader2, Search, UserCheck } from 'lucide-react';
+import { Loader2, Search, UserCheck } from 'lucide-react';
 import {
   assignMemberRoleAndBadgeAtomically,
   toggleModeratorVerifiedStatusAtomically,
@@ -45,7 +45,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
   const [busyUid, setBusyUid] = useState<string | null>(null);
   const [pendingRoleChange, setPendingRoleChange] = useState<{
     member: AdminManagedMember;
-    nextRole: Exclude<UserRole, 'owner'>;
+    nextRole: 'member' | 'verified' | 'moderator';
     label: string;
   } | null>(null);
 
@@ -199,12 +199,12 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
       ) : (
         <div className="space-y-3">
           {members.map((entry) => {
-            const { profile, effectiveRole, isPermanentOwner } = entry;
+            const { profile, effectiveRole } = entry;
             const isSelf = profile.uid === actorUid;
             const isBusy = busyUid === profile.uid;
             const canModifyTarget = canActorUpdateTargetRoleRecord(
               actorRole,
-              isPermanentOwner,
+              false,
               effectiveRole,
               undefined,
               actorUid,
@@ -250,11 +250,7 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {isPermanentOwner ? (
-                    <span className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-900">
-                      Protected Owner
-                    </span>
-                  ) : !canModifyTarget ? (
+                  {!canModifyTarget ? (
                     <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
                       {isSelf
                         ? 'Self-modification disabled'
@@ -375,42 +371,6 @@ export const AdminBadgesTab: React.FC<AdminBadgesTabProps> = ({
                         </>
                       )}
 
-                      {actorRole === 'owner' &&
-                        effectiveRole !== 'supreme_admin' && (
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() =>
-                              setPendingRoleChange({
-                                member: entry,
-                                nextRole: 'supreme_admin',
-                                label: 'Assign Supreme Admin',
-                              })
-                            }
-                            className="inline-flex min-h-[38px] items-center gap-1 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#13386C] disabled:opacity-60"
-                          >
-                            <Crown className="h-3.5 w-3.5 text-[#64B5F6]" aria-hidden="true" />
-                            Grant Supreme Admin
-                          </button>
-                        )}
-
-                      {actorRole === 'owner' &&
-                        effectiveRole === 'supreme_admin' && (
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() =>
-                              setPendingRoleChange({
-                                member: entry,
-                                nextRole: 'verified',
-                                label: 'Remove Supreme Admin',
-                              })
-                            }
-                            className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-60"
-                          >
-                            Remove Supreme Admin
-                          </button>
-                        )}
                     </>
                   )}
                 </div>

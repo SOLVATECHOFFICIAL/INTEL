@@ -1058,6 +1058,25 @@ export function saveContextualSearchSnapshot(
   contextualSearchCache.set(key, snapshot);
 }
 
+export function updateAllCachedSearchSnapshots(
+  updater: (bundle: SearchDiscoveryBundle) => SearchDiscoveryBundle
+): void {
+  for (const [key, entry] of Array.from(searchPageCache.entries())) {
+    if (!entry.bundle) continue;
+    searchPageCache.set(key, {
+      ...entry,
+      bundle: updater(entry.bundle),
+    });
+  }
+  for (const [key, entry] of Array.from(contextualSearchCache.entries())) {
+    if (!entry.bundle) continue;
+    contextualSearchCache.set(key, {
+      ...entry,
+      bundle: updater(entry.bundle),
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 7. Notifications, Account Settings & Anonymous View Snapshots
 // ---------------------------------------------------------------------------

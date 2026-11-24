@@ -37,7 +37,7 @@ import {
   type MemberProfileBundle,
 } from '../../services/firestoreFoundation';
 import {
-  prefetchMediaImages,
+  prefetchMediaImagesPriority,
   removeProfileMediaImage,
   saveProfileMediaImage,
   type UploadProgressState,
@@ -84,6 +84,10 @@ import {
   type CompressedImageResult,
 } from '../../utils/imageCompression';
 import { mediaMetaToGridItems } from '../../utils/mediaGrid';
+import {
+  isDataSaverConnection,
+  selectProfilePreloadTargets,
+} from '../../utils/mediaCache';
 import {
   formatOpportunityDeadlineSummary,
   getOpportunityCategoryShortLabel,
@@ -431,13 +435,22 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         }
         setLoadState('ready');
 
-        const leadIds = [
-          result.profile.coverImageId,
-          result.profile.photoImageId,
-          ...result.posts.slice(0, 6).map((p) => p.mediaItems?.[0]?.imageId),
-        ].filter((id): id is string => Boolean(id));
-        if (leadIds.length > 0) {
-          prefetchMediaImages(leadIds);
+        const { highPriority, normalPriority } = selectProfilePreloadTargets({
+          coverImageId: result.profile.coverImageId,
+          photoImageId: result.profile.photoImageId,
+          posts: result.posts,
+          likedPosts: result.likedPosts,
+          listings: result.listings,
+          isDataSaver: isDataSaverConnection(),
+          maxTotal: 14,
+        });
+        if (highPriority.length > 0 || normalPriority.length > 0) {
+          void prefetchMediaImagesPriority({
+            highPriority,
+            normalPriority,
+            predecode: true,
+            maxTotal: 14,
+          });
         }
       } catch {
         if (isCancelled?.()) return;
@@ -494,15 +507,22 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         }, 0);
       }
 
-      const leadIds = [
-        existingSnapshot.bundle.profile.coverImageId,
-        existingSnapshot.bundle.profile.photoImageId,
-        ...existingSnapshot.bundle.posts
-          .slice(0, 6)
-          .map((p) => p.mediaItems?.[0]?.imageId),
-      ].filter((id): id is string => Boolean(id));
-      if (leadIds.length > 0) {
-        prefetchMediaImages(leadIds);
+      const { highPriority, normalPriority } = selectProfilePreloadTargets({
+        coverImageId: existingSnapshot.bundle.profile.coverImageId,
+        photoImageId: existingSnapshot.bundle.profile.photoImageId,
+        posts: existingSnapshot.bundle.posts,
+        likedPosts: existingSnapshot.bundle.likedPosts,
+        listings: existingSnapshot.bundle.listings,
+        isDataSaver: isDataSaverConnection(),
+        maxTotal: 14,
+      });
+      if (highPriority.length > 0 || normalPriority.length > 0) {
+        void prefetchMediaImagesPriority({
+          highPriority,
+          normalPriority,
+          predecode: true,
+          maxTotal: 14,
+        });
       }
 
       if (Date.now() - existingSnapshot.cachedAt > 15_000) {
@@ -535,15 +555,22 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           setAnonHistory(allowOwnerPrivate ? persisted.anonHistory : null);
           setLoadState('ready');
 
-          const leadIds = [
-            persisted.bundle.profile.coverImageId,
-            persisted.bundle.profile.photoImageId,
-            ...persisted.bundle.posts
-              .slice(0, 6)
-              .map((p) => p.mediaItems?.[0]?.imageId),
-          ].filter((id): id is string => Boolean(id));
-          if (leadIds.length > 0) {
-            prefetchMediaImages(leadIds);
+          const { highPriority, normalPriority } = selectProfilePreloadTargets({
+            coverImageId: persisted.bundle.profile.coverImageId,
+            photoImageId: persisted.bundle.profile.photoImageId,
+            posts: persisted.bundle.posts,
+            likedPosts: persisted.bundle.likedPosts,
+            listings: persisted.bundle.listings,
+            isDataSaver: isDataSaverConnection(),
+            maxTotal: 14,
+          });
+          if (highPriority.length > 0 || normalPriority.length > 0) {
+            void prefetchMediaImagesPriority({
+              highPriority,
+              normalPriority,
+              predecode: true,
+              maxTotal: 14,
+            });
           }
         })
         .catch(() => undefined);
@@ -1536,6 +1563,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                         sizeClass="h-full w-full"
                         roundedClass="rounded-full"
                         textClass="text-2xl sm:text-3xl"
+                        eager
                       />
                     )}
                   </button>
@@ -1547,6 +1575,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     sizeClass="h-full w-full"
                     roundedClass="rounded-full"
                     textClass="text-2xl sm:text-3xl"
+                    eager
                   />
                 )}
               </div>

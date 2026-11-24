@@ -345,21 +345,12 @@ export function isAccountSuspended(
   return profile?.accountStatus === 'suspended';
 }
 
-export const PERMANENT_OWNER_EMAIL = 'estheriawoyinfa52@gmail.com';
 export const PUBLIC_SUPREME_ADMIN_EMAIL = 'lasuedintel@gmail.com';
 export const UNDERGROUND_SUPREME_ADMIN_EMAIL = 'awoyinfasolomon1@gmail.com';
 export const DESIGNATED_SUPREME_ADMIN_EMAILS = [
   PUBLIC_SUPREME_ADMIN_EMAIL,
   UNDERGROUND_SUPREME_ADMIN_EMAIL,
 ] as const;
-
-export function isPermanentOwnerUser(user: User | null): boolean {
-  return Boolean(
-    user &&
-      user.emailVerified &&
-      user.email?.trim().toLowerCase() === PERMANENT_OWNER_EMAIL
-  );
-}
 
 export function isPublicSupremeAdminUser(user: User | null): boolean {
   return Boolean(
@@ -418,9 +409,7 @@ export function isProfileAccessibleByDirectInteraction(
   return !profile.isHiddenFromDirectory || profile.hasPublicActivity === true;
 }
 
-const VALID_USER_ROLES: readonly UserRole[] = [
-  'owner',
-  'supreme_admin',
+const ASSIGNABLE_NON_ADMIN_ROLES: readonly UserRole[] = [
   'moderator',
   'verified',
   'member',
@@ -430,7 +419,7 @@ export function isValidRoleRecordConsistency(
   roleRecord: UserRoleRecord | null | undefined
 ): roleRecord is UserRoleRecord {
   if (!roleRecord) return false;
-  if (!VALID_USER_ROLES.includes(roleRecord.role)) return false;
+  if (!ASSIGNABLE_NON_ADMIN_ROLES.includes(roleRecord.role)) return false;
   return roleRecord.badge === resolveBadgeForRole(roleRecord.role);
 }
 
@@ -444,19 +433,18 @@ export function resolveEffectiveAccountTier(
   if (user.emailVerified !== true) {
     return 'member';
   }
-  if (isPermanentOwnerUser(user)) {
-    return 'owner';
-  }
   if (isDesignatedSupremeAdminUser(user)) {
     return 'supreme_admin';
   }
-  if (!isValidRoleRecordConsistency(roleRecord)) {
+  if (
+    !roleRecord ||
+    roleRecord.isPermanentOwner ||
+    roleRecord.role === 'owner' ||
+    roleRecord.role === 'supreme_admin'
+  ) {
     return 'member';
   }
-  if (roleRecord.role === 'owner' && roleRecord.isPermanentOwner) {
-    return 'owner';
-  }
-  if (roleRecord.role === 'owner') {
+  if (!isValidRoleRecordConsistency(roleRecord)) {
     return 'member';
   }
   return roleRecord.role;
@@ -464,32 +452,31 @@ export function resolveEffectiveAccountTier(
 
 /**
  * Resolves the exact authorRole value expected by firestore.rules `currentRoleString()`
- * for anonymousIdentityMappings writes. Unlike `resolveEffectiveAccountTier`, this does
- * not reject a userRoles document whose `badge` field is missing or inconsistent, preventing
- * permission-denied mismatches between client payloads and Firestore security rules.
+ * for anonymousIdentityMappings writes. Never grants `'owner'` or third-party `'supreme_admin'`
+ * from stale userRoles documents.
  */
 export function resolveAuthoritativeMappingRole(
   user: User | null,
   rawRoleDoc: Partial<UserRoleRecord> | null | undefined,
   fallbackRole: UserRole = 'member'
 ): UserRole {
-  if (isPermanentOwnerUser(user)) {
-    return 'owner';
-  }
   if (isDesignatedSupremeAdminUser(user)) {
     return 'supreme_admin';
   }
   if (
     rawRoleDoc &&
+    !rawRoleDoc.isPermanentOwner &&
     typeof rawRoleDoc.role === 'string' &&
-    VALID_USER_ROLES.includes(rawRoleDoc.role as UserRole)
+    ASSIGNABLE_NON_ADMIN_ROLES.includes(rawRoleDoc.role as UserRole)
   ) {
     return rawRoleDoc.role as UserRole;
   }
   if (rawRoleDoc === null) {
     return 'member';
   }
-  return VALID_USER_ROLES.includes(fallbackRole) ? fallbackRole : 'member';
+  return ASSIGNABLE_NON_ADMIN_ROLES.includes(fallbackRole)
+    ? fallbackRole
+    : 'member';
 }
 
 export function canAccessFullAdminDashboard(
@@ -497,7 +484,7 @@ export function canAccessFullAdminDashboard(
   suspended: boolean
 ): boolean {
   if (suspended) return false;
-  return tier === 'supreme_admin' || tier === 'owner';
+  return tier === 'supreme_admin';
 }
 
 export function canAccessAdminDashboard(
@@ -505,7 +492,7 @@ export function canAccessAdminDashboard(
   suspended: boolean
 ): boolean {
   if (suspended) return false;
-  return tier === 'supreme_admin' || tier === 'owner' || tier === 'moderator';
+  return tier === 'supreme_admin' || tier === 'moderator';
 }
 
 export function canPublishOrdinaryFeedUpdate(
@@ -516,8 +503,7 @@ export function canPublishOrdinaryFeedUpdate(
   return (
     tier === 'verified' ||
     tier === 'moderator' ||
-    tier === 'supreme_admin' ||
-    tier === 'owner'
+    tier === 'supreme_admin'
   );
 }
 
@@ -534,7 +520,7 @@ export function canPublishOrdinaryPostStrict(input: {
   if (!canPublishOrdinaryFeedUpdate(input.tier, input.suspended)) {
     return false;
   }
-  if (isPermanentOwnerUser(input.user) || isDesignatedSupremeAdminUser(input.user)) {
+  if (isDesignatedSupremeAdminUser(input.user)) {
     return !input.profile || input.profile.accountStatus === 'active';
   }
   if (!input.profile || input.profile.accountStatus !== 'active') {
@@ -562,6 +548,7 @@ export function getAccountTierDisplayLabel(tier: EffectiveAccountTier): string {
     case 'guest':
       return 'Guest Visitor';
     case 'member':
+    case 'owner':
       return 'Member';
     case 'verified':
       return 'Verified Member';
@@ -569,8 +556,6 @@ export function getAccountTierDisplayLabel(tier: EffectiveAccountTier): string {
       return 'Moderator';
     case 'supreme_admin':
       return 'Supreme Admin';
-    case 'owner':
-      return 'Platform Owner';
   }
 }
 

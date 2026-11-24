@@ -28,7 +28,7 @@ export default async function handler(
   }
   const notificationId = body.notificationId;
 
-  const config = getServerPushConfigStatus();
+  const config = getServerPushConfigStatus(req.headers);
   const clients = getAdminClients();
   if (!clients || !config.vapidConfigured || !ensureWebPushConfigured()) {
     sendJson(res, 200, {
@@ -70,7 +70,7 @@ export default async function handler(
   }
 
   if (caller.kind === 'user') {
-    const isAdmin = caller.role === 'owner' || caller.role === 'supreme_admin';
+    const isAdmin = caller.role === 'supreme_admin';
     const isMarketplaceModerator =
       caller.role === 'moderator' &&
       (eventType === 'marketplace_approved' ||

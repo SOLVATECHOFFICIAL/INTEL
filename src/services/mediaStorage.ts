@@ -18,11 +18,11 @@ import {
 } from '../types/database';
 import {
   deletePersistentMediaByPredicate,
-  readPersistentMediaRecord,
-  writePersistentMediaRecord,
+  readPersistentMediaAsset,
+  writePersistentMediaAsset,
 } from './persistentCache';
 import { notifyProfileUpdated } from './cacheInvalidation';
-import { perfMetrics } from '../utils/cacheSync';
+import { BoundedLruMap, perfMetrics } from '../utils/cacheSync';
 import { runWithFirestoreConnectionRetry } from '../utils/firestoreRetry';
 import {
   buildMediaDataUrl,
@@ -32,16 +32,53 @@ import {
   MediaMemoryLru,
   buildScopedMediaCacheKey,
   isDataSaverConnection,
+  parseImageDataUrlToBinary,
   type MediaCacheKeyOptions,
 } from '../utils/mediaCache';
 
 const PERSISTENT_CACHE_NAME = 'lasued-intel-media-v1';
 const PERSISTENT_CACHE_ORIGIN = 'https://media-cache.lasuedintel.local/asset/';
 const PERSISTENT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const PERSISTENT_CACHE_MAX_ENTRIES = 160;
+const PERSISTENT_CACHE_MAX_ENTRIES = 180;
 
-const l1MediaCache = new MediaMemoryLru(250, 24 * 1024 * 1024);
+const managedObjectUrls = new Set<string>();
+const pendingObjectUrlRevokes = new Map<string, number>();
+
+function scheduleRevokeManagedUrl(url: string): void {
+  if (
+    !url ||
+    !url.startsWith('blob:') ||
+    !managedObjectUrls.has(url) ||
+    typeof URL === 'undefined' ||
+    typeof URL.revokeObjectURL !== 'function'
+  ) {
+    return;
+  }
+  if (pendingObjectUrlRevokes.has(url)) return;
+  const revoke = () => {
+    pendingObjectUrlRevokes.delete(url);
+    managedObjectUrls.delete(url);
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // Ignore already-revoked URL
+    }
+  };
+  if (typeof window !== 'undefined') {
+    const timer = window.setTimeout(revoke, 5000);
+    pendingObjectUrlRevokes.set(url, timer);
+  } else {
+    revoke();
+  }
+}
+
+const l1MediaCache = new MediaMemoryLru(250, 24 * 1024 * 1024, (_key, val) => {
+  scheduleRevokeManagedUrl(val);
+});
 const inFlightMediaRequests = new Map<string, Promise<string | null>>();
+const inFlightL2Reads = new Map<string, Promise<string | null>>();
+const inFlightPredecodes = new Map<string, Promise<void>>();
+const predecodedSrcCache = new BoundedLruMap<string, true>(180);
 const recentlyDeletedImageIds = new Map<string, number>();
 
 export interface UploadProgressState {
@@ -83,9 +120,53 @@ async function pruneCacheApiEntries(cache: Cache): Promise<void> {
   }
 }
 
+function dataUrlToBlob(
+  dataUrl: string
+): { blob: Blob; mimeType: string; byteSize: number } | null {
+  if (typeof Blob === 'undefined') return null;
+  const parsed = parseImageDataUrlToBinary(dataUrl);
+  if (!parsed) return null;
+  const blob = new Blob([parsed.bytes.buffer as ArrayBuffer], {
+    type: parsed.mimeType,
+  });
+  return { blob, mimeType: parsed.mimeType, byteSize: blob.size };
+}
+
+function blobToDataUrlFallback(blob: Blob): Promise<string | null> {
+  if (typeof FileReader === 'undefined') return Promise.resolve(null);
+  return new Promise<string | null>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve(typeof reader.result === 'string' ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function blobToRenderSrc(
+  blob: Blob
+): Promise<{ src: string; byteWeight: number } | null> {
+  if (blob.size <= 0) return null;
+  if (
+    typeof URL !== 'undefined' &&
+    typeof URL.createObjectURL === 'function'
+  ) {
+    try {
+      const objectUrl = URL.createObjectURL(blob);
+      managedObjectUrls.add(objectUrl);
+      return { src: objectUrl, byteWeight: blob.size };
+    } catch {
+      // Fall back to Data URL if ObjectURL creation fails
+    }
+  }
+  const dataUrl = await blobToDataUrlFallback(blob);
+  if (!dataUrl) return null;
+  return { src: dataUrl, byteWeight: blob.size };
+}
+
 async function readPersistentMediaCache(
   cacheKey: string
-): Promise<string | null> {
+): Promise<{ src: string; byteWeight: number } | null> {
   const cache = await openPersistentMediaCache();
   if (cache) {
     const reqUrl = makePersistentRequestUrl(cacheKey);
@@ -99,10 +180,31 @@ async function readPersistentMediaCache(
         ) {
           await cache.delete(reqUrl).catch(() => false);
         } else {
-          const text = await response.text();
-          if (text.startsWith('data:image/')) {
-            perfMetrics.recordHit('media_l2_cache_api');
-            return text;
+          const contentType = (
+            response.headers.get('Content-Type') ?? ''
+          ).toLowerCase();
+          if (contentType.startsWith('image/')) {
+            const blob = await response.blob();
+            const rendered = await blobToRenderSrc(blob);
+            if (rendered) {
+              perfMetrics.recordHit('media_l2_cache_api');
+              return rendered;
+            }
+          } else {
+            // Backward compatibility with legacy text/plain data:image entries
+            const text = await response.text();
+            if (text.startsWith('data:image/')) {
+              const converted = dataUrlToBlob(text);
+              if (converted) {
+                const rendered = await blobToRenderSrc(converted.blob);
+                if (rendered) {
+                  perfMetrics.recordHit('media_l2_cache_api');
+                  return rendered;
+                }
+              }
+              perfMetrics.recordHit('media_l2_cache_api');
+              return { src: text, byteWeight: text.length * 2 };
+            }
           }
           await cache.delete(reqUrl).catch(() => false);
         }
@@ -112,26 +214,48 @@ async function readPersistentMediaCache(
     }
   }
 
-  const idbHit = await readPersistentMediaRecord(cacheKey);
+  const idbHit = await readPersistentMediaAsset(cacheKey);
   if (idbHit) {
     perfMetrics.recordHit('media_l2_idb');
+    if (idbHit.blob) {
+      const rendered = await blobToRenderSrc(idbHit.blob);
+      if (rendered) return rendered;
+    }
+    if (idbHit.dataUrl) {
+      const converted = dataUrlToBlob(idbHit.dataUrl);
+      if (converted) {
+        const rendered = await blobToRenderSrc(converted.blob);
+        if (rendered) return rendered;
+      }
+      return { src: idbHit.dataUrl, byteWeight: idbHit.byteSize };
+    }
   } else {
     perfMetrics.recordMiss('media_l2');
   }
-  return idbHit;
+  return null;
 }
 
 async function writePersistentMediaCache(
   cacheKey: string,
-  dataUrl: string
+  payload: { dataUrl?: string; blob?: Blob; mimeType?: string }
 ): Promise<void> {
+  const blobInfo = payload.blob
+    ? {
+        blob: payload.blob,
+        mimeType: payload.mimeType || payload.blob.type || 'image/webp',
+        byteSize: payload.blob.size,
+      }
+    : payload.dataUrl
+      ? dataUrlToBlob(payload.dataUrl)
+      : null;
+
   const cache = await openPersistentMediaCache();
-  if (cache) {
+  if (cache && blobInfo) {
     const reqUrl = makePersistentRequestUrl(cacheKey);
     try {
-      const response = new Response(dataUrl, {
+      const response = new Response(blobInfo.blob, {
         headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
+          'Content-Type': blobInfo.mimeType,
           'X-Cached-At': String(Date.now()),
         },
       });
@@ -142,7 +266,15 @@ async function writePersistentMediaCache(
       // Fallback to IndexedDB on Cache API quota/restriction error
     }
   }
-  await writePersistentMediaRecord(cacheKey, dataUrl);
+
+  if (blobInfo) {
+    await writePersistentMediaAsset(cacheKey, blobInfo);
+  } else if (payload.dataUrl) {
+    await writePersistentMediaAsset(cacheKey, {
+      dataUrl: payload.dataUrl,
+      byteSize: payload.dataUrl.length * 2,
+    });
+  }
 }
 
 async function deletePersistentMediaEntriesByPredicate(
@@ -178,6 +310,44 @@ function isMarkedDeleted(imageId: string): boolean {
   return true;
 }
 
+export function isImageSrcPredecoded(src?: string | null): boolean {
+  return Boolean(src && predecodedSrcCache.has(src));
+}
+
+export function predecodeImageSrc(src?: string | null): Promise<void> {
+  if (!src || typeof Image === 'undefined') return Promise.resolve();
+  if (predecodedSrcCache.has(src)) return Promise.resolve();
+  const existing = inFlightPredecodes.get(src);
+  if (existing) return existing;
+
+  const task = new Promise<void>((resolve) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    const done = () => {
+      predecodedSrcCache.set(src, true);
+      inFlightPredecodes.delete(src);
+      resolve();
+    };
+    const fail = () => {
+      inFlightPredecodes.delete(src);
+      resolve();
+    };
+    img.onload = () => {
+      if (typeof img.decode === 'function') {
+        img.decode().then(done).catch(done);
+      } else {
+        done();
+      }
+    };
+    img.onerror = fail;
+    img.src = src;
+  });
+
+  inFlightPredecodes.set(src, task);
+  return task;
+}
+
 export function getCachedMediaImageDataUrl(
   imageId: string,
   options?: MediaCacheKeyOptions
@@ -192,17 +362,77 @@ export function getCachedMediaImageDataUrl(
   return hit;
 }
 
+/**
+ * Checks L1 + L2 (Cache API / IndexedDB) immediately without touching Firestore,
+ * allowing off-screen or newly mounted cached images to paint instantly on revisit.
+ */
+export async function readCachedMediaL2Url(
+  imageId: string,
+  options?: MediaCacheKeyOptions
+): Promise<string | null> {
+  if (!isValidFirestoreId(imageId) || isMarkedDeleted(imageId)) return null;
+  const scopedKey = buildScopedMediaCacheKey(imageId, options);
+  if (!scopedKey) return null;
+
+  const l1 = l1MediaCache.get(scopedKey);
+  if (l1) return l1;
+
+  const pendingL2 = inFlightL2Reads.get(scopedKey);
+  if (pendingL2) return pendingL2;
+
+  const task = readPersistentMediaCache(scopedKey)
+    .then((hit) => {
+      if (!hit || isMarkedDeleted(imageId)) return null;
+      const already = l1MediaCache.get(scopedKey);
+      if (already) {
+        if (already !== hit.src) scheduleRevokeManagedUrl(hit.src);
+        return already;
+      }
+      l1MediaCache.set(scopedKey, hit.src, hit.byteWeight);
+      return hit.src;
+    })
+    .catch(() => null)
+    .finally(() => {
+      inFlightL2Reads.delete(scopedKey);
+    });
+
+  inFlightL2Reads.set(scopedKey, task);
+  return task;
+}
+
 export function primeMediaImageCache(
   imageId: string,
   dataUrl: string,
   options?: MediaCacheKeyOptions
-): void {
-  if (!isValidFirestoreId(imageId) || !dataUrl) return;
+): string {
+  if (!isValidFirestoreId(imageId) || !dataUrl) return dataUrl;
   recentlyDeletedImageIds.delete(imageId);
   const scopedKey = buildScopedMediaCacheKey(imageId, options);
-  if (!scopedKey) return;
+  if (!scopedKey) return dataUrl;
+
+  const converted = dataUrlToBlob(dataUrl);
+  if (
+    converted &&
+    typeof URL !== 'undefined' &&
+    typeof URL.createObjectURL === 'function'
+  ) {
+    try {
+      const objectUrl = URL.createObjectURL(converted.blob);
+      managedObjectUrls.add(objectUrl);
+      l1MediaCache.set(scopedKey, objectUrl, converted.byteSize);
+      void writePersistentMediaCache(scopedKey, {
+        blob: converted.blob,
+        mimeType: converted.mimeType,
+      });
+      return objectUrl;
+    } catch {
+      // Fallback to raw data URL below
+    }
+  }
+
   l1MediaCache.set(scopedKey, dataUrl);
-  void writePersistentMediaCache(scopedKey, dataUrl);
+  void writePersistentMediaCache(scopedKey, { dataUrl });
+  return dataUrl;
 }
 
 export function evictMediaImageCache(imageId: string): void {
@@ -214,6 +444,11 @@ export function evictMediaImageCache(imageId: string): void {
   for (const key of Array.from(inFlightMediaRequests.keys())) {
     if (key === imageId || key.endsWith(`:${imageId}`)) {
       inFlightMediaRequests.delete(key);
+    }
+  }
+  for (const key of Array.from(inFlightL2Reads.keys())) {
+    if (key === imageId || key.endsWith(`:${imageId}`)) {
+      inFlightL2Reads.delete(key);
     }
   }
   void deletePersistentMediaEntriesByPredicate(
@@ -239,13 +474,18 @@ export function clearViewerScopedMediaCache(uid?: string | null): void {
       inFlightMediaRequests.delete(key);
     }
   }
+  for (const key of Array.from(inFlightL2Reads.keys())) {
+    if (key.startsWith(prefix)) {
+      inFlightL2Reads.delete(key);
+    }
+  }
   void deletePersistentMediaEntriesByPredicate((key) => key.startsWith(prefix));
 }
 
 /**
  * Resolves a compressed MediaImage document through:
- * 1. L1 synchronous memory LRU
- * 2. L2 persistent Cache API / IndexedDB fallback (survives page reloads & revisits)
+ * 1. L1 synchronous memory LRU (lightweight ObjectURLs or Data URL fallback)
+ * 2. L2 persistent Cache API / IndexedDB Blob cache (survives page reloads & revisits)
  * 3. Firestore with transient retry and automatic stale-cache eviction if deleted
  */
 export async function fetchMediaImageDataUrl(
@@ -285,9 +525,8 @@ export async function fetchMediaImageDataUrl(
     const startMs = Date.now();
     try {
       if (!options?.forceRefresh) {
-        const persistentHit = await readPersistentMediaCache(scopedKey);
+        const persistentHit = await readCachedMediaL2Url(imageId, options);
         if (persistentHit && !isMarkedDeleted(imageId)) {
-          l1MediaCache.set(scopedKey, persistentHit);
           perfMetrics.recordTiming('media_l2', Date.now() - startMs);
           return persistentHit;
         }
@@ -316,9 +555,9 @@ export async function fetchMediaImageDataUrl(
         return null;
       }
       const dataUrl = buildMediaDataUrl(data.mimeType, data.base64Data);
-      primeMediaImageCache(imageId, dataUrl, options);
+      const cachedUrl = primeMediaImageCache(imageId, dataUrl, options);
       perfMetrics.recordTiming('media_network', Date.now() - startMs);
-      return dataUrl;
+      return cachedUrl;
     } catch (error) {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         return null;
@@ -331,6 +570,114 @@ export async function fetchMediaImageDataUrl(
 
   inFlightMediaRequests.set(scopedKey, promise);
   return promise;
+}
+
+async function runImagePreloadBatch(
+  targets: readonly string[],
+  options: MediaCacheKeyOptions | undefined,
+  concurrency: number,
+  predecode: boolean
+): Promise<void> {
+  if (targets.length === 0) return;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < targets.length) {
+      const idx = cursor;
+      cursor += 1;
+      const targetId = targets[idx];
+      if (!targetId) continue;
+      const src = await fetchMediaImageDataUrl(targetId, options).catch(
+        () => null
+      );
+      if (src && predecode) {
+        await predecodeImageSrc(src);
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, targets.length) }, () => worker())
+  );
+}
+
+/**
+ * Prioritized media preloading: runs high-priority assets first (e.g. profile
+ * cover, avatar, visible post images) then nearby gallery frames/thumbnails,
+ * pre-decoding resolved URLs so opening them is immediate.
+ */
+export async function prefetchMediaImagesPriority(input: {
+  highPriority?: readonly (string | null | undefined)[];
+  normalPriority?: readonly (string | null | undefined)[];
+  options?: MediaCacheKeyOptions;
+  predecode?: boolean;
+  maxTotal?: number;
+}): Promise<void> {
+  const dataSaver = isDataSaverConnection();
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return;
+  }
+
+  const maxCap = dataSaver ? 4 : Math.max(1, input.maxTotal ?? 14);
+  const seen = new Set<string>();
+  const filterClean = (
+    list: readonly (string | null | undefined)[] | undefined
+  ): string[] => {
+    const out: string[] = [];
+    for (const raw of list ?? []) {
+      if (seen.size >= maxCap) break;
+      if (
+        typeof raw !== 'string' ||
+        !isValidFirestoreId(raw) ||
+        seen.has(raw) ||
+        isMarkedDeleted(raw)
+      ) {
+        continue;
+      }
+      seen.add(raw);
+      out.push(raw);
+    }
+    return out;
+  };
+
+  const high = filterClean(input.highPriority);
+  const normal = dataSaver ? [] : filterClean(input.normalPriority);
+  const shouldPredecode = input.predecode ?? true;
+
+  // Always warm L1/decoded state for already-cached URLs even if offline/DataSaver
+  const alreadyCachedSrcs: string[] = [];
+  const toFetchHigh: string[] = [];
+  for (const id of high) {
+    const hit = getCachedMediaImageDataUrl(id, input.options);
+    if (hit) {
+      alreadyCachedSrcs.push(hit);
+    } else {
+      toFetchHigh.push(id);
+    }
+  }
+  const toFetchNormal: string[] = [];
+  for (const id of normal) {
+    const hit = getCachedMediaImageDataUrl(id, input.options);
+    if (hit) {
+      alreadyCachedSrcs.push(hit);
+    } else {
+      toFetchNormal.push(id);
+    }
+  }
+
+  if (shouldPredecode && alreadyCachedSrcs.length > 0) {
+    void Promise.all(alreadyCachedSrcs.map((s) => predecodeImageSrc(s)));
+  }
+
+  if (toFetchHigh.length > 0) {
+    await runImagePreloadBatch(
+      toFetchHigh,
+      input.options,
+      dataSaver ? 2 : 3,
+      shouldPredecode
+    );
+  }
+  if (toFetchNormal.length > 0 && !dataSaver) {
+    await runImagePreloadBatch(toFetchNormal, input.options, 2, shouldPredecode);
+  }
 }
 
 /**
@@ -347,35 +694,12 @@ export async function prefetchMediaImages(
   ) {
     return;
   }
-  const targets = Array.from(
-    new Set(
-      imageIds.filter(
-        (id): id is string =>
-          typeof id === 'string' &&
-          isValidFirestoreId(id) &&
-          !getCachedMediaImageDataUrl(id, options) &&
-          !isMarkedDeleted(id)
-      )
-    )
-  ).slice(0, 8);
-
-  if (targets.length === 0) return;
-
-  const CONCURRENCY = 2;
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < targets.length) {
-      const idx = cursor;
-      cursor += 1;
-      const targetId = targets[idx];
-      if (!targetId) continue;
-      await fetchMediaImageDataUrl(targetId, options).catch(() => null);
-    }
-  };
-
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, targets.length) }, () => worker())
-  );
+  await prefetchMediaImagesPriority({
+    highPriority: imageIds,
+    options,
+    predecode: true,
+    maxTotal: 12,
+  });
 }
 
 export function buildMediaImageFirestoreRecord(input: {

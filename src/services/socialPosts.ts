@@ -63,7 +63,6 @@ import {
 import {
   canRevealAnonymousAuthor,
   isFirebaseErrorCode,
-  isPermanentOwnerUser,
   resolveAuthoritativeMappingRole,
   toPublicProfileProjection,
 } from '../utils/authValidation';
@@ -238,9 +237,6 @@ async function resolveAuthorRoleForAnonymousMapping(
   fallbackRole: UserRole
 ): Promise<UserRole> {
   const currentUser = auth.currentUser?.uid === uid ? auth.currentUser : null;
-  if (isPermanentOwnerUser(currentUser)) {
-    return 'owner';
-  }
   try {
     const roleSnap = await getDoc(doc(db, COLLECTION_NAMES.userRoles, uid));
     const rawRoleDoc = roleSnap.exists()
@@ -316,8 +312,7 @@ export async function createCommunityPostWithMedia(input: {
   const cleanBody = input.body.trim();
   const cleanCategory = input.category.trim();
   const isOfficial =
-    (input.authorRole === 'owner' || input.authorRole === 'supreme_admin') &&
-    Boolean(input.isOfficial);
+    input.authorRole === 'supreme_admin' && Boolean(input.isOfficial);
 
   const isTextPost = input.postType === 'text';
   const effectiveAttachments = isTextPost ? [] : input.attachments;
@@ -849,6 +844,7 @@ export async function deletePostCascading(input: {
         query(
           collection(db, commentCollection),
           where('postId', '==', postId),
+          where('status', '==', 'published'),
           limit(200)
         )
       ),

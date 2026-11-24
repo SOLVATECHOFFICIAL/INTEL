@@ -569,8 +569,8 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
               Registered Badge Holders ({supremeAdmins.length + verifiedMembers.length})
             </h2>
             <p className="text-xs text-slate-600">
-              Registered members carrying official Supreme Admin or Verified
-              badges. Hidden Permanent Owner accounts never appear here.
+              Registered members carrying official public Supreme Admin or Verified
+              badges. Underground admin accounts remain hidden from public listings.
             </p>
           </div>
           <button

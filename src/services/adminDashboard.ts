@@ -113,10 +113,7 @@ function sortByCreatedAtDesc<T extends { createdAt: unknown }>(items: T[]): T[] 
   });
 }
 
-function getAuditActorRole(
-  role: UserRole
-): 'owner' | 'supreme_admin' | 'moderator' {
-  if (role === 'owner') return 'owner';
+function getAuditActorRole(role: UserRole): 'supreme_admin' | 'moderator' {
   if (role === 'supreme_admin') return 'supreme_admin';
   return 'moderator';
 }
@@ -205,8 +202,7 @@ export interface AdminOverviewBundle {
 export async function fetchPlatformOverviewData(input: {
   actorRole: UserRole;
 }): Promise<AdminOverviewBundle> {
-  const isFullAdmin =
-    input.actorRole === 'owner' || input.actorRole === 'supreme_admin';
+  const isFullAdmin = input.actorRole === 'supreme_admin';
   const canReadAnonAudits =
     isFullAdmin && canRevealAnonymousAuthor(auth.currentUser);
 
@@ -558,8 +554,8 @@ export async function adminUpdateMarketplaceStatusWithAudit(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<MarketplaceListing> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can override marketplace status.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can override marketplace status.');
   }
 
   const nextVisibility =
@@ -605,8 +601,8 @@ export async function adminDeleteMarketplaceListingWithAudit(input: {
   actorRole: UserRole;
   reason?: string;
 }): Promise<void> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can permanently remove listings.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can permanently remove listings.');
   }
 
   const mediaSnap = await getDocs(
@@ -766,9 +762,7 @@ export async function resolveAnonymousReportWithAudit(input: {
   allAnonymousComments?: readonly AnonymousComment[];
 }): Promise<AnonymousReport> {
   const isModeratorOrAdmin =
-    input.actorRole === 'owner' ||
-    input.actorRole === 'supreme_admin' ||
-    input.actorRole === 'moderator';
+    input.actorRole === 'supreme_admin' || input.actorRole === 'moderator';
   if (!isModeratorOrAdmin) {
     throw new Error('Only Moderators and Administrators can resolve reports.');
   }
@@ -794,8 +788,7 @@ export async function resolveAnonymousReportWithAudit(input: {
             actorUid: input.actorUid,
           });
         } catch (error) {
-          const isFullAdmin =
-            input.actorRole === 'owner' || input.actorRole === 'supreme_admin';
+          const isFullAdmin = input.actorRole === 'supreme_admin';
           const msg = error instanceof Error ? error.message : '';
           if (!isFullAdmin && /permission|insufficient/i.test(msg)) {
             throw new Error(
@@ -915,8 +908,7 @@ export async function adminDeleteCommentWithAudit(input: {
   actorRole: UserRole;
   reason?: string;
 }): Promise<void> {
-  const isFullAdmin =
-    input.actorRole === 'owner' || input.actorRole === 'supreme_admin';
+  const isFullAdmin = input.actorRole === 'supreme_admin';
 
   if (input.kind === 'posts' && !isFullAdmin) {
     const postComment = input.comment as PostComment;
@@ -1040,8 +1032,8 @@ export async function adminTogglePostFlagsWithAudit(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CommunityPost> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can pin or mark posts official.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can pin or mark posts official.');
   }
 
   const nextPinned =
@@ -1156,8 +1148,8 @@ export async function createOpportunityRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<Opportunity> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can publish opportunities.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can publish opportunities.');
   }
   const validationError = validateOpportunityFormInput(input.form);
   if (validationError) {
@@ -1258,8 +1250,8 @@ export async function updateOpportunityRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<Opportunity> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can edit opportunities.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can edit opportunities.');
   }
   const validationError = validateOpportunityFormInput(input.form);
   if (validationError) {
@@ -1381,8 +1373,8 @@ export async function toggleOpportunityStatusRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<Opportunity> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can update opportunity status.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can update opportunity status.');
   }
 
   const deadlineMs = extractTimestampMs(input.opportunity.expiresAt) ?? 0;
@@ -1437,8 +1429,8 @@ export async function toggleOpportunityVerifiedRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<Opportunity> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can verify opportunities.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can verify opportunities.');
   }
 
   const batch = writeBatch(db);
@@ -1483,8 +1475,8 @@ export async function broadcastOpportunityNotification(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<{ sentCount: number; opportunity: Opportunity }> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can broadcast opportunity notices.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can broadcast opportunity notices.');
   }
 
   const nowMs = Date.now();
@@ -1645,8 +1637,8 @@ export async function deleteOpportunityRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<void> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can remove opportunities.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can remove opportunities.');
   }
   const batch = writeBatch(db);
   batch.delete(doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id));
@@ -1697,8 +1689,8 @@ export async function createCampusEventRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CampusEvent> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can publish campus events.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can publish campus events.');
   }
   const validationError = validateCampusEventFormInput(input.form);
   if (validationError) {
@@ -1846,8 +1838,8 @@ export async function updateCampusEventRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CampusEvent> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can edit campus events.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can edit campus events.');
   }
   const validationError = validateCampusEventFormInput(input.form);
   if (validationError) {
@@ -2037,8 +2029,8 @@ export async function toggleCampusEventPublishedRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CampusEvent> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can publish or unpublish events.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can publish or unpublish events.');
   }
   const batch = writeBatch(db);
   batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
@@ -2077,8 +2069,8 @@ export async function markCampusEventCompletedRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<CampusEvent> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can mark events completed.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can mark events completed.');
   }
   const batch = writeBatch(db);
   batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
@@ -2119,8 +2111,8 @@ export async function broadcastCampusEventNotification(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<{ sentCount: number; event: CampusEvent }> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can send event alerts.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can send event alerts.');
   }
 
   const nowMs = Date.now();
@@ -2285,8 +2277,8 @@ export async function deleteCampusEventRecord(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<void> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can remove campus events.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can remove campus events.');
   }
 
   // Gather associated comments, reactions, mediaImages, and actor bookmarks for cascading cleanup
@@ -2295,6 +2287,7 @@ export async function deleteCampusEventRecord(input: {
       query(
         collection(db, COLLECTION_NAMES.postComments),
         where('postId', '==', input.event.id),
+        where('status', '==', 'published'),
         limit(250)
       )
     ),
@@ -2372,8 +2365,8 @@ export async function updateTrustedContactWithAudit(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<TrustedContact> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can update Trusted Circle contacts.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can update Trusted Circle contacts.');
   }
   const cleanName = input.fullName.trim();
   const cleanRoleTitle = input.roleTitle.trim();
@@ -2515,8 +2508,8 @@ export async function createTrustedContactWithAudit(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<TrustedContact> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can add Trusted Circle contacts.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can add Trusted Circle contacts.');
   }
 
   const contactId = generateFirestoreDocId(COLLECTION_NAMES.trustedContacts);
@@ -2642,8 +2635,8 @@ export async function deleteTrustedContactWithAudit(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<void> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can remove Trusted Circle contacts.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can remove Trusted Circle contacts.');
   }
   const batch = writeBatch(db);
   batch.delete(doc(db, COLLECTION_NAMES.trustedContacts, input.contact.id));
@@ -2761,8 +2754,8 @@ export async function saveGlobalPlatformSettings(input: {
   anonymousPostingOpen: boolean;
   newRegistrationsOpen: boolean;
 }): Promise<PlatformSetting> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
-    throw new Error('Only Supreme Admin or Owner can update platform settings.');
+  if (input.actorRole !== 'supreme_admin') {
+    throw new Error('Only Supreme Admin accounts can update platform settings.');
   }
 
   const cleanNotice = input.maintenanceNotice.trim().slice(0, 400);
@@ -2875,9 +2868,9 @@ export async function broadcastOfficialAnnouncementNotification(input: {
   actorUid: string;
   actorRole: UserRole;
 }): Promise<{ announcementId: string; sentCount: number }> {
-  if (input.actorRole !== 'owner' && input.actorRole !== 'supreme_admin') {
+  if (input.actorRole !== 'supreme_admin') {
     throw new Error(
-      'Only Supreme Admin or Permanent Owner accounts can publish official announcements.'
+      'Only Supreme Admin accounts can publish official announcements.'
     );
   }
   if (!isValidFirestoreId(input.actorUid)) {

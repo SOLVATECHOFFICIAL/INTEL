@@ -6,10 +6,10 @@ import {
   Search,
   Sparkles,
   Tag,
-  User as UserIcon,
   X,
 } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
+import { subscribeCacheMutations } from '../services/cacheInvalidation';
 import {
   getContextualSearchSnapshot,
   saveContextualSearchSnapshot,
@@ -19,10 +19,13 @@ import {
   fetchSearchSuggestionSeed,
   fetchSearchViewerInteractions,
   getCachedSearchBundle,
+  getCachedSuggestionSeedSnapshot,
   getRequiredCollectionsForScope,
   hydrateCachedSearchBundle,
   hydrateSearchSuggestionSeed,
   loadMoreSearchSlice,
+  mergeMembersIntoSuggestionSeed,
+  refreshPeopleProjections,
   type SearchCollectionKey,
   type SearchDiscoveryBundle,
   type SearchSuggestionSeed,
@@ -49,6 +52,7 @@ import {
 } from '../utils/contextualSearch';
 import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions';
 import { GuestPromptCard } from './auth/GuestPromptCard';
+import { AvatarMedia } from './media/FirestoreImage';
 import { PostCard } from './posts/PostCard';
 import { EventCard } from './sections/events/EventCard';
 import { MarketplaceListingCard } from './sections/marketplace/MarketplaceListingCard';
@@ -121,6 +125,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
     loadRecentSearches()
   );
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [hydratingPeopleStats, setHydratingPeopleStats] = useState(false);
 
   useEffect(() => {
     if (prevViewerKeyRef.current === viewerKey) return;
@@ -206,12 +211,182 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeCacheMutations((event) => {
+      if (event.type === 'follow_toggled') {
+        const lower = event.targetUsername.trim().toLowerCase();
+        const delta = event.following ? 1 : -1;
+        setBundle((prev) => {
+          if (!prev) return prev;
+          let changed = false;
+          const nextPeople = prev.people.items.map((member) => {
+            if (member.username.toLowerCase() !== lower) return member;
+            changed = true;
+            return {
+              ...member,
+              followersCount: Math.max(0, (member.followersCount ?? 0) + delta),
+            };
+          });
+          const nextPosts = prev.posts.items.map((entry) => {
+            if (!entry.author || entry.author.username.toLowerCase() !== lower) {
+              return entry;
+            }
+            changed = true;
+            return {
+              ...entry,
+              author: {
+                ...entry.author,
+                followersCount: Math.max(
+                  0,
+                  (entry.author.followersCount ?? 0) + delta
+                ),
+              },
+            };
+          });
+          const nextSellers = new Map(prev.marketplaceSellers);
+          nextSellers.forEach((seller, sellerUid) => {
+            if (seller.username.toLowerCase() === lower) {
+              changed = true;
+              nextSellers.set(sellerUid, {
+                ...seller,
+                followersCount: Math.max(0, (seller.followersCount ?? 0) + delta),
+              });
+            }
+          });
+          if (!changed) return prev;
+          return {
+            ...prev,
+            people: { ...prev.people, items: nextPeople },
+            posts: { ...prev.posts, items: nextPosts },
+            marketplaceSellers: nextSellers,
+          };
+        });
+        const latestSeed = getCachedSuggestionSeedSnapshot();
+        if (latestSeed) {
+          setSuggestionSeed(latestSeed);
+        } else {
+          setSuggestionSeed((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  members: prev.members.map((m) =>
+                    m.username.toLowerCase() === lower
+                      ? {
+                          ...m,
+                          followersCount: Math.max(
+                            0,
+                            (m.followersCount ?? 0) + delta
+                          ),
+                        }
+                      : m
+                  ),
+                }
+              : prev
+          );
+        }
+      } else if (event.type === 'profile_updated') {
+        setBundle((prev) => {
+          if (!prev) return prev;
+          const refreshed = getCachedSearchBundle(prev.normalizedQuery);
+          return refreshed ?? prev;
+        });
+        const latestSeed = getCachedSuggestionSeedSnapshot();
+        if (latestSeed) {
+          setSuggestionSeed(latestSeed);
+        }
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  const refreshCachedPeopleInPlace = useCallback(
+    async (targetBundle: SearchDiscoveryBundle, requestId: number) => {
+      if (
+        targetBundle.people.items.length === 0 ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false)
+      ) {
+        return;
+      }
+      setHydratingPeopleStats(true);
+      try {
+        const refreshed = await refreshPeopleProjections(targetBundle.people.items);
+        if (requestId !== activeRequestIdRef.current) return;
+        mergeMembersIntoSuggestionSeed(refreshed.items);
+        const latestSeed = getCachedSuggestionSeedSnapshot();
+        if (latestSeed) {
+          setSuggestionSeed(latestSeed);
+        }
+        if (refreshed.updatedAny) {
+          setBundle((prev) => {
+            if (
+              !prev ||
+              prev.normalizedQuery.toLowerCase() !==
+                targetBundle.normalizedQuery.toLowerCase()
+            ) {
+              return prev;
+            }
+            const nextSellers = new Map(prev.marketplaceSellers);
+            if (refreshed.removedUsernames.size > 0) {
+              nextSellers.forEach((seller, uid) => {
+                if (refreshed.removedUsernames.has(seller.username.toLowerCase())) {
+                  nextSellers.delete(uid);
+                }
+              });
+            }
+            return {
+              ...prev,
+              people: {
+                ...prev.people,
+                items: refreshed.items,
+              },
+              posts:
+                refreshed.removedUsernames.size > 0
+                  ? {
+                      ...prev.posts,
+                      items: prev.posts.items.filter(
+                        (entry) =>
+                          !entry.author ||
+                          !refreshed.removedUsernames.has(
+                            entry.author.username.toLowerCase()
+                          )
+                      ),
+                    }
+                  : prev.posts,
+              marketplaceSellers: nextSellers,
+            };
+          });
+        }
+      } catch {
+        // Non-blocking stats refresh
+      } finally {
+        if (requestId === activeRequestIdRef.current) {
+          setHydratingPeopleStats(false);
+        }
+      }
+    },
+    []
+  );
+
   const ensureSuggestionSeed = useCallback(() => {
     if (suggestionSeed) return;
     void hydrateSearchSuggestionSeed()
       .then((persisted) => {
         if (persisted) {
           setSuggestionSeed(persisted);
+          if (
+            Date.now() - persisted.fetchedAt > 10_000 &&
+            persisted.members.length > 0 &&
+            (typeof navigator === 'undefined' || navigator.onLine !== false)
+          ) {
+            void refreshPeopleProjections(persisted.members)
+              .then((res) => {
+                if (!res.updatedAny) return;
+                setSuggestionSeed((prev) =>
+                  prev ? { ...prev, members: res.items } : prev
+                );
+              })
+              .catch(() => undefined);
+          }
           if (Date.now() - persisted.fetchedAt <= 5 * 60 * 1000) {
             return;
           }
@@ -234,6 +409,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         setErrorMessage(null);
         setStatus('idle');
         setBundle(null);
+        setHydratingPeopleStats(false);
         return;
       }
 
@@ -243,6 +419,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         setErrorMessage(null);
         setStatus('short');
         setBundle(null);
+        setHydratingPeopleStats(false);
         return;
       }
 
@@ -251,12 +428,14 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       setSubmittedQuery(cleanQuery);
       setValidationMessage(null);
       setErrorMessage(null);
+      setHydratingPeopleStats(false);
 
       if (options?.recordRecent) {
         setRecentSearches(saveRecentSearch(cleanQuery));
       }
 
-      let cached = getCachedSearchBundle(cleanQuery);
+      const ramCached = getCachedSearchBundle(cleanQuery);
+      let cached = ramCached;
       if (!cached) {
         cached = await hydrateCachedSearchBundle(cleanQuery).catch(() => null);
         if (requestId !== activeRequestIdRef.current) return;
@@ -269,20 +448,30 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         setBundle(cached);
         if (allLoaded) {
           setStatus('ready');
+          const needsPeopleStatsSync =
+            cached.people.items.length > 0 &&
+            (!ramCached || Date.now() - cached.updatedAt > 5_000);
           if (
             Date.now() - cached.updatedAt > 30_000 &&
             (typeof navigator === 'undefined' || navigator.onLine !== false)
           ) {
+            if (needsPeopleStatsSync) {
+              void refreshCachedPeopleInPlace(cached, requestId);
+            }
             void executeScopedSearchDiscovery({
               rawQuery: cleanQuery,
               scope,
             })
               .then((freshBundle) => {
                 if (requestId === activeRequestIdRef.current) {
+                  mergeMembersIntoSuggestionSeed(freshBundle.people.items);
                   setBundle(freshBundle);
+                  setHydratingPeopleStats(false);
                 }
               })
               .catch(() => undefined);
+          } else if (needsPeopleStatsSync) {
+            void refreshCachedPeopleInPlace(cached, requestId);
           }
           return;
         }
@@ -304,6 +493,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
           scope,
         });
         if (requestId !== activeRequestIdRef.current) return;
+        mergeMembersIntoSuggestionSeed(nextBundle.people.items);
         setBundle(nextBundle);
         setStatus('ready');
       } catch (err) {
@@ -312,7 +502,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
         setStatus('error');
       }
     },
-    [scope]
+    [scope, refreshCachedPeopleInPlace]
   );
 
   useEffect(() => {
@@ -376,6 +566,9 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
     setLoadingMoreSlice(sliceKey);
     try {
       const updated = await loadMoreSearchSlice({ bundle, sliceKey });
+      if (sliceKey === 'people') {
+        mergeMembersIntoSuggestionSeed(updated.people.items);
+      }
       setBundle(updated);
     } catch (err) {
       setErrorMessage(formatSearchUserError(err));
@@ -603,14 +796,29 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
+        </div>
 
-          {suggestionsOpen && suggestions.length > 0 && (
-            <div
-              role="listbox"
-              aria-label="Search suggestions"
-              className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
-            >
-              {suggestions.map((sug) => (
+        <button
+          type="submit"
+          className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
+        >
+          Search
+        </button>
+
+        {suggestionsOpen && suggestions.length > 0 && (
+          <div
+            role="listbox"
+            aria-label="Search suggestions"
+            className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+          >
+            {suggestions.map((sug) => {
+              const compactPersonFollowers =
+                sug.kind === 'person' && typeof sug.followersCount === 'number'
+                  ? sug.followersCount === 1
+                    ? '1 follower'
+                    : `${sug.followersCount} followers`
+                  : null;
+              return (
                 <button
                   key={sug.id}
                   type="button"
@@ -618,18 +826,22 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                   aria-selected={false}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleSelectSuggestion(sug)}
-                  className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50"
+                  className="flex w-full items-center justify-between gap-2.5 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50"
                 >
-                  <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex min-w-0 flex-1 items-center gap-2.5">
                     {sug.kind === 'recent' ? (
                       <Clock
                         className="h-3.5 w-3.5 shrink-0 text-slate-400"
                         aria-hidden="true"
                       />
                     ) : sug.kind === 'person' ? (
-                      <UserIcon
-                        className="h-3.5 w-3.5 shrink-0 text-[#1E88E5]"
-                        aria-hidden="true"
+                      <AvatarMedia
+                        fullName={sug.fullName || sug.label}
+                        photoImageId={sug.photoImageId}
+                        photoUrl={sug.photoUrl}
+                        sizeClass="h-8 w-8"
+                        roundedClass="rounded-lg"
+                        textClass="text-[10px]"
                       />
                     ) : sug.kind === 'category' ? (
                       <Tag
@@ -642,27 +854,36 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                         aria-hidden="true"
                       />
                     )}
-                    <span className="truncate font-semibold text-[#0B1A2E]">
-                      {sug.label}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold text-[#0B1A2E]">
+                        {sug.kind === 'person'
+                          ? sug.fullName || sug.label
+                          : sug.label}
+                      </span>
+                      {sug.kind === 'person' && sug.username && (
+                        <span className="block truncate text-[11px] text-slate-500">
+                          @{sug.username}
+                        </span>
+                      )}
                     </span>
                   </span>
                   {sug.subtitle && (
-                    <span className="shrink-0 text-[11px] text-slate-500">
-                      {sug.subtitle}
+                    <span className="shrink-0 text-[11px] font-medium text-slate-500 tabular-nums">
+                      {compactPersonFollowers ? (
+                        <>
+                          <span className="sm:hidden">{compactPersonFollowers}</span>
+                          <span className="hidden sm:inline">{sug.subtitle}</span>
+                        </>
+                      ) : (
+                        sug.subtitle
+                      )}
                     </span>
                   )}
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <button
-          type="submit"
-          className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
-        >
-          Search
-        </button>
+              );
+            })}
+          </div>
+        )}
       </form>
 
       {guestPromptTitle && (
@@ -731,6 +952,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                       key={member.username}
                       member={member}
                       viewerUsername={profile?.username}
+                      hydratingStats={hydratingPeopleStats}
                       onOpenProfile={(uname) =>
                         onNavigate('profile', { username: uname })
                       }

@@ -1,5 +1,7 @@
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   orderBy,
@@ -37,6 +39,8 @@ import {
   filterOpportunities,
   filterTrustedContacts,
   normalizeSearchInput,
+  sanitizePublicProfileProjection,
+  tokenizeSearchQuery,
   type SearchableCommunityPostItem,
 } from '../utils/contextualSearch';
 import { isCampusEventPublished } from '../utils/events';
@@ -142,10 +146,12 @@ const authorProjectionCache = new BoundedLruMap<
   string,
   PublicProfileProjection | null
 >(250);
+const usernameToUidCache = new BoundedLruMap<string, string>(500);
 const searchSingleFlight = new SingleFlightRegistry();
 const SEARCH_SEED_IDB_KEY = 'search:seed:v1';
 const makeSearchBundleIdbKey = (normalizedQuery: string) =>
   `search:bundle:v1:${normalizedQuery.trim().toLowerCase()}`;
+const USERNAME_HANDLE_REGEX = /^[a-z0-9_]{3,32}$/;
 
 function getBundleCacheKey(rawQuery: string): string {
   return normalizeSearchInput(rawQuery).toLowerCase();
@@ -347,30 +353,236 @@ async function hydrateAuthorsByUids(
   return result;
 }
 
+function cacheDiscoveredUserProfile(profile: PublicUserProfile): PublicProfileProjection | null {
+  if (profile.isHiddenFromDirectory || profile.accountStatus !== 'active') {
+    return null;
+  }
+  const projection = toPublicProfileProjection(profile);
+  authorProjectionCache.set(profile.uid, projection);
+  if (profile.username) {
+    usernameToUidCache.set(profile.username.toLowerCase(), profile.uid);
+  }
+  return projection;
+}
+
+async function resolveUidForSearchUsername(
+  rawUsername: string
+): Promise<string | null> {
+  const clean = rawUsername.trim().toLowerCase().replace(/^@+/, '');
+  if (!USERNAME_HANDLE_REGEX.test(clean)) return null;
+
+  const cachedUid = usernameToUidCache.get(clean);
+  if (cachedUid && isValidFirestoreId(cachedUid)) {
+    return cachedUid;
+  }
+
+  let current = clean;
+  const visited = new Set<string>();
+  for (let hop = 0; hop < 3; hop += 1) {
+    if (visited.has(current) || !USERNAME_HANDLE_REGEX.test(current)) break;
+    visited.add(current);
+    try {
+      const snap = await getDoc(doc(db, COLLECTION_NAMES.usernames, current));
+      if (!snap.exists()) return null;
+      const data = snap.data() as {
+        ownerUID?: string;
+        redirectToUsername?: string;
+      };
+      if (
+        data.redirectToUsername &&
+        USERNAME_HANDLE_REGEX.test(data.redirectToUsername) &&
+        data.redirectToUsername !== current
+      ) {
+        current = data.redirectToUsername;
+        continue;
+      }
+      if (data.ownerUID && isValidFirestoreId(data.ownerUID)) {
+        usernameToUidCache.set(clean, data.ownerUID);
+        usernameToUidCache.set(current, data.ownerUID);
+        return data.ownerUID;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function resolveDirectMemberMatches(
+  rawQuery: string
+): Promise<PublicUserProfile[]> {
+  const tokens = tokenizeSearchQuery(rawQuery)
+    .filter((t) => USERNAME_HANDLE_REGEX.test(t))
+    .slice(0, 3);
+  if (tokens.length === 0) return [];
+
+  const uids = await Promise.all(
+    tokens.map((token) => resolveUidForSearchUsername(token))
+  );
+  const uniqueUids = Array.from(
+    new Set(uids.filter((uid): uid is string => Boolean(uid)))
+  );
+  if (uniqueUids.length === 0) return [];
+
+  const snaps = await Promise.allSettled(
+    uniqueUids.map((uid) => getDoc(doc(db, COLLECTION_NAMES.users, uid)))
+  );
+
+  const profiles: PublicUserProfile[] = [];
+  for (const res of snaps) {
+    if (res.status !== 'fulfilled' || !res.value.exists()) continue;
+    const profile = res.value.data() as PublicUserProfile;
+    if (!profile.isHiddenFromDirectory && profile.accountStatus === 'active') {
+      cacheDiscoveredUserProfile(profile);
+      profiles.push(profile);
+    }
+  }
+  return profiles;
+}
+
+/**
+ * Fetches live follower/following counts, avatar/cover media, and active status
+ * directly from `/users/{uid}` for cached member results or autocomplete previews
+ * so search results never display stale or 0 counts without opening a profile.
+ */
+export async function refreshPeopleProjections(
+  members: readonly PublicProfileProjection[]
+): Promise<{
+  items: PublicProfileProjection[];
+  removedUsernames: Set<string>;
+  updatedAny: boolean;
+}> {
+  if (
+    members.length === 0 ||
+    (typeof navigator !== 'undefined' && navigator.onLine === false)
+  ) {
+    return {
+      items: [...members],
+      removedUsernames: new Set(),
+      updatedAny: false,
+    };
+  }
+
+  const targets = members.slice(0, 24);
+  const removedUsernames = new Set<string>();
+  const resolvedByLower = new Map<string, PublicProfileProjection>();
+
+  await Promise.all(
+    targets.map(async (member) => {
+      const lower = member.username.trim().toLowerCase();
+      if (!lower) return;
+      const uid = await resolveUidForSearchUsername(lower);
+      if (!uid) {
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, COLLECTION_NAMES.users, uid));
+        if (!snap.exists()) {
+          removedUsernames.add(lower);
+          return;
+        }
+        const profile = snap.data() as PublicUserProfile;
+        if (profile.isHiddenFromDirectory || profile.accountStatus !== 'active') {
+          removedUsernames.add(lower);
+          return;
+        }
+        const fresh = sanitizePublicProfileProjection(profile);
+        cacheDiscoveredUserProfile(profile);
+        resolvedByLower.set(lower, fresh);
+      } catch (err) {
+        if (isFirebaseErrorCode(err, 'permission-denied')) {
+          removedUsernames.add(lower);
+        }
+      }
+    })
+  );
+
+  let updatedAny = removedUsernames.size > 0;
+  const items: PublicProfileProjection[] = [];
+  for (const member of members) {
+    const lower = member.username.trim().toLowerCase();
+    if (removedUsernames.has(lower)) {
+      continue;
+    }
+    const fresh = resolvedByLower.get(lower);
+    if (fresh) {
+      if (
+        fresh.followersCount !== member.followersCount ||
+        fresh.followingCount !== member.followingCount ||
+        fresh.photoImageId !== member.photoImageId ||
+        fresh.photoUrl !== member.photoUrl ||
+        fresh.fullName !== member.fullName ||
+        fresh.badge !== member.badge
+      ) {
+        updatedAny = true;
+      }
+      items.push(fresh);
+    } else {
+      items.push(member);
+    }
+  }
+
+  return { items, removedUsernames, updatedAny };
+}
+
 async function fetchPeopleBatch(
   rawQuery: string,
   cursor: QueryDocumentSnapshot<DocumentData> | null
 ): Promise<SearchSliceState<PublicProfileProjection>> {
-  const q = query(
-    collection(db, COLLECTION_NAMES.users),
-    where('isHiddenFromDirectory', '==', false),
-    ...(cursor ? [startAfter(cursor)] : []),
-    limit(SEARCH_BATCH_SIZE + 1)
-  );
-  const snap = await getDocs(q);
-  const hasMore = snap.docs.length > SEARCH_BATCH_SIZE;
-  const pageDocs = snap.docs.slice(0, SEARCH_BATCH_SIZE);
-  const lastDoc = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+  const MAX_SCAN_BATCHES = 4;
+  const collectedByUid = new Map<string, PublicUserProfile>();
 
-  const profiles = pageDocs.map((d) => d.data() as PublicUserProfile);
-  for (const p of profiles) {
-    if (!p.isHiddenFromDirectory && p.accountStatus === 'active') {
-      authorProjectionCache.set(p.uid, toPublicProfileProjection(p));
+  const directProfilesPromise = !cursor
+    ? resolveDirectMemberMatches(rawQuery)
+    : Promise.resolve([] as PublicUserProfile[]);
+
+  let currentCursor = cursor;
+  let hasMore = false;
+  let lastDoc: QueryDocumentSnapshot<DocumentData> | null = cursor;
+  let matchedProfiles: PublicProfileProjection[] = [];
+
+  for (let batchIdx = 0; batchIdx < MAX_SCAN_BATCHES; batchIdx += 1) {
+    const q = query(
+      collection(db, COLLECTION_NAMES.users),
+      where('isHiddenFromDirectory', '==', false),
+      ...(currentCursor ? [startAfter(currentCursor)] : []),
+      limit(SEARCH_BATCH_SIZE + 1)
+    );
+    const snap = await getDocs(q);
+    hasMore = snap.docs.length > SEARCH_BATCH_SIZE;
+    const pageDocs = snap.docs.slice(0, SEARCH_BATCH_SIZE);
+    lastDoc = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+    currentCursor = lastDoc;
+
+    for (const d of pageDocs) {
+      const p = d.data() as PublicUserProfile;
+      if (!p.isHiddenFromDirectory && p.accountStatus === 'active') {
+        cacheDiscoveredUserProfile(p);
+        collectedByUid.set(p.uid, p);
+      }
+    }
+
+    const directProfiles =
+      batchIdx === 0 ? await directProfilesPromise : [];
+    for (const dp of directProfiles) {
+      if (!collectedByUid.has(dp.uid)) {
+        collectedByUid.set(dp.uid, dp);
+      }
+    }
+
+    matchedProfiles = filterMemberMatches(
+      Array.from(collectedByUid.values()),
+      rawQuery
+    );
+
+    if (matchedProfiles.length >= 10 || !hasMore || !lastDoc) {
+      break;
     }
   }
 
   return {
-    items: filterMemberMatches(profiles, rawQuery),
+    items: matchedProfiles,
     cursor: hasMore ? lastDoc : null,
     hasMore,
     loaded: true,
@@ -931,7 +1143,7 @@ export async function fetchSearchSuggestionSeed(): Promise<SearchSuggestionSeed>
           query(
             collection(db, COLLECTION_NAMES.users),
             where('isHiddenFromDirectory', '==', false),
-            limit(30)
+            limit(60)
           )
         ),
         getDocs(
@@ -969,13 +1181,9 @@ export async function fetchSearchSuggestionSeed(): Promise<SearchSuggestionSeed>
     if (usersResult.status === 'fulfilled') {
       for (const d of usersResult.value.docs) {
         const profile = d.data() as PublicUserProfile;
-        if (
-          !profile.isHiddenFromDirectory &&
-          profile.accountStatus === 'active'
-        ) {
-          const proj = toPublicProfileProjection(profile);
+        const proj = cacheDiscoveredUserProfile(profile);
+        if (proj) {
           members.push(proj);
-          authorProjectionCache.set(profile.uid, proj);
         }
       }
     }
@@ -1041,6 +1249,178 @@ export async function fetchSearchSuggestionSeed(): Promise<SearchSuggestionSeed>
   });
 }
 
+export function getCachedSuggestionSeedSnapshot(): SearchSuggestionSeed | null {
+  return cachedSuggestionSeed;
+}
+
+export function mergeMembersIntoSuggestionSeed(
+  incomingMembers: readonly PublicProfileProjection[]
+): void {
+  if (!cachedSuggestionSeed || incomingMembers.length === 0) return;
+  const byLower = new Map<string, PublicProfileProjection>();
+  for (const m of cachedSuggestionSeed.members) {
+    byLower.set(m.username.toLowerCase(), m);
+  }
+  for (const m of incomingMembers) {
+    if (m.accountStatus !== 'active') continue;
+    byLower.set(m.username.toLowerCase(), m);
+  }
+  cachedSuggestionSeed = {
+    ...cachedSuggestionSeed,
+    members: Array.from(byLower.values()).slice(0, 80),
+  };
+}
+
+function patchSearchBundleAndSeedFollowCount(
+  targetUsernameLower: string,
+  following: boolean
+): void {
+  const delta = following ? 1 : -1;
+
+  for (const [key, bundle] of Array.from(bundleCache.entries())) {
+    let changed = false;
+    const nextPeople = bundle.people.items.map((member) => {
+      if (member.username.toLowerCase() !== targetUsernameLower) return member;
+      changed = true;
+      return {
+        ...member,
+        followersCount: Math.max(0, (member.followersCount ?? 0) + delta),
+      };
+    });
+    const nextPosts = bundle.posts.items.map((entry) => {
+      if (
+        !entry.author ||
+        entry.author.username.toLowerCase() !== targetUsernameLower
+      ) {
+        return entry;
+      }
+      changed = true;
+      return {
+        ...entry,
+        author: {
+          ...entry.author,
+          followersCount: Math.max(
+            0,
+            (entry.author.followersCount ?? 0) + delta
+          ),
+        },
+      };
+    });
+    const nextSellers = new Map(bundle.marketplaceSellers);
+    nextSellers.forEach((seller, sellerUid) => {
+      if (seller.username.toLowerCase() === targetUsernameLower) {
+        changed = true;
+        nextSellers.set(sellerUid, {
+          ...seller,
+          followersCount: Math.max(0, (seller.followersCount ?? 0) + delta),
+        });
+      }
+    });
+    if (changed) {
+      const updatedBundle: SearchDiscoveryBundle = {
+        ...bundle,
+        people: { ...bundle.people, items: nextPeople },
+        posts: { ...bundle.posts, items: nextPosts },
+        marketplaceSellers: nextSellers,
+      };
+      bundleCache.set(key, updatedBundle);
+      setCachedSearchBundle(updatedBundle);
+    }
+  }
+
+  if (cachedSuggestionSeed) {
+    let seedChanged = false;
+    const nextMembers = cachedSuggestionSeed.members.map((member) => {
+      if (member.username.toLowerCase() !== targetUsernameLower) return member;
+      seedChanged = true;
+      return {
+        ...member,
+        followersCount: Math.max(0, (member.followersCount ?? 0) + delta),
+      };
+    });
+    if (seedChanged) {
+      cachedSuggestionSeed = {
+        ...cachedSuggestionSeed,
+        members: nextMembers,
+      };
+      void writePersistentContent(SEARCH_SEED_IDB_KEY, cachedSuggestionSeed, {
+        viewerKey: 'public',
+        scope: 'public',
+      });
+    }
+  }
+
+  const cachedUid = usernameToUidCache.get(targetUsernameLower);
+  if (cachedUid) {
+    const cachedAuthor = authorProjectionCache.get(cachedUid);
+    if (cachedAuthor) {
+      authorProjectionCache.set(cachedUid, {
+        ...cachedAuthor,
+        followersCount: Math.max(0, (cachedAuthor.followersCount ?? 0) + delta),
+      });
+    }
+  }
+}
+
+function patchSearchBundleAndSeedProfile(
+  uid: string,
+  patchOrProfile: Partial<PublicProfileProjection>
+): void {
+  const lower = patchOrProfile.username?.trim().toLowerCase();
+  for (const [key, bundle] of Array.from(bundleCache.entries())) {
+    let changed = false;
+    const nextPeople = bundle.people.items.map((member) => {
+      const uidMatched = usernameToUidCache.get(member.username.toLowerCase()) === uid;
+      const unameMatched = lower && member.username.toLowerCase() === lower;
+      if (!uidMatched && !unameMatched) return member;
+      changed = true;
+      return { ...member, ...patchOrProfile };
+    });
+    const nextPosts = bundle.posts.items.map((entry) => {
+      if (entry.post.ownerUID !== uid || !entry.author) return entry;
+      changed = true;
+      return { ...entry, author: { ...entry.author, ...patchOrProfile } };
+    });
+    const nextSellers = new Map(bundle.marketplaceSellers);
+    const existingSeller = nextSellers.get(uid);
+    if (existingSeller) {
+      changed = true;
+      nextSellers.set(uid, { ...existingSeller, ...patchOrProfile });
+    }
+    if (changed) {
+      const updatedBundle: SearchDiscoveryBundle = {
+        ...bundle,
+        people: { ...bundle.people, items: nextPeople },
+        posts: { ...bundle.posts, items: nextPosts },
+        marketplaceSellers: nextSellers,
+      };
+      bundleCache.set(key, updatedBundle);
+      setCachedSearchBundle(updatedBundle);
+    }
+  }
+
+  if (cachedSuggestionSeed) {
+    let seedChanged = false;
+    const nextMembers = cachedSuggestionSeed.members.map((member) => {
+      const uidMatched = usernameToUidCache.get(member.username.toLowerCase()) === uid;
+      const unameMatched = lower && member.username.toLowerCase() === lower;
+      if (!uidMatched && !unameMatched) return member;
+      seedChanged = true;
+      return { ...member, ...patchOrProfile };
+    });
+    if (seedChanged) {
+      cachedSuggestionSeed = {
+        ...cachedSuggestionSeed,
+        members: nextMembers,
+      };
+      void writePersistentContent(SEARCH_SEED_IDB_KEY, cachedSuggestionSeed, {
+        viewerKey: 'public',
+        scope: 'public',
+      });
+    }
+  }
+}
+
 registerSearchCacheInvalidator({
   invalidate: () => {
     bundleCache.clear();
@@ -1052,11 +1432,19 @@ registerSearchCacheInvalidator({
   },
   patchAuthor: (uid, profile) => {
     authorProjectionCache.set(uid, profile);
+    if (profile.username) {
+      usernameToUidCache.set(profile.username.toLowerCase(), uid);
+    }
+    patchSearchBundleAndSeedProfile(uid, profile);
   },
   patchAuthorPartial: (uid, patch) => {
     const existing = authorProjectionCache.get(uid);
     if (existing) {
       authorProjectionCache.set(uid, { ...existing, ...patch });
     }
+    patchSearchBundleAndSeedProfile(uid, patch);
+  },
+  patchFollowCount: (targetUsername, following) => {
+    patchSearchBundleAndSeedFollowCount(targetUsername.trim().toLowerCase(), following);
   },
 });

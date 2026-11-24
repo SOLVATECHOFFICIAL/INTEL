@@ -489,8 +489,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     return () => window.clearTimeout(timer);
   }, [viewerKey, kind, post.id, replyingToId, replyBody]);
 
-  const isAdminOrOwner =
-    viewerTier === 'supreme_admin' || viewerTier === 'owner';
+  const isAdminOrOwner = viewerTier === 'supreme_admin';
   const isOrdinaryOwner =
     kind === 'ordinary' &&
     Boolean(viewerUid) &&

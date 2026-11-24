@@ -10,6 +10,7 @@ import { AvatarMedia } from '../../media/FirestoreImage';
 interface MemberDirectoryCardProps {
   member: PublicProfileProjection;
   viewerUsername?: string | null;
+  hydratingStats?: boolean;
   onOpenProfile: (username: string) => void;
   onRequireAuth?: () => void;
 }
@@ -17,6 +18,7 @@ interface MemberDirectoryCardProps {
 export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
   member,
   viewerUsername = null,
+  hydratingStats = false,
   onOpenProfile,
   onRequireAuth,
 }: MemberDirectoryCardProps) {
@@ -58,6 +60,11 @@ export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
           </p>
           <p className="mt-0.5 text-[11px] font-medium text-slate-500 tabular-nums">
             {member.followersCount} followers · {member.followingCount} following
+            {hydratingStats && (
+              <span className="ml-1.5 font-normal text-slate-400">
+                · Updating...
+              </span>
+            )}
           </p>
         </div>
       </button>

@@ -234,12 +234,12 @@ export const AdminMembersTab: React.FC<AdminMembersTabProps> = ({
       ) : (
         <div className="space-y-3">
           {filteredMembers.map((entry) => {
-            const { profile, effectiveRole, isPermanentOwner } = entry;
+            const { profile, effectiveRole } = entry;
             const isSelf = profile.uid === actorUid;
             const isBusy = busyUid === profile.uid;
             const canModify = canActorUpdateTargetRoleRecord(
               actorRole,
-              isPermanentOwner,
+              false,
               effectiveRole,
               undefined,
               actorUid,
@@ -317,11 +317,7 @@ export const AdminMembersTab: React.FC<AdminMembersTabProps> = ({
                     Badges
                   </button>
 
-                  {isPermanentOwner ? (
-                    <span className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-900">
-                      Protected Owner
-                    </span>
-                  ) : !canModify ? (
+                  {!canModify ? (
                     <span className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
                       {isSelf ? 'Self protected' : 'Supreme Admin protected'}
                     </span>

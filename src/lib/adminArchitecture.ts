@@ -10,7 +10,7 @@
  *
  * Therefore:
  * - No live `firebase-admin` IAM code or service account keys exist in this repository.
- * - All RBAC, Permanent Owner protection, PII isolation, and anonymous identity isolation
+ * - All RBAC, Designated Two-Admin protection, PII isolation, and anonymous identity isolation
  *   are enforced server-side by Cloud Firestore Security Rules (`firestore.rules`).
  * - This module defines the clean TypeScript contracts ready for future Cloud Functions
  *   or Node Admin SDK endpoints if/when the owner upgrades the project.

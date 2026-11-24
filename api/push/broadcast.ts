@@ -48,7 +48,7 @@ export default async function handler(
     return;
   }
 
-  const config = getServerPushConfigStatus();
+  const config = getServerPushConfigStatus(req.headers);
   const clients = getAdminClients();
   if (!clients || !config.vapidConfigured || !ensureWebPushConfigured()) {
     sendJson(res, 200, {
@@ -65,12 +65,9 @@ export default async function handler(
     return;
   }
   if (caller.kind === 'user') {
-    if (
-      caller.isSuspended ||
-      (caller.role !== 'owner' && caller.role !== 'supreme_admin')
-    ) {
+    if (caller.isSuspended || caller.role !== 'supreme_admin') {
       sendJson(res, 403, {
-        error: 'Only Supreme Admin or Permanent Owner can broadcast push alerts.',
+        error: 'Only Supreme Admin accounts can broadcast push alerts.',
       });
       return;
     }

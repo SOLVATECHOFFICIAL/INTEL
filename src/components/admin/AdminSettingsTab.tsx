@@ -13,8 +13,6 @@ interface AdminSettingsTabProps {
   loading: boolean;
   actorUid: string;
   actorRole: UserRole;
-  isPermanentOwner: boolean;
-  onJumpToBadges: () => void;
   onSuccess: (message: string) => void;
   onError: (message: string) => void;
   onSaved: (nextSettings: PlatformSetting) => void;
@@ -25,8 +23,6 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   loading,
   actorUid,
   actorRole,
-  isPermanentOwner,
-  onJumpToBadges,
   onSuccess,
   onError,
   onSaved,
@@ -125,29 +121,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-purple-200 bg-purple-50/60 p-4 text-xs leading-relaxed text-purple-950">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 font-display text-sm font-bold">
-            <Crown className="h-4 w-4 text-purple-700" aria-hidden="true" />
-            Protected Owner &amp; Supreme Admin Authority
-          </div>
-          {isPermanentOwner && (
-            <button
-              type="button"
-              onClick={onJumpToBadges}
-              className="rounded-lg bg-purple-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-900"
-            >
-              Manage Supreme Admin Access
-            </button>
-          )}
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-700">
+        <div className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
+          <Crown className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+          Protected Two-Admin Authority Architecture
         </div>
         <p className="mt-2">
-          The Permanent Owner authority remains protected against demotion,
-          suspension, or deletion through dashboard actions and is excluded
-          from public member directories and Trusted Circle listings.
-          Authorized customer Supreme Admin accounts receive delegated
-          platform management privileges without being able to alter the
-          Permanent Owner or peer Supreme Admins.
+          Platform governance is permanently locked by Firebase Security Rules to
+          only the two designated Supreme Admin accounts (Public Supreme Admin
+          and Underground Supreme Admin). Peer Supreme Admins cannot be demoted,
+          suspended, or deleted, and additional Supreme Admin or legacy owner
+          roles cannot be assigned.
         </p>
       </div>
 
@@ -269,7 +253,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             </h2>
             <p className="text-[11px] text-slate-600">
               Deliver an official notice directly to members&apos; notification
-              centres. Restricted to Supreme Admin and Owner accounts.
+              centres. Restricted to Supreme Admin accounts.
             </p>
           </div>
         </div>
