@@ -899,6 +899,8 @@ export async function deletePostCascading(input: {
       ? COLLECTION_NAMES.postComments
       : COLLECTION_NAMES.anonymousComments;
 
+  const commentFetchLimit = input.kind === 'anonymousPosts' ? 150 : 200;
+
   const [commentsSnap, reactionsSnap, mediaQuerySnap, savedActorSnap] =
     await Promise.all([
       getDocs(
@@ -906,7 +908,7 @@ export async function deletePostCascading(input: {
           collection(db, commentCollection),
           where('postId', '==', postId),
           where('status', '==', 'published'),
-          limit(200)
+          limit(commentFetchLimit)
         )
       ),
       getDocs(
@@ -914,7 +916,7 @@ export async function deletePostCascading(input: {
           collection(db, COLLECTION_NAMES.postReactions),
           where('targetCollection', '==', input.kind),
           where('targetId', '==', postId),
-          limit(200)
+          limit(300)
         )
       ).catch(() => null),
       getDocs(
@@ -983,41 +985,31 @@ export async function deletePostCascading(input: {
     }
   }
 
-  const batch = writeBatch(db);
-
+  // Chunk 0 keeps the post, identity mappings, history, media, saved bookmarks, and comments atomic
+  // so exists()/!existsAfter() security rule checks evaluate cleanly inside a <= 380-write batch.
+  const primaryRefs: Array<ReturnType<typeof doc>> = [];
   for (const commentDoc of commentsSnap.docs) {
-    batch.delete(commentDoc.ref);
+    primaryRefs.push(commentDoc.ref);
     if (input.kind === 'anonymousPosts') {
-      batch.delete(
+      primaryRefs.push(
         doc(db, COLLECTION_NAMES.anonymousIdentityMappings, commentDoc.id)
       );
     }
   }
-
-  if (reactionsSnap) {
-    for (const reactionDoc of reactionsSnap.docs) {
-      batch.delete(reactionDoc.ref);
-    }
-  } else if (actorOwnAnonReactionRef) {
-    batch.delete(actorOwnAnonReactionRef);
-  }
-
   if (savedActorSnap) {
     for (const savedDoc of savedActorSnap.docs) {
       if ((savedDoc.data() as SavedPost).targetCollection === input.kind) {
-        batch.delete(savedDoc.ref);
+        primaryRefs.push(savedDoc.ref);
       }
     }
   }
-
   for (const mediaId of existingMediaIds) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, mediaId));
+    primaryRefs.push(doc(db, COLLECTION_NAMES.mediaImages, mediaId));
   }
-
   if (input.kind === 'anonymousPosts') {
-    batch.delete(doc(db, COLLECTION_NAMES.anonymousIdentityMappings, postId));
+    primaryRefs.push(doc(db, COLLECTION_NAMES.anonymousIdentityMappings, postId));
     if (hasAnonymousHistoryDoc) {
-      batch.delete(
+      primaryRefs.push(
         doc(
           db,
           COLLECTION_NAMES.privateUserData,
@@ -1028,12 +1020,37 @@ export async function deletePostCascading(input: {
       );
     }
   }
+  primaryRefs.push(doc(db, collectionName, postId));
 
-  batch.delete(doc(db, collectionName, postId));
+  const reactionRefs: Array<ReturnType<typeof doc>> = reactionsSnap
+    ? reactionsSnap.docs.map((reactionDoc) => reactionDoc.ref)
+    : actorOwnAnonReactionRef
+      ? [actorOwnAnonReactionRef]
+      : [];
+
+  const CHUNK_SIZE = 380;
+  const remainingPrimaryCapacity = Math.max(0, CHUNK_SIZE - primaryRefs.length);
+  const chunk0Refs = [
+    ...primaryRefs,
+    ...reactionRefs.slice(0, remainingPrimaryCapacity),
+  ];
+  const overflowReactionRefs = reactionRefs.slice(remainingPrimaryCapacity);
 
   const path = `${collectionName}/${postId}`;
   try {
-    await batch.commit();
+    const firstBatch = writeBatch(db);
+    for (const ref of chunk0Refs) {
+      firstBatch.delete(ref);
+    }
+    await firstBatch.commit();
+
+    for (let i = 0; i < overflowReactionRefs.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      for (const ref of overflowReactionRefs.slice(i, i + CHUNK_SIZE)) {
+        batch.delete(ref);
+      }
+      await batch.commit();
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

@@ -166,7 +166,7 @@ test('Prompt 6 adminAuditLogs immutability, scoped moderator boundaries, and col
   // Moderator notification create strictly limited to marketplace decisions
   assert.match(
     rulesText,
-    /\(isModerator\(\) && incoming\(\)\.eventType in \['marketplace_approved', 'marketplace_rejected'\]\)/
+    /\(isModerator\(\) && incoming\(\)\.eventType in \['marketplace_approved', 'marketplace_rejected'\]/
   );
 
   // Moderator marketplace review strictly limited to ordinary members
@@ -188,7 +188,7 @@ test('Prompt 6 adminAuditLogs immutability, scoped moderator boundaries, and col
   // Moderator can delete mediaImages belonging to ordinary community posts
   assert.match(
     rulesText,
-    /existing\(\)\.targetCollection == 'posts' && isModerator\(\) && \(!hasRoleDoc\(existing\(\)\.ownerUID\) \|\| roleDoc\(existing\(\)\.ownerUID\)\.role == 'member'\)/
+    /existing\(\)\.targetCollection == 'posts' && isModerator\(\) && 'ownerUID' in existing\(\) && isValidId\(existing\(\)\.ownerUID\) && \(!hasRoleDoc\(existing\(\)\.ownerUID\) \|\| roleDoc\(existing\(\)\.ownerUID\)\.role == 'member'\)/
   );
 
   // Platform settings support admin operational toggles without unauthenticated writes
@@ -558,3 +558,129 @@ test('Official updates rules enforce strict two-admin publishing, underground of
   assert.match(rulesText, /'update_deleted'/);
   assert.doesNotMatch(rulesText, /estheriawoyinfa52@gmail\.com/i);
 });
+
+test('Rebuilt rules enforce Supreme Admin self-sync, orphaned reaction cleanup, admin affectedKeys locks, state consistency, and required composite indexes', () => {
+  // Designated Supreme Admin self-sync on users/{userId}
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  assert.match(
+    usersBlock,
+    /isDesignatedSupremeAdminEmail\(\) &&[\s\S]*isOwnerOf\(userId\) &&[\s\S]*incoming\(\)\.badge == \(isUndergroundSupremeAdminEmail\(\) \? 'none' : 'supreme_admin'\) &&[\s\S]*incoming\(\)\.isHiddenFromDirectory == isUndergroundSupremeAdminEmail\(\) &&[\s\S]*affectedKeys\(\)\.hasOnly\(\['badge', 'isHiddenFromDirectory', 'updatedAt'\]\)/
+  );
+
+  // Orphaned postReactions delete supports chunked cascade cleanup across all 6 target collections
+  const reactionsBlock = rulesText.slice(
+    rulesText.indexOf('match /postReactions/{reactionId}'),
+    rulesText.indexOf('// 4. The Unfiltered')
+  );
+  for (const col of [
+    'posts',
+    'anonymousPosts',
+    'anonymousComments',
+    'events',
+    'updates',
+    'postComments',
+  ]) {
+    assert.match(
+      reactionsBlock,
+      new RegExp(
+        `existing\\(\\)\\.targetCollection == '${col}' && \\(\\s*!exists\\(/databases/\\$\\(database\\)/documents/${col}/\\$\\(existing\\(\\)\\.targetId\\)\\) \\|\\|\\s*!existsAfter\\(/databases/\\$\\(database\\)/documents/${col}/\\$\\(existing\\(\\)\\.targetId\\)\\)`
+      )
+    );
+  }
+
+  // badgeAuditLogs requires active signed-in user
+  const badgeAuditBlock = rulesText.slice(
+    rulesText.indexOf('match /badgeAuditLogs/{logId}'),
+    rulesText.indexOf('match /adminAuditLogs/{logId}')
+  );
+  assert.match(badgeAuditBlock, /isActiveSignedInUser\(\)/);
+
+  // marketplaceListings approval state consistency & 8-day expiry cap
+  const marketplaceBlock = rulesText.slice(
+    rulesText.indexOf('match /marketplaceListings/{listingId}'),
+    rulesText.indexOf('match /trustedContacts/{contactId}')
+  );
+  assert.match(
+    marketplaceBlock,
+    /\(incoming\(\)\.approvalStatus == 'approved' && incoming\(\)\.status == 'active' && incoming\(\)\.visibility == 'public'\) \|\|[\s\S]*\(incoming\(\)\.approvalStatus == 'rejected' && incoming\(\)\.status == 'rejected' && incoming\(\)\.visibility == 'owner_and_admins'\)/
+  );
+
+  // Moderator notification anti-spoof guard
+  const notifBlock = rulesText.slice(
+    rulesText.indexOf('match /notifications/{notificationId}'),
+    rulesText.indexOf('match /polls/{pollId}')
+  );
+  assert.match(
+    notifBlock,
+    /isModerator\(\) && incoming\(\)\.eventType in \['marketplace_approved', 'marketplace_rejected'\] &&[\s\S]*incoming\(\)\.recipientUid != request\.auth\.uid &&[\s\S]*\(!\('actorUid' in incoming\(\)\) \|\| incoming\(\)\.actorUid == request\.auth\.uid\)/
+  );
+
+  // Immutability and affectedKeys locks across admin collections
+  const trustedBlock = rulesText.slice(
+    rulesText.indexOf('match /trustedContacts/{contactId}'),
+    rulesText.indexOf('match /opportunities/{opportunityId}')
+  );
+  assert.match(trustedBlock, /incoming\(\)\.entryType == existing\(\)\.entryType/);
+  assert.match(trustedBlock, /incoming\(\)\.isUserAccount == existing\(\)\.isUserAccount/);
+  assert.match(trustedBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'fullName', 'category', 'badgeLabel', 'roleTitle'/);
+
+  const oppBlock = rulesText.slice(
+    rulesText.indexOf('match /opportunities/{opportunityId}'),
+    rulesText.indexOf('match /events/{eventId}')
+  );
+  assert.match(oppBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'category', 'title', 'organisation', 'description'/);
+
+  const eventBlock = rulesText.slice(
+    rulesText.indexOf('match /events/{eventId}'),
+    rulesText.indexOf('// 10. Notifications')
+  );
+  assert.match(eventBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'category', 'title', 'description', 'bannerUrl', 'mediaItems'/);
+
+  const pollsBlock = rulesText.slice(
+    rulesText.indexOf('match /polls/{pollId}'),
+    rulesText.indexOf('match /platformSettings/{settingId}')
+  );
+  assert.match(pollsBlock, /incoming\(\)\.ownerUID == existing\(\)\.ownerUID/);
+  assert.match(pollsBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'question', 'options', 'status', 'expiresAt'\s*\]\)/);
+
+  const settingsBlock = rulesText.slice(
+    rulesText.indexOf('match /platformSettings/{settingId}'),
+    rulesText.indexOf('// 11. Deduplicated Post Views')
+  );
+  assert.match(settingsBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'updatedByUid', 'pinnedAnnouncementPostId', 'maintenanceNotice'/);
+
+  assert.match(rulesText, /function isValidMarketplaceUpdate\(data, updateId\)/);
+  const mktUpdatesBlock = rulesText.slice(
+    rulesText.indexOf('match /marketplaceUpdates/{updateId}'),
+    rulesText.indexOf('// 12. Official Administrator Updates')
+  );
+  assert.match(mktUpdatesBlock, /isValidMarketplaceUpdate\(incoming\(\), updateId\)/);
+  assert.match(mktUpdatesBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'title', 'body', 'category', 'published', 'updatedAt'\s*\]\)/);
+
+  // Full element validation bounds for isValidMediaArray [0..5] and isValidCampusPoll options [0..7]
+  assert.match(rulesText, /data\[key\]\[5\] is string && data\[key\]\[5\]\.size\(\) <= 512/);
+  assert.match(rulesText, /data\.options\[7\] is string && data\.options\[7\]\.size\(\) >= 1 && data\.options\[7\]\.size\(\) <= 120/);
+
+  // Required composite indexes present in firestore.indexes.json
+  const indexesJson = JSON.parse(
+    fs.readFileSync(path.resolve('firestore.indexes.json'), 'utf8')
+  ) as {
+    indexes: { collectionGroup: string; fields: { fieldPath: string; order: string }[] }[];
+  };
+  const hasIndex = (group: string, fields: string[]) =>
+    indexesJson.indexes.some(
+      (idx) =>
+        idx.collectionGroup === group &&
+        idx.fields.length === fields.length &&
+        fields.every((fp, i) => idx.fields[i]?.fieldPath === fp)
+    );
+
+  assert.equal(hasIndex('marketplaceListings', ['ownerUID', 'status']), true);
+  assert.equal(hasIndex('notifications', ['recipientUid', 'isRead']), true);
+  assert.equal(hasIndex('savedPosts', ['ownerUID', 'targetId']), true);
+  assert.equal(hasIndex('savedPosts', ['ownerUID', 'targetCollection', 'targetId']), true);
+});
+

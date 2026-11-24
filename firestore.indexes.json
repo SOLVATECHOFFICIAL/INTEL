@@ -88,6 +88,14 @@
       ]
     },
     {
+      "collectionGroup": "marketplaceListings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerUID", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "opportunities",
       "queryScope": "COLLECTION",
       "fields": [
@@ -112,11 +120,36 @@
       ]
     },
     {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "recipientUid", "order": "ASCENDING" },
+        { "fieldPath": "isRead", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "savedPosts",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "ownerUID", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "savedPosts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerUID", "order": "ASCENDING" },
+        { "fieldPath": "targetId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "savedPosts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerUID", "order": "ASCENDING" },
+        { "fieldPath": "targetCollection", "order": "ASCENDING" },
+        { "fieldPath": "targetId", "order": "ASCENDING" }
       ]
     },
     {

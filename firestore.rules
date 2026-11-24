@@ -140,7 +140,12 @@ service cloud.firestore {
       return !(key in data) || (
         data[key] is list &&
         data[key].size() <= 6 &&
-        (data[key].size() == 0 || (data[key][0] is string && data[key][0].size() <= 512))
+        (data[key].size() < 1 || (data[key][0] is string && data[key][0].size() <= 512)) &&
+        (data[key].size() < 2 || (data[key][1] is string && data[key][1].size() <= 512)) &&
+        (data[key].size() < 3 || (data[key][2] is string && data[key][2].size() <= 512)) &&
+        (data[key].size() < 4 || (data[key][3] is string && data[key][3].size() <= 512)) &&
+        (data[key].size() < 5 || (data[key][4] is string && data[key][4].size() <= 512)) &&
+        (data[key].size() < 6 || (data[key][5] is string && data[key][5].size() <= 512))
       );
     }
 
@@ -721,6 +726,20 @@ service cloud.firestore {
         data.expiresAt is timestamp;
     }
 
+    function isValidMarketplaceUpdate(data, updateId) {
+      return data.keys().hasAll(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
+        data.id == updateId &&
+        isValidId(data.id) &&
+        data.title is string && data.title.size() >= 3 && data.title.size() <= 140 &&
+        data.body is string && data.body.size() >= 5 && data.body.size() <= 1500 &&
+        data.category in ['safety', 'policy', 'notice', 'general'] &&
+        data.published is bool &&
+        isValidId(data.createdByUid) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidTrustedContact(data, contactId) {
       return data.keys().hasAll([
           'id', 'entryType', 'isUserAccount', 'fullName', 'category',
@@ -883,7 +902,14 @@ service cloud.firestore {
         isValidId(data.ownerUID) &&
         data.question is string && data.question.size() >= 5 && data.question.size() <= 280 &&
         data.options is list && data.options.size() >= 2 && data.options.size() <= 8 &&
-        data.options[0] is string && data.options[0].size() <= 120 &&
+        data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 120 &&
+        data.options[1] is string && data.options[1].size() >= 1 && data.options[1].size() <= 120 &&
+        (data.options.size() < 3 || (data.options[2] is string && data.options[2].size() >= 1 && data.options[2].size() <= 120)) &&
+        (data.options.size() < 4 || (data.options[3] is string && data.options[3].size() >= 1 && data.options[3].size() <= 120)) &&
+        (data.options.size() < 5 || (data.options[4] is string && data.options[4].size() >= 1 && data.options[4].size() <= 120)) &&
+        (data.options.size() < 6 || (data.options[5] is string && data.options[5].size() >= 1 && data.options[5].size() <= 120)) &&
+        (data.options.size() < 7 || (data.options[6] is string && data.options[6].size() >= 1 && data.options[6].size() <= 120)) &&
+        (data.options.size() < 8 || (data.options[7] is string && data.options[7].size() >= 1 && data.options[7].size() <= 120)) &&
         data.status in ['open', 'closed'] &&
         data.expiresAt is timestamp &&
         data.createdAt is timestamp;
@@ -953,6 +979,14 @@ service cloud.firestore {
               (existsAfter(/databases/$(database)/documents/usernames/$(incoming().username)) &&
                 getAfter(/databases/$(database)/documents/usernames/$(incoming().username)).data.ownerUID == request.auth.uid)
             )
+          ) ||
+          // Designated Supreme Admin self-sync (restores badge and directory visibility flag if drifted)
+          (isDesignatedSupremeAdminEmail() &&
+            isOwnerOf(userId) &&
+            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
+            incoming().badge == (isUndergroundSupremeAdminEmail() ? 'none' : 'supreme_admin') &&
+            incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'isHiddenFromDirectory', 'updatedAt'])
           ) ||
           // Atomic follow/unfollow followersCount update on target user
           (isSignedIn() &&
@@ -1111,6 +1145,7 @@ service cloud.firestore {
       allow get, list: if isSupremeAdmin();
       allow create: if isValidId(logId) &&
         isSupremeAdmin() &&
+        isActiveSignedInUser() &&
         isValidBadgeAuditLog(incoming(), logId) &&
         incoming().performedByUid == request.auth.uid &&
         incoming().performedByRole == currentRoleString() &&
@@ -1196,7 +1231,7 @@ service cloud.firestore {
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'category', 'backgroundStyle', 'mediaUrls', 'mediaItems', 'updatedAt'])
           ) ||
-          // Supreme Admin or Permanent Owner governance edits
+          // Supreme Admin governance edits
           (isSupremeAdmin() &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['isOfficial', 'isPinned', 'status', 'title', 'body', 'mediaItems', 'updatedAt'])
@@ -1337,7 +1372,7 @@ service cloud.firestore {
     }
 
     match /postReactions/{reactionId} {
-      // Public ordinary post, update, event, and event-comment reactions are publicly listable; anonymous reactions remain strictly private to the reactor (or Supreme Admin audit)
+      // Public ordinary post, update, event, and comment reactions are publicly listable; anonymous reactions remain strictly private to the reactor (or Supreme Admin audit)
       allow get: if isValidId(reactionId) && (
         (resource == null && isSignedIn()) ||
         (resource != null && (
@@ -1387,24 +1422,30 @@ service cloud.firestore {
       allow delete: if isValidId(reactionId) && isActiveSignedInUser() && (
         existing().ownerUID == request.auth.uid ||
         isSupremeAdmin() ||
-        (existing().targetCollection == 'posts' &&
-          exists(/databases/$(database)/documents/posts/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/posts/$(existing().targetId))) ||
-        (existing().targetCollection == 'anonymousPosts' &&
-          exists(/databases/$(database)/documents/anonymousPosts/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/anonymousPosts/$(existing().targetId))) ||
-        (existing().targetCollection == 'anonymousComments' &&
-          exists(/databases/$(database)/documents/anonymousComments/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/anonymousComments/$(existing().targetId))) ||
-        (existing().targetCollection == 'events' &&
-          exists(/databases/$(database)/documents/events/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/events/$(existing().targetId))) ||
-        (existing().targetCollection == 'updates' &&
-          exists(/databases/$(database)/documents/updates/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/updates/$(existing().targetId))) ||
-        (existing().targetCollection == 'postComments' &&
-          exists(/databases/$(database)/documents/postComments/$(existing().targetId)) &&
-          !existsAfter(/databases/$(database)/documents/postComments/$(existing().targetId)))
+        (existing().targetCollection == 'posts' && (
+          !exists(/databases/$(database)/documents/posts/$(existing().targetId)) ||
+          !existsAfter(/databases/$(database)/documents/posts/$(existing().targetId))
+        )) ||
+        (existing().targetCollection == 'anonymousPosts' && (
+          !exists(/databases/$(database)/documents/anonymousPosts/$(existing().targetId)) ||
+          !existsAfter(/databases/$(database)/documents/anonymousPosts/$(existing().targetId))
+        )) ||
+        (existing().targetCollection == 'anonymousComments' && (
+          !exists(/databases/$(database)/documents/anonymousComments/$(existing().targetId)) ||
+          !existsAfter(/databases/$(database)/documents/anonymousComments/$(existing().targetId))
+        )) ||
+        (existing().targetCollection == 'events' && (
+          !exists(/databases/$(database)/documents/events/$(existing().targetId)) ||
+          !existsAfter(/databases/$(database)/documents/events/$(existing().targetId))
+        )) ||
+        (existing().targetCollection == 'updates' && (
+          !exists(/databases/$(database)/documents/updates/$(existing().targetId)) ||
+          !existsAfter(/databases/$(database)/documents/updates/$(existing().targetId))
+        )) ||
+        (existing().targetCollection == 'postComments' && (
+          !exists(/databases/$(database)/documents/postComments/$(existing().targetId)) ||
+          !existsAfter(/databases/$(database)/documents/postComments/$(existing().targetId))
+        ))
       );
     }
 
@@ -1582,7 +1623,7 @@ service cloud.firestore {
     }
 
     match /anonymousReports/{reportId} {
-      // Reporters can inspect their own reports; Moderators, Supreme Admins, and Owner review moderation queue
+      // Reporters can inspect their own reports; Moderators and Supreme Admins review moderation queue
       allow get: if isValidId(reportId) && (
         (resource == null && isSignedIn()) ||
         (resource != null && (
@@ -1686,7 +1727,7 @@ service cloud.firestore {
         (existing().targetCollection != 'anonymousPosts' && (
           ('ownerUID' in existing() && existing().ownerUID == request.auth.uid) ||
           isSupremeAdmin() ||
-          (existing().targetCollection == 'posts' && isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))
+          (existing().targetCollection == 'posts' && isModerator() && 'ownerUID' in existing() && isValidId(existing().ownerUID) && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))
         )) ||
         (existing().targetCollection == 'anonymousPosts' && (
           isSupremeAdmin() ||
@@ -1792,6 +1833,11 @@ service cloud.firestore {
             incoming().updatedAt == request.time &&
             existing().approvalStatus == 'pending_approval' &&
             incoming().approvalStatus in ['approved', 'rejected'] &&
+            (
+              (incoming().approvalStatus == 'approved' && incoming().status == 'active' && incoming().visibility == 'public') ||
+              (incoming().approvalStatus == 'rejected' && incoming().status == 'rejected' && incoming().visibility == 'owner_and_admins')
+            ) &&
+            incoming().expiresAt <= request.time + duration.value(8, 'd') &&
             incoming().approvedByUid == request.auth.uid &&
             incoming().approvedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['approvalStatus', 'status', 'visibility', 'approvedByUid', 'approvedAt', 'expiresAt', 'updatedAt'])
@@ -1821,9 +1867,17 @@ service cloud.firestore {
       allow update: if isValidId(contactId) &&
         isSupremeAdmin() &&
         isValidTrustedContact(incoming(), contactId) &&
+        incoming().id == existing().id &&
+        incoming().entryType == existing().entryType &&
+        incoming().isUserAccount == existing().isUserAccount &&
         incoming().createdByUid == existing().createdByUid &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time;
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'fullName', 'category', 'badgeLabel', 'roleTitle',
+          'department', 'faculty', 'photoUrl', 'photoImageId',
+          'contactNumber', 'whatsappLink', 'description', 'updatedAt'
+        ]);
       allow delete: if isValidId(contactId) && isSupremeAdmin();
     }
 
@@ -1846,9 +1900,17 @@ service cloud.firestore {
       allow update: if isValidId(opportunityId) &&
         isSupremeAdmin() &&
         isValidOpportunity(incoming(), opportunityId) &&
+        incoming().id == existing().id &&
         incoming().ownerUID == existing().ownerUID &&
         incoming().createdAt == existing().createdAt &&
-        incoming().updatedAt == request.time;
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'category', 'title', 'organisation', 'description',
+          'eligibility', 'whoCanApply', 'requiredDocuments', 'benefits',
+          'applicationInstructions', 'applicationUrl', 'contactInfo',
+          'opensAt', 'isVerified', 'notifiedNewAt', 'lastDeadlineNotifiedMs',
+          'status', 'expiresAt', 'updatedAt'
+        ]);
       allow delete: if isValidId(opportunityId) && isSupremeAdmin();
     }
 
@@ -1871,9 +1933,16 @@ service cloud.firestore {
         incoming().id == existing().id &&
         incoming().ownerUID == existing().ownerUID &&
         incoming().createdAt == existing().createdAt && (
-          // Supreme Admin or Permanent Owner manages event details, publishing, status, or notification state
+          // Supreme Admin manages event details, publishing, status, or notification state
           (isSupremeAdmin() &&
-            incoming().updatedAt == request.time) ||
+            incoming().updatedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'category', 'title', 'description', 'bannerUrl', 'mediaItems',
+              'eventDate', 'endDate', 'timeLabel', 'venue', 'onlineMeetingUrl',
+              'organiser', 'registrationRequired', 'registrationUrl',
+              'contactInfo', 'instructions', 'status', 'published',
+              'notifiedNewAt', 'lastUpdatedNoticeMs', 'updatedAt'
+            ])) ||
           // Atomic like / unlike sync with postReactions for published events
           (isEventPublished(existing()) &&
             incoming().updatedAt == existing().updatedAt &&
@@ -1916,7 +1985,9 @@ service cloud.firestore {
         incoming().isRead == false &&
         incoming().createdAt == request.time && (
           isSupremeAdmin() ||
-          (isModerator() && incoming().eventType in ['marketplace_approved', 'marketplace_rejected']) ||
+          (isModerator() && incoming().eventType in ['marketplace_approved', 'marketplace_rejected'] &&
+            incoming().recipientUid != request.auth.uid &&
+            (!('actorUid' in incoming()) || incoming().actorUid == request.auth.uid)) ||
           (isActiveSignedInUser() &&
             incoming().eventType == 'follow' &&
             incoming().recipientUid != request.auth.uid &&
@@ -1955,22 +2026,42 @@ service cloud.firestore {
 
     match /polls/{pollId} {
       allow get, list: if true;
-      allow create, update: if isValidId(pollId) &&
+      allow create: if isValidId(pollId) &&
         isSupremeAdmin() &&
         isValidCampusPoll(incoming(), pollId) &&
         incoming().ownerUID == request.auth.uid &&
-        (resource == null ? incoming().createdAt == request.time : incoming().createdAt == existing().createdAt);
+        incoming().createdAt == request.time;
+      allow update: if isValidId(pollId) &&
+        isSupremeAdmin() &&
+        isValidCampusPoll(incoming(), pollId) &&
+        incoming().id == existing().id &&
+        incoming().ownerUID == existing().ownerUID &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'question', 'options', 'status', 'expiresAt'
+        ]);
       allow delete: if isValidId(pollId) && isSupremeAdmin();
     }
 
     match /platformSettings/{settingId} {
       allow get: if isValidId(settingId);
       allow list: if isSupremeAdmin();
-      allow create, update: if isValidId(settingId) &&
+      allow create: if isValidId(settingId) &&
         isSupremeAdmin() &&
         isValidPlatformSetting(incoming(), settingId) &&
         incoming().updatedByUid == request.auth.uid &&
         incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId) &&
+        isSupremeAdmin() &&
+        isValidPlatformSetting(incoming(), settingId) &&
+        incoming().id == existing().id &&
+        incoming().updatedByUid == request.auth.uid &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'updatedByUid', 'pinnedAnnouncementPostId', 'maintenanceNotice',
+          'marketplaceSubmissionsOpen', 'anonymousPostingOpen',
+          'newRegistrationsOpen', 'updatedAt'
+        ]);
       allow delete: if isSupremeAdmin() && isValidId(settingId);
     }
 
@@ -2007,17 +2098,15 @@ service cloud.firestore {
       allow list: if existing().published == true || isSupremeAdmin();
       allow create, update: if isValidId(updateId) &&
         isSupremeAdmin() &&
-        incoming().keys().hasAll(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
-        incoming().keys().hasOnly(['id', 'title', 'body', 'category', 'published', 'createdByUid', 'createdAt', 'updatedAt']) &&
-        incoming().id == updateId &&
-        incoming().title is string && incoming().title.size() >= 3 && incoming().title.size() <= 140 &&
-        incoming().body is string && incoming().body.size() >= 5 && incoming().body.size() <= 1500 &&
-        incoming().category in ['safety', 'policy', 'notice', 'general'] &&
-        incoming().published is bool &&
-        isValidId(incoming().createdByUid) &&
+        isValidMarketplaceUpdate(incoming(), updateId) &&
         (resource == null
           ? (incoming().createdByUid == request.auth.uid && incoming().createdAt == request.time)
-          : (incoming().createdByUid == existing().createdByUid && incoming().createdAt == existing().createdAt)) &&
+          : (incoming().id == existing().id &&
+              incoming().createdByUid == existing().createdByUid &&
+              incoming().createdAt == existing().createdAt &&
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'title', 'body', 'category', 'published', 'updatedAt'
+              ]))) &&
         incoming().updatedAt == request.time;
       allow delete: if isValidId(updateId) && isSupremeAdmin();
     }
