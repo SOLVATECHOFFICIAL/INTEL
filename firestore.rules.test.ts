@@ -123,7 +123,7 @@ test('username uniqueness, reserved names, follow determinism, and atomic counte
 
 test('mediaImages rules enforce 4-image post cap, strict Base64 size bounds, and anonymous ownerUID exclusion', () => {
   assert.match(rulesText, /data\[key\]\.size\(\) <= 4/);
-  assert.match(rulesText, /data\.base64Data\.size\(\) <= 280000/);
+  assert.match(rulesText, /data\.base64Data\.size\(\) <= 340000/);
   assert.match(rulesText, /data\.byteSize <= 250000/);
   assert.match(rulesText, /data\.targetCollection == 'anonymousPosts' && !\('ownerUID' in data\)/);
   assert.match(rulesText, /data\.mimeType in \['image\/webp', 'image\/jpeg'\]/);
@@ -477,11 +477,11 @@ test('Audit fixes enforce resource==null reads, unfollow decrements on suspended
   // Unfollowing / self-delete cleanup (-1) must not fail when target is suspended, while +1 still requires active signed-in + active target
   assert.match(
     usersBlock,
-    /\(isActiveSignedInUser\(\) &&\s*existing\(\)\.accountStatus == 'active' &&\s*incoming\(\)\.followersCount == existing\(\)\.followersCount \+ 1/
+    /\(isActiveSignedInUser\(\) &&\s*\(!\('accountStatus' in existing\(\)\) \|\| existing\(\)\.accountStatus == 'active'\) &&\s*incoming\(\)\.followersCount == \(\('followersCount' in existing\(\) && existing\(\)\.followersCount is int \? existing\(\)\.followersCount : 0\) \+ 1\)/
   );
   assert.match(
     usersBlock,
-    /\(existing\(\)\.followersCount > 0 &&\s*incoming\(\)\.followersCount == existing\(\)\.followersCount - 1/
+    /\('followersCount' in existing\(\) &&\s*existing\(\)\.followersCount is int &&\s*existing\(\)\.followersCount > 0 &&\s*incoming\(\)\.followersCount == existing\(\)\.followersCount - 1/
   );
 
   // Notifications allow get supports deterministic existence checks (resource == null)
@@ -731,5 +731,82 @@ test('Granted verified and moderator roles exercise real permissions without ema
   assert.doesNotMatch(postsDeleteLine, /isVerifiedEmailUser\(\)/);
   assert.match(postsDeleteLine, /isActiveSignedInUser\(\)/);
 });
+
+test('Audit regression: admin follows, legacy counter-only likes/comments/views, 340k media ceiling, and lean batch access rules', () => {
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  // users allow update must not run isValidPublicUser (reserved username check) on follow counters or governance updates
+  assert.doesNotMatch(usersBlock.slice(usersBlock.indexOf('allow update:')), /isValidPublicUser\(incoming\(\)/);
+  assert.match(usersBlock, /isValidPublicUserProfileEdit\(incoming\(\), existing\(\), userId\)/);
+  assert.match(usersBlock, /affectedKeys\(\)\.hasOnly\(\['followingCount', 'updatedAt'\]\)/);
+  assert.match(usersBlock, /affectedKeys\(\)\.hasOnly\(\['hasPublicActivity', 'anonymousLikesReceivedCount', 'updatedAt'\]\)/);
+
+  // follows create guards legacy profiles missing accountStatus / followersCount / followingCount
+  const followsBlock = rulesText.slice(
+    rulesText.indexOf('match /follows/{followId}'),
+    rulesText.indexOf('match /postReactions/{reactionId}')
+  );
+  assert.match(followsBlock, /!\('accountStatus' in get\(/);
+  assert.match(followsBlock, /'followersCount' in get\(/);
+  assert.match(followsBlock, /'followingCount' in get\(/);
+
+  // canPublishFeed removes redundant re-reads and mediaImages uses ternary exists/existsAfter with 340000 Base64 cap
+  assert.doesNotMatch(
+    rulesText.slice(
+      rulesText.indexOf('function canPublishFeed()'),
+      rulesText.indexOf('function isReservedUsername(')
+    ),
+    /isSupremeAdmin\(\) \|\| isModerator\(\)/
+  );
+  const mediaBlock = rulesText.slice(
+    rulesText.indexOf('match /mediaImages/{imageId}'),
+    rulesText.indexOf('match /savedPosts/{savedId}')
+  );
+  assert.match(mediaBlock, /exists\(\/databases\/\$\(database\)\/documents\/posts\/\$\(incoming\(\)\.targetId\)\)\s*\?/);
+
+  // Counter-only likes/comments/views updates on posts, postComments, anonymousPosts, anonymousComments, events, updates, marketplaceListings
+  // bypass full-document schema validators so legacy docs never fail on likes/comments/views
+  const postsBlock = rulesText.slice(
+    rulesText.indexOf('match /posts/{postId}'),
+    rulesText.indexOf('match /postComments/{commentId}')
+  );
+  const postsUpdate = postsBlock.slice(postsBlock.indexOf('allow update:'));
+  assert.ok(
+    postsUpdate.indexOf("hasOnly(['likesCount'])") < postsUpdate.indexOf('isValidCommunityPost(incoming(), postId)')
+  );
+
+  const commentsBlock = rulesText.slice(
+    rulesText.indexOf('match /postComments/{commentId}'),
+    rulesText.indexOf('match /follows/{followId}')
+  );
+  const commentsUpdate = commentsBlock.slice(commentsBlock.indexOf('allow update:'));
+  assert.ok(
+    commentsUpdate.indexOf("hasOnly(['likesCount'])") < commentsUpdate.indexOf('isValidPostComment(incoming(), commentId)')
+  );
+
+  const eventsBlock = rulesText.slice(
+    rulesText.indexOf('match /events/{eventId}'),
+    rulesText.indexOf('// 10. Notifications')
+  );
+  const eventsUpdate = eventsBlock.slice(eventsBlock.indexOf('allow update:'));
+  assert.ok(
+    eventsUpdate.indexOf("hasOnly(['likesCount'])") < eventsUpdate.indexOf('isValidCampusEvent(incoming(), eventId)')
+  );
+
+  const updatesBlock = rulesText.slice(
+    rulesText.indexOf('match /updates/{updateId}'),
+    rulesText.indexOf('match /adminUpdateMappings/{updateId}')
+  );
+  const updatesUpdate = updatesBlock.slice(updatesBlock.indexOf('allow update:'));
+  assert.ok(
+    updatesUpdate.indexOf("hasOnly(['likesCount'])") < updatesUpdate.indexOf('isValidAdminUpdate(incoming(), updateId)')
+  );
+
+  // Base64 limit matches 250000-byte binary cap across blueprint and rules
+  assert.equal(blueprint.entities.MediaImage.properties.base64Data.maxLength, 340000);
+});
+
 
 

@@ -790,3 +790,61 @@ test('hasDesignatedSupremeAdminEmailMatch & hasPostingRolePendingEmailVerificati
     false
   );
 });
+
+test('Legacy profiles without explicit accountStatus remain usable for granted badges and interactions while suspended profiles are blocked', () => {
+  const unverifiedMember = {
+    uid: 'legacy_v1',
+    email: 'student@lasued.edu.ng',
+    emailVerified: false,
+  } as User;
+
+  const legacyProfileWithoutStatus = {
+    uid: 'legacy_v1',
+    memberId: 'LI-LEGACY1',
+    fullName: 'Legacy Verified User',
+    username: 'legacy_verified',
+    showWhatsappPublicly: false,
+    publicWhatsapp: '',
+    badge: 'verified',
+    isHiddenFromDirectory: false,
+    followersCount: 0,
+    followingCount: 0,
+    createdAt: null,
+    updatedAt: null,
+  } as unknown as Parameters<typeof canPublishOrdinaryPostStrict>[0]['profile'];
+
+  assert.equal(
+    canPublishOrdinaryPostStrict({
+      user: unverifiedMember,
+      tier: 'verified',
+      profile: legacyProfileWithoutStatus,
+      roleRecord: {
+        uid: 'legacy_v1',
+        role: 'verified',
+        badge: 'verified',
+        isPermanentOwner: false,
+        isHiddenFromDirectory: false,
+        updatedAt: null,
+      },
+      suspended: false,
+    }),
+    true
+  );
+
+  assert.equal(
+    isProfilePubliclyDiscoverableInDirectory(legacyProfileWithoutStatus),
+    true
+  );
+  assert.equal(
+    isProfileAccessibleByDirectInteraction(legacyProfileWithoutStatus, 'viewer_1'),
+    true
+  );
+  assert.equal(
+    isProfileAccessibleByDirectInteraction(
+      { ...legacyProfileWithoutStatus!, accountStatus: 'suspended' },
+      'viewer_1'
+    ),
+    false
+  );
+});
+

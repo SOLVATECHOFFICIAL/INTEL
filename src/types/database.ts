@@ -180,7 +180,7 @@ export const BLUEPRINT_LIMITS = {
   mediaTargetBytes: 102400,
   mediaMaxBytes: 250000,
   mediaBase64MinChars: 24,
-  mediaBase64MaxChars: 280000,
+  mediaBase64MaxChars: 340000,
   backgroundStyleMax: 32,
   opportunityTitleMin: 3,
   opportunityTitleMax: 180,

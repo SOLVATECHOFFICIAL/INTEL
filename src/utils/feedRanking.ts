@@ -627,7 +627,7 @@ export function rankRecommendedPeople(
   const scored: PersonRecommendationItem[] = [];
 
   for (const member of members) {
-    if (member.accountStatus !== 'active') continue;
+    if (member.accountStatus === 'suspended') continue;
     const unameLower = member.username.toLowerCase();
     if (viewerUsernameLower && unameLower === viewerUsernameLower) {
       continue;

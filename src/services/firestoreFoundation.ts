@@ -1143,7 +1143,7 @@ export async function followMemberByUsername(
           throw new Error('This member account is no longer active.');
         }
         const targetData = targetSnap.data() as PublicUserProfile;
-        if (targetData.accountStatus !== 'active') {
+        if (targetData.accountStatus === 'suspended') {
           throw new Error('Suspended accounts cannot be followed.');
         }
         if (!actorSnap.exists()) {
@@ -1152,7 +1152,7 @@ export async function followMemberByUsername(
           );
         }
         const actorData = actorSnap.data() as PublicUserProfile;
-        if (actorData.accountStatus !== 'active') {
+        if (actorData.accountStatus === 'suspended') {
           throw new DomainValidationError(
             'Suspended accounts cannot follow other members.'
           );
@@ -1663,7 +1663,7 @@ export async function fetchCommunityFeedPage(input: {
         return {
           items: slice
             .map((post) => ({ post, author: authorMap.get(post.ownerUID) ?? null }))
-            .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
+            .filter((entry) => !entry.author || entry.author.accountStatus !== 'suspended'),
           nextCursor: hasMore
             ? { mode: 'offset', offset: input.cursor.offset + slice.length }
             : null,
@@ -1697,7 +1697,7 @@ export async function fetchCommunityFeedPage(input: {
           return {
             items: slice
               .map((post) => ({ post, author: authorMap.get(post.ownerUID) ?? null }))
-              .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
+              .filter((entry) => !entry.author || entry.author.accountStatus !== 'suspended'),
             nextCursor: hasMore ? { mode: 'offset', offset: slice.length } : null,
             hasMore,
             followingCount: resolvedFollowedUids.length,
@@ -1743,7 +1743,7 @@ export async function fetchCommunityFeedPage(input: {
             post: entry.post,
             author: authorMap.get(entry.post.ownerUID) ?? null,
           }))
-          .filter((entry) => !entry.author || entry.author.accountStatus === 'active'),
+          .filter((entry) => !entry.author || entry.author.accountStatus !== 'suspended'),
         nextCursor: hasMore && lastDoc ? { mode: 'firestore', docSnap: lastDoc } : null,
         hasMore,
         followingCount: resolvedFollowedUids.length,
@@ -2053,7 +2053,7 @@ export async function searchHomeScope(
     );
     const userMap = new Map<string, PublicProfileProjection>();
     for (const profile of userProfiles) {
-      if (!profile.isHiddenFromDirectory && profile.accountStatus === 'active') {
+      if (!profile.isHiddenFromDirectory && profile.accountStatus !== 'suspended') {
         userMap.set(profile.uid, toPublicProfileProjection(profile));
       }
     }
@@ -2520,7 +2520,14 @@ export async function createSafeMemberNotification(input: {
       payload.targetPath = cleanTargetPath;
     }
 
+    const hideUndergroundActor = Boolean(
+      input.actorUid &&
+        auth.currentUser?.uid === input.actorUid &&
+        isUndergroundSupremeAdminUser(auth.currentUser)
+    );
+
     if (
+      !hideUndergroundActor &&
       input.eventType !== 'anonymous_reply' &&
       input.actorUid &&
       isValidFirestoreId(input.actorUid)

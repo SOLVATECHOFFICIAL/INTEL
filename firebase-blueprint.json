@@ -472,7 +472,7 @@
         "width": { "type": "integer" },
         "height": { "type": "integer" },
         "byteSize": { "type": "integer" },
-        "base64Data": { "type": "string", "minLength": 24, "maxLength": 280000 },
+        "base64Data": { "type": "string", "minLength": 24, "maxLength": 340000 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "targetCollection", "targetId", "mimeType", "width", "height", "byteSize", "base64Data", "createdAt"]

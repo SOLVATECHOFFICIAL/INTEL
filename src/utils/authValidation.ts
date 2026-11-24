@@ -395,7 +395,7 @@ export function isProfilePubliclyDiscoverableInDirectory(
 ): boolean {
   if (!profile) return false;
   return (
-    profile.accountStatus === 'active' &&
+    profile.accountStatus !== 'suspended' &&
     profile.isHiddenFromDirectory !== true
   );
 }
@@ -412,7 +412,7 @@ export function isProfileAccessibleByDirectInteraction(
 ): boolean {
   if (!profile) return false;
   if (viewerUid && profile.uid === viewerUid) return true;
-  if (profile.accountStatus !== 'active') return false;
+  if (profile.accountStatus === 'suspended') return false;
   return !profile.isHiddenFromDirectory || profile.hasPublicActivity === true;
 }
 
@@ -528,10 +528,10 @@ export function canPublishOrdinaryPostStrict(input: {
   if (hasDesignatedSupremeAdminEmailMatch(input.user)) {
     return (
       input.user.emailVerified === true &&
-      (!input.profile || input.profile.accountStatus === 'active')
+      (!input.profile || input.profile.accountStatus !== 'suspended')
     );
   }
-  if (!input.profile || input.profile.accountStatus !== 'active') {
+  if (!input.profile || input.profile.accountStatus === 'suspended') {
     return false;
   }
   if (!isValidRoleRecordConsistency(input.roleRecord)) {
