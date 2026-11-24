@@ -6,6 +6,7 @@ import {
   applyOptimisticDeleteNotification,
   applyOptimisticMarkAllRead,
   applyOptimisticMarkRead,
+  applyOptimisticMarkUnread,
   buildAnnouncementNotificationId,
   buildAnonymousReplyNotificationId,
   buildCommentNotificationId,
@@ -25,6 +26,7 @@ import {
   resolveNotificationDestination,
   restoreDeletedNotification,
   rollbackOptimisticMarkReadIds,
+  rollbackOptimisticMarkUnreadIds,
   shouldEmitActivityNotification,
 } from './notifications';
 
@@ -123,6 +125,22 @@ test('optimistic mark read, mark all read, delete, and rollback reconcile determ
     ['n1']
   );
   assert.equal(computeUnreadNotificationsCount(rolledBackSingle), 2);
+
+  // Single mark unread + rollback
+  const unreadRes = applyOptimisticMarkUnread(list, 'n2');
+  assert.equal(unreadRes.changed, true);
+  assert.equal(unreadRes.previousWasRead, true);
+  assert.equal(computeUnreadNotificationsCount(unreadRes.nextItems), 3);
+
+  const unreadNoop = applyOptimisticMarkUnread(list, 'n1');
+  assert.equal(unreadNoop.changed, false);
+
+  const rolledBackUnread = rollbackOptimisticMarkUnreadIds(
+    unreadRes.nextItems,
+    ['n2']
+  );
+  assert.equal(computeUnreadNotificationsCount(rolledBackUnread), 2);
+  assert.equal(rolledBackUnread[1].isRead, true);
 
   // Mark all read + rollback
   const allRes = applyOptimisticMarkAllRead(list);

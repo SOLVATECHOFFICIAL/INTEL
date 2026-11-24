@@ -36,6 +36,7 @@ export interface FirebaseContextValue {
   getRelationshipState: (targetUsername: string) => FollowRelationshipState;
   toggleFollow: (targetUsername: string) => Promise<boolean>;
   markNotificationReadOptimistic: (notificationId: string) => Promise<void>;
+  markNotificationUnreadOptimistic: (notificationId: string) => Promise<void>;
   markAllNotificationsReadOptimistic: () => Promise<void>;
   deleteNotificationOptimistic: (notificationId: string) => Promise<void>;
   loadOlderNotifications: () => Promise<void>;
@@ -73,6 +74,7 @@ export const FirebaseContext = createContext<FirebaseContextValue>({
   getRelationshipState: () => 'follow',
   toggleFollow: async () => false,
   markNotificationReadOptimistic: async () => {},
+  markNotificationUnreadOptimistic: async () => {},
   markAllNotificationsReadOptimistic: async () => {},
   deleteNotificationOptimistic: async () => {},
   loadOlderNotifications: async () => {},

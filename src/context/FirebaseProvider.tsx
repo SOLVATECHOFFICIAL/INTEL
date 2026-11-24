@@ -24,6 +24,7 @@ import {
   followMemberByUsername,
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  markNotificationAsUnread,
   subscribePublicMemberProfile,
   subscribeUserNotifications,
   subscribeUserRoleRecord,
@@ -57,12 +58,14 @@ import {
   applyOptimisticDeleteNotification,
   applyOptimisticMarkAllRead,
   applyOptimisticMarkRead,
+  applyOptimisticMarkUnread,
   computeUnreadNotificationsCount,
   isNotificationAllowedByPrefs,
   mergeNotifications,
   normalizeNotificationPrefs,
   restoreDeletedNotification,
   rollbackOptimisticMarkReadIds,
+  rollbackOptimisticMarkUnreadIds,
   type NotificationPreferences,
 } from '../utils/notifications';
 import { normalizeInterestList } from '../utils/feedRanking';
@@ -391,6 +394,57 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     [user, profile, liveNotifications, olderNotifications]
   );
 
+  const markNotificationUnreadOptimistic = useCallback(
+    async (notificationId: string) => {
+      if (!user || isAccountSuspended(profile)) return;
+      const liveApplied = applyOptimisticMarkUnread(
+        liveNotifications,
+        notificationId
+      );
+      const olderApplied = applyOptimisticMarkUnread(
+        olderNotifications,
+        notificationId
+      );
+
+      if (!liveApplied.changed && !olderApplied.changed) {
+        return;
+      }
+
+      // Keep existing ID marked as seen so marking unread doesn't re-pop foreground toast
+      seenLiveNotifIdsRef.current.add(notificationId);
+
+      if (liveApplied.changed) {
+        setLiveNotifications(liveApplied.nextItems);
+      }
+      if (olderApplied.changed) {
+        setOlderNotifications(olderApplied.nextItems);
+      }
+      setNotificationError(null);
+
+      try {
+        await markNotificationAsUnread(notificationId);
+      } catch (err) {
+        if (liveApplied.changed) {
+          setLiveNotifications((prev) =>
+            rollbackOptimisticMarkUnreadIds(prev, [notificationId])
+          );
+        }
+        if (olderApplied.changed) {
+          setOlderNotifications((prev) =>
+            rollbackOptimisticMarkUnreadIds(prev, [notificationId])
+          );
+        }
+        setNotificationError(
+          formatFirestoreOrAppError(
+            err,
+            'Could not mark notification as unread. Restored state.'
+          )
+        );
+      }
+    },
+    [user, profile, liveNotifications, olderNotifications]
+  );
+
   const markAllNotificationsReadOptimistic = useCallback(async () => {
     if (!user || isAccountSuspended(profile)) return;
     const unreadTargets = notifications.filter((item) => !item.isRead);
@@ -695,6 +749,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         getRelationshipState,
         toggleFollow,
         markNotificationReadOptimistic,
+        markNotificationUnreadOptimistic,
         markAllNotificationsReadOptimistic,
         deleteNotificationOptimistic,
         loadOlderNotifications,

@@ -2300,6 +2300,22 @@ export async function markNotificationAsRead(
   }
 }
 
+export async function markNotificationAsUnread(
+  notificationId: string
+): Promise<void> {
+  if (!isValidFirestoreId(notificationId)) return;
+  const path = `${COLLECTION_NAMES.notifications}/${notificationId}`;
+  try {
+    await runWithFirestoreConnectionRetry(() =>
+      updateDoc(doc(db, COLLECTION_NAMES.notifications, notificationId), {
+        isRead: false,
+      })
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
 export async function markAllNotificationsAsRead(
   notifications: readonly NotificationItem[]
 ): Promise<void> {

@@ -10,6 +10,7 @@ import {
   CornerDownRight,
   Heart,
   Loader2,
+  Mail,
   Megaphone,
   MessageCircle,
   Settings,
@@ -42,7 +43,6 @@ import { formatUnreadBadgeCount } from '../../utils/pwa';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
-import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 interface NotificationsPageProps {
   onNavigate: (
@@ -143,6 +143,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
     notificationError,
     notificationPrefs,
     markNotificationReadOptimistic,
+    markNotificationUnreadOptimistic,
     markAllNotificationsReadOptimistic,
     deleteNotificationOptimistic,
     loadOlderNotifications,
@@ -241,7 +242,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         <div className="mt-5">
           <GuestPromptCard
             title="Sign in to view your notifications"
-            description="Receive instant updates on likes, comments, replies, followers, marketplace activity, campus events, opportunities, and official announcements."
+            description="Receive instant in-app updates on likes, comments, replies, @mentions, followers, marketplace activity, campus events, opportunities, and official announcements."
             returnRoute="notifications"
             onRequireAuth={onRequireAuth}
           />
@@ -285,12 +286,10 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <WebPushNotificationButton variant="inline" showIosHint />
-
           <button
             type="button"
             onClick={() => onNavigate('account', { accountSection: 'privacy' })}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50"
           >
             <Settings className="h-3.5 w-3.5 text-slate-600" aria-hidden="true" />
             Preferences
@@ -300,7 +299,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
             <button
               type="button"
               onClick={() => void markAllNotificationsReadOptimistic()}
-              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#132844]"
+              className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#132844]"
             >
               <CheckCheck
                 className="h-3.5 w-3.5 text-[#1E88E5]"
@@ -572,7 +571,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                   </button>
 
                   {/* Row Actions */}
-                  <div className="flex shrink-0 items-center justify-end gap-2 pt-0.5">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 pt-0.5">
                     {item.eventType === 'follow' &&
                       actorUsername &&
                       !isSuspended && (
@@ -585,19 +584,38 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                         />
                       )}
 
-                    {!item.isRead && !isSuspended && (
-                      <button
-                        type="button"
-                        onClick={() => void markNotificationReadOptimistic(item.id)}
-                        aria-label={`Mark "${item.title}" as read`}
-                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50"
-                      >
-                        <Check
-                          className="h-3.5 w-3.5 text-[#1E88E5]"
-                          aria-hidden="true"
-                        />
-                        <span>Mark read</span>
-                      </button>
+                    {!isSuspended && (
+                      item.isRead ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void markNotificationUnreadOptimistic(item.id)
+                          }
+                          aria-label={`Mark "${item.title}" as unread`}
+                          className="inline-flex min-h-[38px] items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                        >
+                          <Mail
+                            className="h-3.5 w-3.5 text-slate-500"
+                            aria-hidden="true"
+                          />
+                          <span>Mark unread</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void markNotificationReadOptimistic(item.id)
+                          }
+                          aria-label={`Mark "${item.title}" as read`}
+                          className="inline-flex min-h-[38px] items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50"
+                        >
+                          <Check
+                            className="h-3.5 w-3.5 text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                          <span>Mark read</span>
+                        </button>
+                      )
                     )}
 
                     {!isSuspended && (
@@ -606,7 +624,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                         onClick={() => void deleteNotificationOptimistic(item.id)}
                         aria-label={`Remove notification "${item.title}"`}
                         title="Remove notification"
-                        className="inline-flex min-h-[34px] min-w-[34px] items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        className="inline-flex min-h-[38px] min-w-[38px] items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>

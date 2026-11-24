@@ -31,7 +31,6 @@ import { formatUnreadBadgeCount } from '../utils/pwa';
 import { getSearchScopeFromRoute } from '../utils/urlRouting';
 import { SectionIcon } from './SectionIcon';
 import { PWAInstallControl } from './pwa/PWAInstallControl';
-import { WebPushNotificationButton } from './pwa/WebPushNotificationButton';
 
 interface MobileSectionDrawerProps {
   isOpen: boolean;
@@ -275,10 +274,9 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
           )}
         </div>
 
-        {/* App Installation & Device Push Quick Controls */}
+        {/* App Installation Quick Control */}
         <div className="mt-3 space-y-2 border-b border-slate-100 pb-3 empty:hidden">
           <PWAInstallControl variant="drawer" onActionComplete={onClose} />
-          <WebPushNotificationButton variant="compact" />
         </div>
 
         {/* Discovery & Secondary Sections */}

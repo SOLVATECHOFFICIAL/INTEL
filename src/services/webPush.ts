@@ -8,7 +8,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import {
   COLLECTION_NAMES,
   SUBCOLLECTION_NAMES,
@@ -418,34 +418,15 @@ export async function syncAppBadgeWithServiceWorker(
   }
 }
 
-export async function triggerBestEffortPushDispatch(input: {
+export async function triggerBestEffortPushDispatch(_input: {
   notificationId: string;
   recipientUid?: string;
 }): Promise<void> {
-  if (typeof fetch !== 'function' || typeof navigator === 'undefined') return;
-  if (navigator.onLine === false) return;
-  const currentUser = auth.currentUser;
-  if (!currentUser) return;
-
-  try {
-    const token = await currentUser.getIdToken();
-    await fetch('/api/push/dispatch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        notificationId: input.notificationId,
-        recipientUid: input.recipientUid,
-      }),
-    });
-  } catch {
-    // Server dispatch may be offline or not configured in preview; never fail UI writes
-  }
+  void _input;
+  // External Web Push delivery is disabled; notifications are handled entirely inside LASUED Intel.
 }
 
-export async function triggerBestEffortPushBroadcast(input: {
+export async function triggerBestEffortPushBroadcast(_input: {
   eventType: NotificationEventType;
   title: string;
   body?: string;
@@ -453,29 +434,6 @@ export async function triggerBestEffortPushBroadcast(input: {
   recipientUids?: string[];
   notificationIds?: string[];
 }): Promise<void> {
-  if (typeof fetch !== 'function' || typeof navigator === 'undefined') return;
-  if (navigator.onLine === false) return;
-  const currentUser = auth.currentUser;
-  if (!currentUser) return;
-
-  try {
-    const token = await currentUser.getIdToken();
-    await fetch('/api/push/broadcast', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        eventType: input.eventType,
-        title: input.title,
-        body: input.body,
-        targetPath: input.targetPath,
-        recipientUids: input.recipientUids,
-        notificationIds: input.notificationIds,
-      }),
-    });
-  } catch {
-    // Server broadcast is best-effort and non-blocking
-  }
+  void _input;
+  // External Web Push broadcast is disabled; in-app notifications are fanned out directly in Firestore.
 }

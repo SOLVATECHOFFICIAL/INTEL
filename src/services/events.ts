@@ -31,6 +31,7 @@ import { generateFirestoreDocId } from './mediaStorage';
 import {
   createSafeMemberNotification,
   fetchPublicProfileProjectionsByUids,
+  resolveUserUidsByUsernames,
 } from './firestoreFoundation';
 import {
   notifyEventCommentMutated,
@@ -38,8 +39,10 @@ import {
 } from './cacheInvalidation';
 import {
   buildCommentNotificationId,
+  buildMentionNotificationId,
   buildReactionNotificationId,
   buildReplyNotificationId,
+  extractMentionedUsernames,
   shouldEmitActivityNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
@@ -374,6 +377,31 @@ export async function addEventComment(input: {
       });
     }
 
+    const mentionedUsernames = extractMentionedUsernames(trimmed);
+    if (mentionedUsernames.length > 0) {
+      const excludeUids = new Set<string>([input.actorUid]);
+      if (parentOwnerUid) excludeUids.add(parentOwnerUid);
+      if (eventOwnerUid) excludeUids.add(eventOwnerUid);
+      void resolveUserUidsByUsernames(mentionedUsernames, excludeUids).then(
+        (recipients) =>
+          Promise.allSettled(
+            recipients.map((recipient) =>
+              createSafeMemberNotification({
+                id: buildMentionNotificationId(commentId, recipient.uid),
+                recipientUid: recipient.uid,
+                eventType: 'mention',
+                title: `You were mentioned on "${summarizeNotificationExcerpt(eventTitle, 60)}"`,
+                body: excerpt || undefined,
+                targetPath,
+                actorUid: input.actorUid,
+                targetImageId: eventImageId,
+                targetImageUrl: eventImageId ? undefined : eventBannerUrl,
+              })
+            )
+          )
+      );
+    }
+
     notifyEventCommentMutated(input.eventId, nextCount);
 
     const nowMs = Date.now();
@@ -562,7 +590,9 @@ export async function togglePostCommentReaction(input: {
           ? `/?view=upcoming-events&eventId=${result.parentPostId}&commentId=${input.commentId}`
           : result.targetCollection === 'marketplaceListings'
             ? `/?view=marketplace&listingId=${result.parentPostId}&commentId=${input.commentId}`
-            : `/?view=for-you&postId=${result.parentPostId}&commentId=${input.commentId}`;
+            : result.targetCollection === 'updates'
+              ? `/?view=updates&postId=${result.parentPostId}&commentId=${input.commentId}`
+              : `/?view=for-you&postId=${result.parentPostId}&commentId=${input.commentId}`;
 
       void createSafeMemberNotification({
         id: buildReactionNotificationId(

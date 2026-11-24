@@ -128,8 +128,7 @@ export const PWAInstallControl: React.FC<PWAInstallControlProps> = ({
             </span>
             <span>
               Open <strong className="font-semibold">LASUED Intel</strong> from
-              your Home Screen to launch full screen and unlock notifications on
-              iOS 16.4+.
+              your Home Screen to launch full screen with fast offline caching.
             </span>
           </li>
         </ol>
@@ -171,7 +170,7 @@ export const PWAInstallControl: React.FC<PWAInstallControlProps> = ({
               <p className="text-xs text-slate-600">
                 {isIosInstallEligible
                   ? 'Add LASUED Intel to your Home Screen for faster app-style access.'
-                  : 'Install for quick launch, offline reading, and push updates.'}
+                  : 'Install for quick launch and offline campus reading.'}
               </p>
             </div>
           </div>

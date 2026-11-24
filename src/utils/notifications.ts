@@ -429,6 +429,39 @@ export function rollbackOptimisticMarkReadIds(
   );
 }
 
+export function applyOptimisticMarkUnread(
+  items: readonly NotificationItem[],
+  notificationId: string
+): {
+  nextItems: NotificationItem[];
+  changed: boolean;
+  previousWasRead: boolean;
+} {
+  let changed = false;
+  let previousWasRead = false;
+  const nextItems = items.map((item) => {
+    if (item.id !== notificationId) return item;
+    previousWasRead = item.isRead;
+    if (item.isRead) {
+      changed = true;
+      return { ...item, isRead: false };
+    }
+    return item;
+  });
+  return { nextItems, changed, previousWasRead };
+}
+
+export function rollbackOptimisticMarkUnreadIds(
+  items: readonly NotificationItem[],
+  readIdsToRestore: readonly string[]
+): NotificationItem[] {
+  const restoreSet = new Set(readIdsToRestore);
+  if (restoreSet.size === 0) return [...items];
+  return items.map((item) =>
+    restoreSet.has(item.id) ? { ...item, isRead: true } : item
+  );
+}
+
 export function applyOptimisticDeleteNotification(
   items: readonly NotificationItem[],
   notificationId: string

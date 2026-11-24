@@ -51,9 +51,11 @@ import {
 } from '../utils/firestoreRetry';
 import {
   buildCommentNotificationId,
+  buildMentionNotificationId,
   buildOfficialUpdateNotificationId,
   buildReactionNotificationId,
   buildReplyNotificationId,
+  extractMentionedUsernames,
   shouldEmitActivityNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
@@ -67,6 +69,7 @@ import {
 import {
   createSafeMemberNotification,
   fetchPublicProfileProjectionsByUids,
+  resolveUserUidsByUsernames,
 } from './firestoreFoundation';
 import {
   buildMediaImageFirestoreRecord,
@@ -1133,6 +1136,30 @@ export async function addOfficialUpdateComment(input: {
         actorUid: input.actorUid,
         targetImageId: updateImageId,
       });
+    }
+
+    const mentionedUsernames = extractMentionedUsernames(cleanBody);
+    if (mentionedUsernames.length > 0) {
+      const excludeUids = new Set<string>([input.actorUid]);
+      if (parentOwnerUid) excludeUids.add(parentOwnerUid);
+      if (publicAuthorUid) excludeUids.add(publicAuthorUid);
+      void resolveUserUidsByUsernames(mentionedUsernames, excludeUids).then(
+        (recipients) =>
+          Promise.allSettled(
+            recipients.map((recipient) =>
+              createSafeMemberNotification({
+                id: buildMentionNotificationId(commentId, recipient.uid),
+                recipientUid: recipient.uid,
+                eventType: 'mention',
+                title: 'Someone mentioned you in a comment',
+                body: excerpt || undefined,
+                targetPath,
+                actorUid: input.actorUid,
+                targetImageId: updateImageId,
+              })
+            )
+          )
+      );
     }
 
     if (!isUndergroundSupremeAdminUser(auth.currentUser)) {
