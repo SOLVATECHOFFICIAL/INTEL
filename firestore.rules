@@ -484,7 +484,7 @@ service cloud.firestore {
           'id', 'format', 'authorMode', 'ownerUID', 'authorDisplayName',
           'authorBadge', 'authorPhotoUrl', 'authorPhotoImageId', 'category',
           'title', 'body', 'backgroundStyle', 'mediaItems', 'isPinned',
-          'status', 'visibility', 'likesCount', 'commentsCount',
+          'status', 'visibility', 'likesCount', 'commentsCount', 'viewsCount',
           'createdAt', 'updatedAt'
         ]) &&
         data.id == updateId &&
@@ -505,6 +505,7 @@ service cloud.firestore {
         data.visibility == 'public' &&
         data.likesCount is int && data.likesCount >= 0 &&
         data.commentsCount is int && data.commentsCount >= 0 &&
+        (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp && (
           (data.authorMode == 'public_admin' &&
@@ -680,7 +681,7 @@ service cloud.firestore {
               ? !('ownerUID' in data)
               : (!('ownerUID' in data) || (isValidId(data.ownerUID) && data.ownerUID == request.auth.uid))
           )) ||
-          (!(data.targetCollection in ['anonymousPosts', 'updates']) && isValidId(data.ownerUID) && data.ownerUID == request.auth.uid)
+          (!(data.targetCollection in ['anonymousPosts', 'updates']) && 'ownerUID' in data && isValidId(data.ownerUID) && data.ownerUID == request.auth.uid)
         ) &&
         data.mimeType in ['image/webp', 'image/jpeg'] &&
         data.width is int && data.width >= 1 && data.width <= 4096 &&
@@ -1240,11 +1241,13 @@ service cloud.firestore {
           (existing().status == 'published' &&
             incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
-              (incoming().likesCount == existing().likesCount + 1 &&
+              (((!('likesCount' in existing()) && incoming().likesCount == 1) ||
+                ('likesCount' in existing() && incoming().likesCount == existing().likesCount + 1)) &&
                 !exists(/databases/$(database)/documents/postReactions/$('posts_' + postId + '_' + request.auth.uid)) &&
                 existsAfter(/databases/$(database)/documents/postReactions/$('posts_' + postId + '_' + request.auth.uid))
               ) ||
-              (existing().likesCount > 0 &&
+              ('likesCount' in existing() &&
+                existing().likesCount > 0 &&
                 incoming().likesCount == existing().likesCount - 1 &&
                 exists(/databases/$(database)/documents/postReactions/$('posts_' + postId + '_' + request.auth.uid)) &&
                 !existsAfter(/databases/$(database)/documents/postReactions/$('posts_' + postId + '_' + request.auth.uid))
@@ -1255,8 +1258,9 @@ service cloud.firestore {
           (existing().status == 'published' &&
             incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
-              incoming().commentsCount == existing().commentsCount + 1 ||
-              (incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
+              (!('commentsCount' in existing()) && incoming().commentsCount == 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount == existing().commentsCount + 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
             )
           ) ||
           // Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker)
@@ -1332,6 +1336,10 @@ service cloud.firestore {
         existing().ownerUID == request.auth.uid ||
         isSupremeAdmin() ||
         (isModerator() && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member')) ||
+        ('parentCommentId' in existing() &&
+          isValidId(existing().parentCommentId) &&
+          exists(/databases/$(database)/documents/postComments/$(existing().parentCommentId)) &&
+          !existsAfter(/databases/$(database)/documents/postComments/$(existing().parentCommentId))) ||
         (exists(/databases/$(database)/documents/posts/$(existing().postId)) &&
           !existsAfter(/databases/$(database)/documents/posts/$(existing().postId))) ||
         (exists(/databases/$(database)/documents/events/$(existing().postId)) &&
@@ -1485,11 +1493,13 @@ service cloud.firestore {
           (existing().status == 'published' &&
             incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
-              (incoming().likesCount == existing().likesCount + 1 &&
+              (((!('likesCount' in existing()) && incoming().likesCount == 1) ||
+                ('likesCount' in existing() && incoming().likesCount == existing().likesCount + 1)) &&
                 !exists(/databases/$(database)/documents/postReactions/$('anonymousPosts_' + postId + '_' + request.auth.uid)) &&
                 existsAfter(/databases/$(database)/documents/postReactions/$('anonymousPosts_' + postId + '_' + request.auth.uid))
               ) ||
-              (existing().likesCount > 0 &&
+              ('likesCount' in existing() &&
+                existing().likesCount > 0 &&
                 incoming().likesCount == existing().likesCount - 1 &&
                 exists(/databases/$(database)/documents/postReactions/$('anonymousPosts_' + postId + '_' + request.auth.uid)) &&
                 !existsAfter(/databases/$(database)/documents/postReactions/$('anonymousPosts_' + postId + '_' + request.auth.uid))
@@ -1500,8 +1510,9 @@ service cloud.firestore {
           (existing().status == 'published' &&
             incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
-              incoming().commentsCount == existing().commentsCount + 1 ||
-              (incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
+              (!('commentsCount' in existing()) && incoming().commentsCount == 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount == existing().commentsCount + 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
             )
           ) ||
           // Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker without exposing viewer PII)
@@ -1573,6 +1584,10 @@ service cloud.firestore {
           get(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)).data.authorUid == request.auth.uid ||
           (isModerator() && get(/databases/$(database)/documents/anonymousIdentityMappings/$(commentId)).data.authorRole == 'member')
         )) ||
+        ('parentCommentId' in existing() &&
+          isValidId(existing().parentCommentId) &&
+          exists(/databases/$(database)/documents/anonymousComments/$(existing().parentCommentId)) &&
+          !existsAfter(/databases/$(database)/documents/anonymousComments/$(existing().parentCommentId))) ||
         (exists(/databases/$(database)/documents/anonymousPosts/$(existing().postId)) &&
           !existsAfter(/databases/$(database)/documents/anonymousPosts/$(existing().postId)))
       );
@@ -2158,11 +2173,13 @@ service cloud.firestore {
           (existing().status == 'published' &&
             incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
-              (incoming().likesCount == existing().likesCount + 1 &&
+              (((!('likesCount' in existing()) && incoming().likesCount == 1) ||
+                ('likesCount' in existing() && incoming().likesCount == existing().likesCount + 1)) &&
                 !exists(/databases/$(database)/documents/postReactions/$('updates_' + updateId + '_' + request.auth.uid)) &&
                 existsAfter(/databases/$(database)/documents/postReactions/$('updates_' + updateId + '_' + request.auth.uid))
               ) ||
-              (existing().likesCount > 0 &&
+              ('likesCount' in existing() &&
+                existing().likesCount > 0 &&
                 incoming().likesCount == existing().likesCount - 1 &&
                 exists(/databases/$(database)/documents/postReactions/$('updates_' + updateId + '_' + request.auth.uid)) &&
                 !existsAfter(/databases/$(database)/documents/postReactions/$('updates_' + updateId + '_' + request.auth.uid))
@@ -2172,8 +2189,9 @@ service cloud.firestore {
           (existing().status == 'published' &&
             incoming().updatedAt == existing().updatedAt &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
-              incoming().commentsCount == existing().commentsCount + 1 ||
-              (incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
+              (!('commentsCount' in existing()) && incoming().commentsCount == 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount == existing().commentsCount + 1) ||
+              ('commentsCount' in existing() && incoming().commentsCount >= 0 && incoming().commentsCount < existing().commentsCount)
             ))
         );
       allow delete: if isValidId(updateId) && isSupremeAdmin();
