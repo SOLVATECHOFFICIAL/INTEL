@@ -733,7 +733,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   return (
     <div
       ref={containerRef}
-      className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"
+      className="min-w-0 max-w-full rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-sky-50/35 to-blue-50/45 p-4 shadow-xs sm:p-5"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -807,7 +807,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
         <button
           type="submit"
-          className="inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
+          className="lasued-accent-gradient inline-flex min-h-[44px] shrink-0 items-center justify-center rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:brightness-110 sm:text-sm"
         >
           Search
         </button>

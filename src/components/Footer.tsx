@@ -10,7 +10,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   return (
-    <footer className="mt-12 border-t border-slate-200 bg-slate-50 pb-20 lg:pb-0">
+    <footer className="mt-12 max-w-full border-t border-slate-200 bg-gradient-to-b from-white/90 via-sky-50/50 to-blue-50/70 pb-24 lg:pb-0">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
         <div className="flex flex-col justify-between gap-8 md:flex-row md:items-start">
           <div className="max-w-sm">

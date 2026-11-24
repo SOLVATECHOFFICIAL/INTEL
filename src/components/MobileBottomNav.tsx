@@ -28,63 +28,64 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   return (
     <nav
       aria-label="Mobile bottom navigation"
-      className="fixed right-0 bottom-0 left-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur-md lg:hidden"
+      className="fixed right-0 bottom-0 left-0 z-40 max-w-full border-t border-slate-200/90 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_-6px_rgba(11,26,46,0.12)] backdrop-blur-md lg:hidden"
     >
-      <div className="grid h-16 grid-cols-5 items-center">
+      <div aria-hidden="true" className="lasued-action-gradient h-[2px] w-full" />
+      <div className="grid h-16 min-w-0 grid-cols-5 items-center px-1">
         <button
           type="button"
           onClick={() => onNavigate('for-you')}
           aria-current={homeActive ? 'page' : undefined}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
+          className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             homeActive
-              ? 'font-semibold text-[#1E88E5]'
-              : 'text-slate-500 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
+              : 'text-slate-600 hover:text-[#0B1A2E]'
           }`}
         >
-          <Home className="h-5 w-5" aria-hidden="true" />
-          <span>Home</span>
+          <Home className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="max-w-full truncate">Home</span>
         </button>
 
         <button
           type="button"
           onClick={() => onNavigate('marketplace')}
           aria-current={activeRoute === 'marketplace' ? 'page' : undefined}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
+          className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'marketplace'
-              ? 'font-semibold text-[#1E88E5]'
-              : 'text-slate-500 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
+              : 'text-slate-600 hover:text-[#0B1A2E]'
           }`}
         >
-          <ShoppingBag className="h-5 w-5" aria-hidden="true" />
-          <span>Marketplace</span>
+          <ShoppingBag className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="max-w-full truncate">Market</span>
         </button>
 
         <button
           type="button"
           onClick={() => onNavigate('anonymous')}
           aria-current={activeRoute === 'anonymous' ? 'page' : undefined}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
+          className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'anonymous'
-              ? 'font-semibold text-[#1E88E5]'
-              : 'text-slate-500 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
+              : 'text-slate-600 hover:text-[#0B1A2E]'
           }`}
         >
-          <MessageSquare className="h-5 w-5" aria-hidden="true" />
-          <span>Anonymous</span>
+          <MessageSquare className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="max-w-full truncate">Anonymous</span>
         </button>
 
         <button
           type="button"
           onClick={() => onNavigate('trusted-circle')}
           aria-current={activeRoute === 'trusted-circle' ? 'page' : undefined}
-          className={`flex min-h-[48px] flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
+          className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'trusted-circle'
-              ? 'font-semibold text-[#1E88E5]'
-              : 'text-slate-500 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
+              : 'text-slate-600 hover:text-[#0B1A2E]'
           }`}
         >
-          <ShieldCheck className="h-5 w-5" aria-hidden="true" />
-          <span>Trusted Circle</span>
+          <ShieldCheck className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="max-w-full truncate">Trusted</span>
         </button>
 
         <button
@@ -96,21 +97,21 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               ? `Notifications (${unreadBadgeLabel} unread)`
               : 'Notifications'
           }
-          className={`relative flex min-h-[48px] flex-col items-center justify-center gap-1 px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
+          className={`relative flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'notifications'
-              ? 'font-semibold text-[#1E88E5]'
-              : 'text-slate-500 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
+              : 'text-slate-600 hover:text-[#0B1A2E]'
           }`}
         >
           <span className="relative inline-flex">
-            <Bell className="h-5 w-5" aria-hidden="true" />
+            <Bell className="h-5 w-5 shrink-0" aria-hidden="true" />
             {user && unreadBadgeLabel && (
-              <span className="absolute -top-1 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#1E88E5] px-1 text-[9px] font-bold text-white tabular-nums">
+              <span className="lasued-action-gradient absolute -top-1 -right-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white tabular-nums">
                 {unreadBadgeLabel}
               </span>
             )}
           </span>
-          <span>Notifications</span>
+          <span className="max-w-full truncate">Alerts</span>
         </button>
       </div>
     </nav>

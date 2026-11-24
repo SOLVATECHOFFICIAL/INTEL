@@ -56,6 +56,7 @@ import {
 import {
   canCreateAnonymousEntry,
   canPublishOrdinaryPostStrict,
+  isDesignatedSupremeAdminUser,
   toPublicProfileProjection,
 } from '../utils/authValidation';
 import {
@@ -77,6 +78,7 @@ import { EmptyState, ErrorState, LoadingState } from './StateViews';
 import { GuestPromptCard } from './auth/GuestPromptCard';
 import { PostCard } from './posts/PostCard';
 import { PostComposer } from './posts/PostComposer';
+import { UpdateComposerModal } from './updates/UpdateComposerModal';
 import { EventCard } from './sections/events/EventCard';
 import { OpportunityCard } from './sections/opportunities/OpportunityCard';
 import { MemberDirectoryCard } from './sections/shared/DirectoryProfileCards';
@@ -215,6 +217,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     ordinaryType?: OrdinaryPostType;
     editPost?: CommunityPost;
   } | null>(null);
+  const [officialUpdateModalOpen, setOfficialUpdateModalOpen] = useState(false);
 
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const lastHandledRetryRef = useRef(0);
@@ -860,6 +863,12 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     suspended: isSuspended,
   });
   const canPostAnonymously = canCreateAnonymousEntry(effectiveTier, isSuspended);
+  const canPublishOfficialUpdate =
+    authReady &&
+    Boolean(user?.uid) &&
+    !isSuspended &&
+    effectiveTier === 'supreme_admin' &&
+    isDesignatedSupremeAdminUser(user);
   const actorRole: UserRole = (
     effectiveTier === 'guest' ? 'member' : effectiveTier
   ) as UserRole;
@@ -965,7 +974,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       : displayedPostItems.length > 0;
 
   return (
-    <div className="min-w-0 flex-1 space-y-5">
+    <div className="min-w-0 max-w-full flex-1 space-y-5">
       {canGoBack && onBack && (
         <div>
           <button
@@ -989,49 +998,49 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       />
 
       {/* Prominent Official Updates & Marketplace Shortcuts near the top of Homepage */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5">
+      <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-sky-200/80 bg-gradient-to-br from-white via-sky-50/60 to-blue-50/85 px-4 py-3.5 shadow-xs">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
-              <Megaphone className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
+            <div className="lasued-brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-xs">
+              <Megaphone className="h-5 w-5 text-sky-300" aria-hidden="true" />
             </div>
             <div className="min-w-0">
               <p className="font-display text-sm font-bold text-[#0B1A2E]">
                 Official Updates
               </p>
               <p className="truncate text-xs text-slate-600">
-                Verified announcements & campus notices.
+                Verified announcements &amp; campus notices.
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => onNavigate('updates')}
-            className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844]"
+            className="lasued-accent-gradient inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
           >
             View Updates
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5">
+        <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-teal-200/80 bg-gradient-to-br from-white via-teal-50/45 to-emerald-50/70 px-4 py-3.5 shadow-xs">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
-              <ShoppingBag className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
+            <div className="lasued-emerald-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-xs">
+              <ShoppingBag className="h-5 w-5 text-teal-100" aria-hidden="true" />
             </div>
             <div className="min-w-0">
               <p className="font-display text-sm font-bold text-[#0B1A2E]">
                 Campus Marketplace
               </p>
               <p className="truncate text-xs text-slate-600">
-                Textbooks, hostels, gadgets & services.
+                Textbooks, hostels, gadgets &amp; services.
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => onNavigate('marketplace')}
-            className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-[#1E88E5] px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#1565C0]"
+            className="lasued-action-gradient inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
           >
             Marketplace
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1068,7 +1077,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 {isSelected && (
                   <span
                     aria-hidden="true"
-                    className="absolute right-4 bottom-0 left-4 h-0.5 rounded-full bg-[#1E88E5]"
+                    className="lasued-action-gradient absolute right-4 bottom-0 left-4 h-0.5 rounded-full"
                   />
                 )}
               </button>
@@ -1081,17 +1090,17 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => handleComposerAction('write')}
-            className="flex min-h-[48px] w-full items-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-100"
+            className="flex min-h-[48px] w-full items-center rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-sky-50/50 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-[#1E88E5]/40 hover:from-sky-50/70 hover:to-blue-50/60"
           >
             What&apos;s happening on campus?
           </button>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={() => handleComposerAction('write')}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E]"
               >
                 <PenSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 Text Post
@@ -1100,20 +1109,35 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => handleComposerAction('photo')}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E]"
               >
                 <ImagePlus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 Photo Post
               </button>
+
+              {canPublishOfficialUpdate && (
+                <button
+                  type="button"
+                  data-testid="home-official-update-btn"
+                  onClick={() => {
+                    setComposerFeedback(null);
+                    setOfficialUpdateModalOpen(true);
+                  }}
+                  className="lasued-emerald-gradient inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
+                >
+                  <Megaphone className="h-4 w-4 text-teal-100" aria-hidden="true" />
+                  Official Update
+                </button>
+              )}
             </div>
 
             {/* Visibly separate Anonymous action */}
             <button
               type="button"
               onClick={() => handleComposerAction('anonymous')}
-              className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844]"
+              className="lasued-accent-gradient inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
             >
-              <MessageSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <MessageSquare className="h-4 w-4 text-sky-200" aria-hidden="true" />
               Post Anonymously
             </button>
           </div>
@@ -1178,7 +1202,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       {/* Feed Content Stream */}
       <section
         aria-labelledby="feed-stream-heading"
-        className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6"
+        className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6"
       >
         <div className="flex flex-col justify-between gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">
           <div>
@@ -1641,6 +1665,25 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             setComposerModal(null);
           }}
           onClose={() => setComposerModal(null)}
+        />
+      )}
+
+      {officialUpdateModalOpen && canPublishOfficialUpdate && user?.uid && (
+        <UpdateComposerModal
+          actorUid={user.uid}
+          actorRole="supreme_admin"
+          actorName={profile?.fullName || user.displayName || undefined}
+          actorPhotoUrl={profile?.photoUrl}
+          actorPhotoImageId={profile?.photoImageId}
+          onSuccess={() => {
+            setOfficialUpdateModalOpen(false);
+            setComposerFeedback({
+              kind: 'ordinary_published',
+              message:
+                'Your official update is now live on the Official Updates feed.',
+            });
+          }}
+          onClose={() => setOfficialUpdateModalOpen(false)}
         />
       )}
     </div>

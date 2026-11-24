@@ -571,7 +571,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   return (
     <section
       aria-labelledby="active-section-heading"
-      className="min-w-0 flex-1 space-y-5"
+      className="min-w-0 max-w-full flex-1 space-y-5"
     >
       {/* Inline Contextual Search scoped strictly to this section */}
       <ContextualSearchBar
@@ -582,7 +582,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
         returnRoute={sectionId}
       />
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+        <div aria-hidden="true" className="lasued-action-gradient h-1 w-full" />
+        <div className="p-4 sm:p-6">
         <div className="flex flex-col justify-between gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start">
           <div>
             <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-500">
@@ -629,9 +631,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
             <button
               type="button"
               onClick={handleAnonymousPostClick}
-              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-lg bg-[#0B1A2E] px-4 py-2 text-sm font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844]"
+              className="lasued-accent-gradient inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
             >
-              <MessageSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <MessageSquare className="h-4 w-4 text-sky-200" aria-hidden="true" />
               Post Anonymously
             </button>
           )}
@@ -639,7 +641,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
         {sectionId === 'anonymous' && (
           <div className="mt-4 space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 text-xs leading-relaxed text-slate-600">
+            <div className="flex items-start gap-3 rounded-xl border border-sky-200/80 bg-gradient-to-r from-sky-50/75 via-blue-50/45 to-slate-50 p-3.5 text-xs leading-relaxed text-slate-700">
               <ShieldCheck
                 className="mt-0.5 h-4 w-4 shrink-0 text-[#1E88E5]"
                 aria-hidden="true"
@@ -1053,6 +1055,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
               )}
             </>
           )}
+        </div>
         </div>
       </div>
 

@@ -12,7 +12,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
   return (
     <section
       aria-labelledby="hero-heading"
-      className="border-b border-slate-200 bg-[#0B1A2E] text-white"
+      className="lasued-brand-gradient border-b border-slate-200 text-white"
     >
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
         <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-center">
@@ -46,7 +46,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
               <button
                 type="button"
                 onClick={() => onNavigate('for-you')}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-[#1E88E5] px-5 py-2.5 text-sm font-semibold text-white whitespace-nowrap transition-colors duration-150 hover:bg-[#1565C0]"
+                className="lasued-action-gradient inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white whitespace-nowrap shadow-sm transition hover:brightness-110"
               >
                 Open For You
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />

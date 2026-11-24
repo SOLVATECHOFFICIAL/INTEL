@@ -73,9 +73,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                     type="button"
                     onClick={() => onNavigate(section.id)}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
+                    className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
-                        ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
+                        ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20'
                         : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
                     }`}
                   >
@@ -110,9 +110,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                     type="button"
                     onClick={() => onNavigate(section.id)}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
+                    className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
-                        ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
+                        ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20'
                         : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
                     }`}
                   >
@@ -138,9 +138,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                     ? 'page'
                     : undefined
                 }
-                className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
+                className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                   activeRoute === 'marketplace' && marketplaceTab === 'updates'
-                    ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
+                    ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20'
                     : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
                 }`}
               >
@@ -290,13 +290,18 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   type="button"
                   onClick={() => onNavigate('admin')}
                   aria-current={activeRoute === 'admin' ? 'page' : undefined}
-                  className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors duration-150 ${
+                  className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-all duration-150 ${
                     activeRoute === 'admin'
-                      ? 'bg-[#0B1A2E] text-white'
-                      : 'text-[#0B1A2E] hover:bg-slate-100'
+                      ? 'lasued-accent-gradient text-white shadow-xs'
+                      : 'bg-gradient-to-r from-sky-50/80 to-slate-50 text-[#0B1A2E] ring-1 ring-slate-200/80 hover:from-sky-100/70 hover:to-blue-50/70'
                   }`}
                 >
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-[#1E88E5]" aria-hidden="true" />
+                  <ShieldCheck
+                    className={`h-4 w-4 shrink-0 ${
+                      activeRoute === 'admin' ? 'text-sky-200' : 'text-[#1E88E5]'
+                    }`}
+                    aria-hidden="true"
+                  />
                   <span>{isFullAdmin ? 'Admin Dashboard' : 'Moderation Console'}</span>
                 </button>
               </li>

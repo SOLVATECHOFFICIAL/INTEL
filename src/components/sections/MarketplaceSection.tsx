@@ -75,6 +75,7 @@ import {
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   formatByteSize,
   validatePostImageCountAfterAdd,
@@ -1453,7 +1454,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     </span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={ALL_IMAGE_FILE_ACCEPT}
                       multiple
                       disabled={
                         compressingPhotos ||
@@ -1467,7 +1468,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   <input
                     ref={replacePhotoInputRef}
                     type="file"
-                    accept="image/*"
+                    accept={ALL_IMAGE_FILE_ACCEPT}
                     disabled={compressingPhotos || submitting}
                     onChange={handleReplacePhoto}
                     className="sr-only"

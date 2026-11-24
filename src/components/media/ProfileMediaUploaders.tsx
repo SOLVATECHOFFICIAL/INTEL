@@ -14,6 +14,7 @@ import {
 } from '../../services/mediaStorage';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   formatByteSize,
   type CompressedImageResult,
@@ -312,7 +313,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
           <input
             ref={coverInputRef}
             type="file"
-            accept="image/*"
+            accept={ALL_IMAGE_FILE_ACCEPT}
             disabled={coverBusy || isSuspended}
             onChange={handleSelectCover}
             className="sr-only"
@@ -351,7 +352,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
               type="button"
               disabled={coverBusy || isSuspended}
               onClick={() => void handleSaveCover()}
-              className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
+              className="lasued-action-gradient inline-flex min-h-[42px] items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:opacity-60"
             >
               {coverBusy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -422,7 +423,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
             <input
               ref={avatarInputRef}
               type="file"
-              accept="image/*"
+              accept={ALL_IMAGE_FILE_ACCEPT}
               disabled={avatarBusy || isSuspended}
               onChange={handleSelectAvatar}
               className="sr-only"
@@ -475,7 +476,7 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
                   type="button"
                   disabled={avatarBusy || isSuspended}
                   onClick={() => void handleSaveAvatar()}
-                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
+                  className="lasued-action-gradient inline-flex min-h-[42px] items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:opacity-60"
                 >
                   {avatarBusy ? (
                     <Loader2

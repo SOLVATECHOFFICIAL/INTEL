@@ -192,7 +192,7 @@ export const TotalUsersD3Chart: React.FC<{
   return (
     <section
       aria-labelledby="d3-users-heading"
-      className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5"
+      className="flex min-w-0 max-w-full flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-5"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -477,7 +477,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
   return (
     <section
       aria-labelledby="d3-posts-heading"
-      className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5"
+      className="flex min-w-0 max-w-full flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-5"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -524,7 +524,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
         </button>
       </div>
 
-      <div ref={containerRef} className="mt-3 w-full">
+      <div ref={containerRef} className="mt-3 min-w-0 max-w-full overflow-hidden">
         <svg
           ref={svgRef}
           width={Math.max(width, 280)}
@@ -532,7 +532,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
           viewBox={`0 0 ${Math.max(width, 280)} 236`}
           role="img"
           aria-label="Bar chart showing active community posts, anonymous posts, marketplace listings, opportunities, and upcoming events"
-          className="block w-full overflow-visible"
+          className="block max-w-full"
         />
       </div>
     </section>
@@ -740,7 +740,7 @@ export const FlaggedReportsD3Chart: React.FC<{
   return (
     <section
       aria-labelledby="d3-reports-heading"
-      className="rounded-xl border border-slate-200 bg-white p-5"
+      className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-5"
     >
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
@@ -825,14 +825,14 @@ export const FlaggedReportsD3Chart: React.FC<{
           </div>
         </div>
 
-        <div className="border-t border-slate-100 pt-4 lg:col-span-7 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
+        <div className="min-w-0 border-t border-slate-100 pt-4 lg:col-span-7 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
           <div className="mb-2 flex items-center justify-between text-xs">
             <span className="font-semibold text-[#0B1A2E]">
               Reports by Violation Category
             </span>
             <span className="text-slate-500">Click bar to triage</span>
           </div>
-          <div ref={barContainerRef} className="w-full">
+          <div ref={barContainerRef} className="min-w-0 max-w-full overflow-hidden">
             <svg
               ref={barSvgRef}
               width={Math.max(barWidth, 260)}
@@ -840,7 +840,7 @@ export const FlaggedReportsD3Chart: React.FC<{
               viewBox={`0 0 ${Math.max(barWidth, 260)} 204`}
               role="img"
               aria-label="Horizontal bar chart of flagged reports grouped by reason"
-              className="block w-full overflow-visible"
+              className="block max-w-full"
             />
           </div>
         </div>

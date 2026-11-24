@@ -53,6 +53,7 @@ import {
 } from '../../types/database';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   formatByteSize,
   validatePostImageCountAfterAdd,
@@ -374,32 +375,50 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     setCompressingCount((prev) => prev + uniqueFiles.length);
     try {
       const nextAttachments: ComposerImageAttachment[] = [];
+      const failedNames: string[] = [];
       for (const file of uniqueFiles) {
-        const compressed = await compressImageFile(file, 'post');
-        const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
-        nextAttachments.push({
-          clientId: imageId,
-          imageId,
-          caption: '',
-          previewUrl: compressed.dataUrl,
-          compressed,
+        try {
+          const compressed = await compressImageFile(file, 'post');
+          const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
+          nextAttachments.push({
+            clientId: imageId,
+            imageId,
+            caption: '',
+            previewUrl: compressed.dataUrl,
+            compressed,
+          });
+        } catch (err) {
+          failedNames.push(
+            file.name ||
+              formatFirestoreOrAppError(err, 'selected photo')
+          );
+        }
+      }
+
+      if (nextAttachments.length > 0) {
+        setAttachments((prev) => {
+          if (
+            prev.length + nextAttachments.length >
+            BLUEPRINT_LIMITS.mediaPostMaxCount
+          ) {
+            setErrorMessage(
+              `Maximum ${BLUEPRINT_LIMITS.mediaPostMaxCount} images are allowed per post.`
+            );
+            return prev;
+          }
+          return [...prev, ...nextAttachments];
         });
       }
 
-      setAttachments((prev) => {
-        if (
-          prev.length + nextAttachments.length >
-          BLUEPRINT_LIMITS.mediaPostMaxCount
-        ) {
-          setErrorMessage(
-            `Maximum ${BLUEPRINT_LIMITS.mediaPostMaxCount} images are allowed per post.`
-          );
-          return prev;
-        }
-        return [...prev, ...nextAttachments];
-      });
-
-      if (duplicateCount > 0) {
+      if (failedNames.length > 0 && nextAttachments.length === 0) {
+        setErrorMessage(
+          'Could not decode that image file. Try a standard photo, screenshot, or export from your gallery.'
+        );
+      } else if (failedNames.length > 0) {
+        setErrorMessage(
+          `Attached ${nextAttachments.length} photo(s); ${failedNames.length} unsupported or corrupted file(s) skipped.`
+        );
+      } else if (duplicateCount > 0) {
         setErrorMessage(
           `Skipped ${duplicateCount} duplicate photo${duplicateCount === 1 ? '' : 's'} already attached.`
         );
@@ -671,8 +690,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       data-testid="post-composer-modal"
     >
       <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-2xl">
+        <div aria-hidden="true" className="lasued-action-gradient h-1 w-full shrink-0" />
         {/* Modal Header */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3.5 sm:py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-white via-sky-50/40 to-blue-50/50 px-5 py-3.5 sm:py-4">
           <div className="min-w-0">
             <h2
               id="post-composer-title"
@@ -759,7 +779,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           <input
             ref={replaceFileInputRef}
             type="file"
-            accept="image/*"
+            accept={ALL_IMAGE_FILE_ACCEPT}
             disabled={isSubmitting}
             onChange={handleReplaceFile}
             className="sr-only"
@@ -1067,7 +1087,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                               BLUEPRINT_LIMITS.mediaPostMaxCount
                           }
                           onClick={() => fileInputRef.current?.click()}
-                          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="lasued-action-gradient inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {compressingCount > 0 ? (
                             <Loader2
@@ -1090,7 +1110,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept="image/*"
+                          accept={ALL_IMAGE_FILE_ACCEPT}
                           multiple
                           disabled={isSubmitting}
                           onChange={handleSelectFiles}
@@ -1384,7 +1404,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                 BLUEPRINT_LIMITS.mediaPostMaxCount
                             }
                             onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#1E88E5] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1565C0] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="lasued-action-gradient inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {compressingCount > 0 ? (
                               <Loader2
@@ -1407,7 +1427,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           <input
                             ref={fileInputRef}
                             type="file"
-                            accept="image/*"
+                            accept={ALL_IMAGE_FILE_ACCEPT}
                             multiple
                             disabled={isSubmitting}
                             onChange={handleSelectFiles}
@@ -1674,7 +1694,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           </div>
 
           {/* Always-Pinned Footer Actions OUTSIDE Scroll Container */}
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3.5">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               {mode === 'anonymous' && (
                 <>
@@ -1697,12 +1717,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 type="submit"
                 disabled={isSubmitting || compressingCount > 0}
                 data-testid="composer-submit-button"
-                className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg bg-[#0B1A2E] px-5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:cursor-not-allowed disabled:opacity-60"
+                className="lasued-accent-gradient inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-5 py-2 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <Send className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                  <Send className="h-3.5 w-3.5 text-sky-200" aria-hidden="true" />
                 )}
                 <span>
                   {isSubmitting

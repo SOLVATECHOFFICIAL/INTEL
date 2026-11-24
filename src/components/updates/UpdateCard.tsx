@@ -645,7 +645,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
     <article
       id={`update-${update.id}`}
       data-testid={`update-card-${update.id}`}
-      className={`rounded-2xl border bg-white p-4 transition-colors sm:p-5 ${
+      className={`min-w-0 max-w-full overflow-hidden rounded-2xl border bg-white p-4 shadow-xs transition-colors sm:p-5 ${
         isHighlighted
           ? 'border-[#1E88E5] ring-2 ring-[#1E88E5]/25'
           : 'border-slate-200'
@@ -826,12 +826,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
           {(update.title?.trim() || update.body.trim()) && (
             <div className="space-y-1.5">
               {update.title?.trim() && (
-                <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                <h3 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E]">
                   {update.title}
                 </h3>
               )}
               {update.body.trim() && (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
                   {update.body}
                 </p>
               )}
@@ -855,13 +855,13 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
         >
           {update.title?.trim() && (
             <h3
-              className={`mb-2 max-w-lg font-display text-base font-bold sm:text-lg ${textTheme.textColorClass}`}
+              className={`overflow-wrap-anywhere mb-2 max-w-full font-display text-base font-bold sm:text-lg ${textTheme.textColorClass}`}
             >
               {update.title}
             </h3>
           )}
           <p
-            className={`max-w-lg whitespace-pre-wrap text-base font-semibold leading-relaxed sm:text-lg ${textTheme.textColorClass}`}
+            className={`overflow-wrap-anywhere max-w-full whitespace-pre-wrap text-base font-semibold leading-relaxed sm:text-lg ${textTheme.textColorClass}`}
           >
             {update.body}
           </p>
@@ -869,11 +869,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       ) : (
         <div className="mt-3 space-y-1.5">
           {update.title?.trim() && (
-            <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+            <h3 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E]">
               {update.title}
             </h3>
           )}
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+          <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
             {update.body}
           </p>
         </div>
@@ -908,9 +908,9 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
           onClick={handleToggleSave}
           aria-pressed={savedState}
           aria-label={savedState ? 'Remove bookmark' : 'Save update'}
-          className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+          className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
             savedState
-              ? 'bg-[#0B1A2E] text-white'
+              ? 'lasued-accent-gradient text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
           }`}
         >
@@ -980,9 +980,9 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
               type="button"
               disabled={!newCommentBody.trim()}
               onClick={() => handleAddComment(newCommentBody)}
-              className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-50"
+              className="lasued-action-gradient inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-white transition hover:brightness-110 disabled:opacity-50"
             >
-              <Send className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+              <Send className="h-3.5 w-3.5 text-white" aria-hidden="true" />
               Post
             </button>
           </div>

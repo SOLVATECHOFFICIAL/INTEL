@@ -118,12 +118,12 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-8 shadow-xl"
+        className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-10 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div
           aria-hidden="true"
-          className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300"
+          className="lasued-action-gradient mx-auto mb-3 h-1.5 w-12 rounded-full opacity-80"
         />
 
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -233,13 +233,13 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => handlePick('admin')}
-                  className="flex min-h-[48px] w-full items-center justify-between rounded-xl bg-[#0B1A2E] px-3.5 py-2.5 text-left text-sm font-semibold text-white"
+                  className="lasued-accent-gradient flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-white shadow-xs"
                 >
                   <span className="flex items-center gap-3">
-                    <ShieldCheck className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                    <ShieldCheck className="h-4 w-4 text-sky-200" aria-hidden="true" />
                     {isFullAdmin ? 'Administrator Dashboard' : 'Moderation Console'}
                   </span>
-                  <ChevronRight className="h-4 w-4 opacity-70" aria-hidden="true" />
+                  <ChevronRight className="h-4 w-4 opacity-80" aria-hidden="true" />
                 </button>
               )}
 
@@ -265,7 +265,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => handleAuth('register')}
-                className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl bg-[#1E88E5] px-3 text-sm font-semibold text-white"
+                className="lasued-action-gradient flex min-h-[46px] items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold text-white shadow-xs"
               >
                 <UserPlus className="h-4 w-4" aria-hidden="true" />
                 Register
@@ -389,7 +389,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 onClick={() => handlePick(section.id)}
                 className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left ${
                   isActive
-                    ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
+                    ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent text-[#1565C0] ring-1 ring-[#1E88E5]/20'
                     : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >

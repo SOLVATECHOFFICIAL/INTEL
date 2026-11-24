@@ -80,6 +80,7 @@ import {
   reuseSetIfUnchanged,
 } from '../../utils/cacheSync';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
@@ -1419,7 +1420,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               <input
                 ref={coverInputRef}
                 type="file"
-                accept="image/*"
+                accept={ALL_IMAGE_FILE_ACCEPT}
                 onChange={handleSelectCoverFile}
                 className="sr-only"
                 data-testid="profile-header-cover-input"
@@ -1556,7 +1557,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   <input
                     ref={avatarInputRef}
                     type="file"
-                    accept="image/*"
+                    accept={ALL_IMAGE_FILE_ACCEPT}
                     onChange={handleSelectAvatarFile}
                     className="sr-only"
                     data-testid="profile-header-avatar-input"

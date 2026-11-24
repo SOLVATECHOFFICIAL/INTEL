@@ -5,6 +5,8 @@
   --color-navy-soft: #132844;
   --color-brand-blue: #1E88E5;
   --color-brand-blue-dark: #1565C0;
+  --color-campus-cyan: #0EA5E9;
+  --color-campus-teal: #0F766E;
   --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-sans: "Public Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
@@ -13,12 +15,41 @@
   html {
     font-family: var(--font-sans);
     color: #0B1A2E;
-    background-color: #FFFFFF;
+    background-color: #F4F8FD;
     scroll-behavior: smooth;
+    max-width: 100%;
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    max-width: 100%;
+    overflow-x: clip;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(30, 136, 229, 0.08) 0%, transparent 42%),
+      radial-gradient(circle at 88% 8%, rgba(14, 165, 233, 0.08) 0%, transparent 38%),
+      radial-gradient(circle at 50% 100%, rgba(16, 185, 129, 0.05) 0%, transparent 45%),
+      linear-gradient(180deg, #F6FAFF 0%, #F1F6FC 52%, #EDF4FA 100%);
+    background-attachment: scroll;
+  }
+
+  #root {
+    min-width: 0;
+    max-width: 100%;
   }
 
   h1, h2, h3, h4, .font-display {
     font-family: var(--font-display);
+  }
+
+  /* Prevent unbroken campus URLs, long hashes, or mobile tokens from blowing out card widths */
+  article, section, main {
+    min-width: 0;
+  }
+
+  .overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   :focus-visible {
@@ -36,4 +67,29 @@
       transition-duration: 0.01ms !important;
     }
   }
+}
+
+/* Signature campus gradient surfaces */
+.lasued-canvas-backdrop {
+  background:
+    radial-gradient(1100px 480px at 8% -10%, rgba(30, 136, 229, 0.11), transparent 60%),
+    radial-gradient(900px 420px at 94% -4%, rgba(14, 165, 233, 0.10), transparent 55%),
+    radial-gradient(760px 360px at 50% 100%, rgba(15, 118, 110, 0.06), transparent 60%),
+    linear-gradient(180deg, #F6FAFF 0%, #F0F6FD 55%, #ECF4FA 100%);
+}
+
+.lasued-brand-gradient {
+  background: linear-gradient(135deg, #071426 0%, #0B1A2E 42%, #133B6E 80%, #1E88E5 100%);
+}
+
+.lasued-accent-gradient {
+  background: linear-gradient(135deg, #0B1A2E 0%, #1565C0 55%, #0EA5E9 100%);
+}
+
+.lasued-action-gradient {
+  background: linear-gradient(135deg, #1565C0 0%, #1E88E5 55%, #0EA5E9 100%);
+}
+
+.lasued-emerald-gradient {
+  background: linear-gradient(135deg, #064E3B 0%, #0F766E 55%, #0284C7 100%);
 }

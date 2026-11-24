@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   buildMediaDataUrl,
   computeTargetDimensions,
   estimateBase64DecodedBytes,
@@ -9,7 +10,7 @@ import {
   validatePostImageCountAfterAdd,
 } from './imageCompression';
 
-test('validateImageFileCandidate rejects videos, empty files, and oversized source files', () => {
+test('validateImageFileCandidate rejects videos, audio, documents, empty files, and oversized files', () => {
   assert.match(
     validateImageFileCandidate({
       type: 'video/mp4',
@@ -26,6 +27,15 @@ test('validateImageFileCandidate rejects videos, empty files, and oversized sour
       name: 'lecture.mov',
     }) ?? '',
     /Video uploads are not supported/i
+  );
+
+  assert.match(
+    validateImageFileCandidate({
+      type: 'audio/mpeg',
+      size: 200_000,
+      name: 'voice.mp3',
+    }) ?? '',
+    /Audio files cannot be uploaded/i
   );
 
   assert.match(
@@ -49,20 +59,40 @@ test('validateImageFileCandidate rejects videos, empty files, and oversized sour
   assert.match(
     validateImageFileCandidate({
       type: 'image/jpeg',
-      size: 26 * 1024 * 1024,
+      size: 41 * 1024 * 1024,
       name: 'huge.jpg',
     }) ?? '',
     /too large/i
   );
+});
 
-  assert.equal(
-    validateImageFileCandidate({
-      type: 'image/webp',
-      size: 1_250_000,
-      name: 'campus_event.webp',
-    }),
-    null
-  );
+test('validateImageFileCandidate accepts all standard, modern, vector, and mobile-gallery image formats', () => {
+  const acceptedCandidates = [
+    { type: 'image/webp', size: 1_250_000, name: 'campus_event.webp' },
+    { type: 'image/heic', size: 3_400_000, name: 'IMG_0192.HEIC' },
+    { type: 'image/heif', size: 2_800_000, name: 'shot.heif' },
+    { type: 'image/avif', size: 650_000, name: 'banner.avif' },
+    { type: 'image/svg+xml', size: 42_000, name: 'crest.svg' },
+    { type: 'image/tiff', size: 5_000_000, name: 'scan.tiff' },
+    { type: 'image/bmp', size: 2_100_000, name: 'bitmap.bmp' },
+    { type: 'image/x-icon', size: 18_000, name: 'favicon.ico' },
+    { type: '', size: 1_400_000, name: 'photo.jfif' },
+    { type: 'application/octet-stream', size: 900_000, name: 'gallery_blob' },
+    { type: '', size: 750_000, name: '1000048291' },
+  ];
+
+  for (const candidate of acceptedCandidates) {
+    assert.equal(
+      validateImageFileCandidate(candidate),
+      null,
+      `Expected ${candidate.name} (${candidate.type || 'empty mime'}) to be accepted`
+    );
+  }
+
+  assert.match(ALL_IMAGE_FILE_ACCEPT, /image\/\*/);
+  assert.match(ALL_IMAGE_FILE_ACCEPT, /\.heic/i);
+  assert.match(ALL_IMAGE_FILE_ACCEPT, /\.avif/i);
+  assert.match(ALL_IMAGE_FILE_ACCEPT, /\.svg/i);
 });
 
 test('validatePostImageCountAfterAdd strictly enforces 4-image post maximum', () => {

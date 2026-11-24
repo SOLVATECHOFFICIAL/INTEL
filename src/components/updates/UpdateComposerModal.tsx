@@ -47,6 +47,7 @@ import {
   isUndergroundSupremeAdminUser,
 } from '../../utils/authValidation';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   formatByteSize,
   validatePostImageCountAfterAdd,
@@ -75,6 +76,7 @@ export interface UpdateComposerModalProps {
   actorName?: string;
   actorPhotoUrl?: string;
   actorPhotoImageId?: string;
+  initialFormat?: AdminUpdateFormat;
   initialUpdate?: AdminUpdate | null;
   onSuccess: (
     update: AdminUpdate,
@@ -89,6 +91,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
   actorName,
   actorPhotoUrl,
   actorPhotoImageId,
+  initialFormat = 'photo',
   initialUpdate = null,
   onSuccess,
   onClose,
@@ -120,7 +123,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
     (effectiveAuthorMode === 'official_desk' ? 'verified' : 'supreme_admin');
 
   const [format, setFormat] = useState<AdminUpdateFormat>(
-    () => lockedFormat ?? 'photo'
+    () => lockedFormat ?? initialFormat
   );
   const [category, setCategory] = useState<string>(
     initialUpdate?.category || ALLOWED_ADMIN_UPDATE_CATEGORIES[0]
@@ -235,20 +238,36 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
     setCompressingCount(uniqueFiles.length);
     try {
       const nextItems: ComposerImageAttachment[] = [];
+      const failedCount = { value: 0 };
       for (const file of uniqueFiles) {
-        const compressed = await compressImageFile(file, 'post');
-        const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
-        nextItems.push({
-          clientId: imageId,
-          imageId,
-          caption: '',
-          compressed,
-          previewUrl: compressed.dataUrl,
-        });
+        try {
+          const compressed = await compressImageFile(file, 'post');
+          const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
+          nextItems.push({
+            clientId: imageId,
+            imageId,
+            caption: '',
+            compressed,
+            previewUrl: compressed.dataUrl,
+          });
+        } catch {
+          failedCount.value += 1;
+        }
       }
-      setAttachments((prev) =>
-        [...prev, ...nextItems].slice(0, BLUEPRINT_LIMITS.mediaPostMaxCount)
-      );
+      if (nextItems.length > 0) {
+        setAttachments((prev) =>
+          [...prev, ...nextItems].slice(0, BLUEPRINT_LIMITS.mediaPostMaxCount)
+        );
+      }
+      if (failedCount.value > 0 && nextItems.length === 0) {
+        setErrorMessage(
+          'Could not decode selected photograph(s). Try a standard photo or screenshot from your device.'
+        );
+      } else if (failedCount.value > 0) {
+        setErrorMessage(
+          `Attached ${nextItems.length} photo(s); ${failedCount.value} unsupported or corrupted file(s) skipped.`
+        );
+      }
     } catch (err) {
       setErrorMessage(
         err instanceof Error
@@ -272,7 +291,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
     setErrorMessage(null);
     setCompressingCount(1);
     try {
-      const compressed = await compressImageFile(file);
+      const compressed = await compressImageFile(file, 'post');
       const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
       setAttachments((prev) =>
         prev.map((att) =>
@@ -421,11 +440,11 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
       aria-modal="true"
       aria-labelledby="update-composer-heading"
     >
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
+      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
         {/* Modal Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-[#0B1A2E] px-4 py-3.5 text-white sm:px-5">
+        <div className="lasued-brand-gradient flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5 text-white sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1E88E5] text-white">
+            <div className="lasued-action-gradient flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white shadow-xs">
               <Megaphone className="h-4 w-4" aria-hidden="true" />
             </div>
             <div className="min-w-0">
@@ -457,7 +476,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
         </div>
 
         {/* Compose / Live Preview Switcher */}
-        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5">
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
             <button
               type="button"
@@ -497,9 +516,9 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
 
         <form
           onSubmit={handleSubmit}
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <div className="flex-1 space-y-4 p-4 sm:p-5">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
             {activeView === 'compose' ? (
               <>
                 {/* Separate Format Selector (locked while editing) */}
@@ -668,7 +687,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                               BLUEPRINT_LIMITS.mediaPostMaxCount
                           }
                           onClick={() => fileInputRef.current?.click()}
-                          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1E88E5] disabled:opacity-50"
+                          className="lasued-action-gradient inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:opacity-50"
                         >
                           {compressingCount > 0 ? (
                             <Loader2
@@ -682,9 +701,11 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                             />
                           )}
                           <span>
-                            {attachments.length === 0
+                            {compressingCount > 0
+                              ? 'Compressing...'
+                              : attachments.length === 0
                               ? 'Add Photos'
-                              : 'Add More'}
+                              : `Add More (${attachments.length}/4)`}
                           </span>
                         </button>
                       </div>
@@ -692,7 +713,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept="image/*"
+                        accept={ALL_IMAGE_FILE_ACCEPT}
                         multiple
                         onChange={(e) => void handleSelectPhotos(e)}
                         className="hidden"
@@ -700,12 +721,30 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       <input
                         ref={replaceFileInputRef}
                         type="file"
-                        accept="image/*"
+                        accept={ALL_IMAGE_FILE_ACCEPT}
                         onChange={(e) => void handleReplacePhoto(e)}
                         className="hidden"
                       />
 
-                      {attachments.length > 0 && (
+                      {attachments.length === 0 ? (
+                        <button
+                          type="button"
+                          disabled={isSubmitting || compressingCount > 0}
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-sky-50/40 disabled:opacity-50"
+                        >
+                          <ImagePlus
+                            className="h-6 w-6 text-[#1E88E5]"
+                            aria-hidden="true"
+                          />
+                          <span className="text-xs font-semibold text-[#0B1A2E]">
+                            Tap to select 1 to 4 photos (any image format)
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            JPEG, PNG, WebP, HEIC, GIF, AVIF, BMP &amp; more compressed automatically.
+                          </span>
+                        </button>
+                      ) : (
                         <div className="space-y-2.5">
                           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                             {attachments.map((att, index) => (
@@ -968,13 +1007,13 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
             )}
           </div>
 
-          {/* Modal Footer */}
-          <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
+          {/* Always-Pinned Modal Footer outside scroll container */}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5">
             <button
               type="button"
               disabled={isSubmitting}
               onClick={onClose}
-              className="inline-flex min-h-[40px] items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex min-h-[42px] items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -982,18 +1021,21 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting || compressingCount > 0}
-              className="inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-[#0B1A2E] px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#1E88E5] disabled:opacity-50"
+              data-testid="update-composer-submit-button"
+              className="lasued-accent-gradient inline-flex min-h-[42px] items-center gap-2 rounded-xl px-5 py-2 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-95 disabled:opacity-50"
             >
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                <Send className="h-3.5 w-3.5 text-sky-200" aria-hidden="true" />
               )}
               <span>
                 {isSubmitting
                   ? isEditing
                     ? 'Saving...'
                     : 'Publishing...'
+                  : compressingCount > 0
+                  ? 'Compressing...'
                   : isEditing
                   ? 'Save Changes'
                   : 'Publish Update'}

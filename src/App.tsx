@@ -1093,7 +1093,7 @@ export function App() {
     activeRoute !== 'register';
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50/50 text-[#0B1A2E]">
+    <div className="lasued-canvas-backdrop flex min-h-screen min-w-0 max-w-full flex-col overflow-x-clip text-[#0B1A2E]">
       <Header
         activeRoute={activeRoute}
         isMobileDrawerOpen={isMobileDrawerOpen}
@@ -1102,7 +1102,7 @@ export function App() {
         onRequireAuth={handleRequireAuth}
       />
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 gap-8 px-4 py-5 sm:px-6 lg:py-7">
+      <main className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-6 px-3 pt-4 pb-24 sm:px-6 lg:gap-8 lg:pt-7 lg:pb-8">
         {showSidebar && (
           <SectionSidebar
             activeRoute={activeRoute}
@@ -1113,7 +1113,7 @@ export function App() {
           />
         )}
 
-        <div className="min-w-0 flex-1 space-y-4">
+        <div className="min-w-0 max-w-full flex-1 space-y-4">
           {!isOnline ? (
             <div
               role="status"

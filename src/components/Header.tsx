@@ -51,10 +51,11 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 md:h-16 md:gap-6">
+    <header className="sticky top-0 z-40 max-w-full border-b border-slate-200/90 bg-white/95 shadow-[0_2px_14px_-6px_rgba(11,26,46,0.08)] backdrop-blur-md">
+      <div aria-hidden="true" className="lasued-action-gradient h-[2px] w-full" />
+      <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center justify-between gap-2 px-3 sm:gap-4 sm:px-6 md:h-16 md:gap-6">
         {/* Left: Brand Logo + Desktop Search Trigger */}
-        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3">
+        <div className="flex min-w-0 shrink items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => onNavigate('for-you')}
@@ -104,7 +105,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {isActive && (
                   <span
                     aria-hidden="true"
-                    className="absolute right-0 bottom-0 left-0 h-0.5 rounded-full bg-[#1E88E5]"
+                    className="lasued-action-gradient absolute right-0 bottom-0 left-0 h-0.5 rounded-full"
                   />
                 )}
               </button>
@@ -166,8 +167,8 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label="Open my profile"
               className={`inline-flex min-h-[42px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors sm:px-3 sm:text-sm ${
                 activeRoute === 'profile' || activeRoute === 'account'
-                  ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
-                  : 'border-slate-200 bg-white text-[#0B1A2E] hover:bg-slate-50'
+                  ? 'lasued-accent-gradient border-transparent text-white shadow-xs'
+                  : 'border-slate-200 bg-white text-[#0B1A2E] hover:bg-sky-50/70'
               }`}
             >
               <AvatarMedia
@@ -178,7 +179,7 @@ export const Header: React.FC<HeaderProps> = ({
                 roundedClass="rounded-full"
                 textClass="text-[10px]"
               />
-              <span className="max-w-[78px] truncate sm:max-w-[110px]">
+              <span className="max-w-[70px] truncate sm:max-w-[110px]">
                 {profile?.fullName?.split(' ')[0] || 'Profile'}
               </span>
             </button>
@@ -194,7 +195,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => onRequireAuth('register', activeRoute)}
-                className="hidden min-h-[42px] items-center rounded-lg bg-[#1E88E5] px-3.5 py-1.5 text-sm font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#1565C0] sm:inline-flex"
+                className="lasued-action-gradient hidden min-h-[42px] items-center rounded-lg px-3.5 py-1.5 text-sm font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110 sm:inline-flex"
               >
                 Register
               </button>

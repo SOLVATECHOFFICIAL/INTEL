@@ -48,6 +48,7 @@ import {
   type EventNotificationKind,
 } from '../../utils/events';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   formatByteSize,
   type CompressedImageResult,
@@ -790,7 +791,7 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={ALL_IMAGE_FILE_ACCEPT}
                 multiple
                 onChange={(e) => void handleSelectImages(e)}
                 className="hidden"
@@ -798,7 +799,7 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
               <input
                 ref={replaceInputRef}
                 type="file"
-                accept="image/*"
+                accept={ALL_IMAGE_FILE_ACCEPT}
                 onChange={(e) => void handleReplaceNewImage(e)}
                 className="hidden"
               />

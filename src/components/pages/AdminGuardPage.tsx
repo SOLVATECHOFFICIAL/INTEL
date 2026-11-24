@@ -10,6 +10,8 @@ import {
   FileText,
   Loader2,
   Mail,
+  Megaphone,
+  PenSquare,
   RefreshCw,
   Settings,
   ShieldAlert,
@@ -62,6 +64,7 @@ import {
   canRevealAnonymousAuthor,
   formatFirestoreOrAppError,
   getAccountTierDisplayLabel,
+  isDesignatedSupremeAdminUser,
   isUndergroundSupremeAdminUser,
   mapFirebaseAuthError,
 } from '../../utils/authValidation';
@@ -77,6 +80,8 @@ import { AdminOverviewTab } from '../admin/AdminOverviewTab';
 import { AdminSettingsTab } from '../admin/AdminSettingsTab';
 import { AdminTrustedCircleTab } from '../admin/AdminTrustedCircleTab';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { PostComposer } from '../posts/PostComposer';
+import { UpdateComposerModal } from '../updates/UpdateComposerModal';
 
 interface AdminGuardPageProps {
   onNavigate: (
@@ -157,6 +162,9 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [adminQuickComposer, setAdminQuickComposer] = useState<
+    'none' | 'official_update' | 'campus_post'
+  >('none');
   const isUndergroundAdmin = isUndergroundSupremeAdminUser(user);
 
   // Per-section real Firebase state
@@ -529,10 +537,10 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
   return (
     <section
       aria-labelledby="admin-heading"
-      className="min-w-0 flex-1 space-y-5"
+      className="min-w-0 max-w-full flex-1 space-y-5"
     >
       {/* Top Header Card */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      <div className="min-w-0 max-w-full rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-sky-50/45 to-blue-50/60 p-5 shadow-xs sm:p-6">
         {onBack && (
           <div className="mb-3">
             <button
@@ -546,9 +554,9 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
           </div>
         )}
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
-              <ShieldCheck className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="lasued-brand-gradient flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-xs">
+              <ShieldCheck className="h-5 w-5 text-sky-300" aria-hidden="true" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -590,6 +598,28 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {isFullAdmin && isDesignatedSupremeAdminUser(user) && (
+              <>
+                <button
+                  type="button"
+                  data-testid="admin-new-official-update-btn"
+                  onClick={() => setAdminQuickComposer('official_update')}
+                  className="lasued-action-gradient inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
+                >
+                  <Megaphone className="h-3.5 w-3.5" aria-hidden="true" />
+                  New Official Update
+                </button>
+                <button
+                  type="button"
+                  data-testid="admin-new-campus-post-btn"
+                  onClick={() => setAdminQuickComposer('campus_post')}
+                  className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] whitespace-nowrap transition hover:bg-slate-50"
+                >
+                  <PenSquare className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                  New Campus Post
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={reloadCurrentSection}
@@ -630,9 +660,9 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
       <div className="flex flex-col gap-5 xl:flex-row">
         <nav
           aria-label="Admin dashboard sections"
-          className="xl:w-60 xl:shrink-0"
+          className="min-w-0 max-w-full xl:w-60 xl:shrink-0"
         >
-          <div className="flex gap-1.5 overflow-x-auto pb-1 xl:flex-col xl:overflow-visible xl:rounded-2xl xl:border xl:border-slate-200 xl:bg-white xl:p-3">
+          <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-1 xl:flex-col xl:overflow-visible xl:rounded-2xl xl:border xl:border-slate-200 xl:bg-white xl:p-3">
             {visibleSections.map((sec) => {
               const Icon = SECTION_ICONS[sec.id];
               const isSelected = activeSection === sec.id;
@@ -642,15 +672,15 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
                   type="button"
                   aria-current={isSelected ? 'page' : undefined}
                   onClick={() => selectSection(sec.id)}
-                  className={`flex min-h-[42px] shrink-0 items-center gap-2.5 rounded-xl px-3.5 py-2 text-left text-xs font-semibold whitespace-nowrap transition-colors xl:w-full ${
+                  className={`flex min-h-[42px] shrink-0 items-center gap-2.5 rounded-xl px-3.5 py-2 text-left text-xs font-semibold whitespace-nowrap transition-all xl:w-full ${
                     isSelected
-                      ? 'bg-[#0B1A2E] text-white'
+                      ? 'lasued-accent-gradient text-white shadow-xs'
                       : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] xl:border-transparent'
                   }`}
                 >
                   <Icon
                     className={`h-4 w-4 shrink-0 ${
-                      isSelected ? 'text-[#1E88E5]' : 'text-slate-400'
+                      isSelected ? 'text-sky-200' : 'text-slate-400'
                     }`}
                   />
                   <span>
@@ -865,6 +895,47 @@ export const AdminGuardPage: React.FC<AdminGuardPageProps> = ({
           )}
         </div>
       </div>
+
+      {adminQuickComposer === 'official_update' &&
+        isFullAdmin &&
+        isDesignatedSupremeAdminUser(user) &&
+        user?.uid && (
+          <UpdateComposerModal
+            actorUid={user.uid}
+            actorRole="supreme_admin"
+            actorName={profile?.fullName || user.displayName || undefined}
+            actorPhotoUrl={profile?.photoUrl}
+            actorPhotoImageId={profile?.photoImageId}
+            onSuccess={() => {
+              setAdminQuickComposer('none');
+              setErrorMessage(null);
+              setStatusMessage('Official update published to campus feed.');
+              reloadCurrentSection();
+            }}
+            onClose={() => setAdminQuickComposer('none')}
+          />
+        )}
+
+      {adminQuickComposer === 'campus_post' &&
+        isFullAdmin &&
+        isDesignatedSupremeAdminUser(user) &&
+        user?.uid && (
+          <PostComposer
+            mode="ordinary"
+            initialOrdinaryType="photo"
+            actorUid={user.uid}
+            actorRole={actorRole}
+            actorName={profile?.fullName || user.displayName || undefined}
+            actorUsername={profile?.username}
+            onSuccess={() => {
+              setAdminQuickComposer('none');
+              setErrorMessage(null);
+              setStatusMessage('Campus post published live to community feed.');
+              reloadCurrentSection();
+            }}
+            onClose={() => setAdminQuickComposer('none')}
+          />
+        )}
     </section>
   );
 };

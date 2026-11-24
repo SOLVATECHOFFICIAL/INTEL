@@ -26,6 +26,7 @@ import {
 } from '../../utils/authValidation';
 import { TRUSTED_CONTACT_CATEGORY_LABELS } from '../../utils/followRelations';
 import {
+  ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
   type CompressedImageResult,
 } from '../../utils/imageCompression';
@@ -323,7 +324,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                     </span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={ALL_IMAGE_FILE_ACCEPT}
                       disabled={compressingPhoto}
                       onChange={handleSelectPhoto}
                       className="sr-only"
