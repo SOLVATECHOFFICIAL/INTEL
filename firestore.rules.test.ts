@@ -394,11 +394,11 @@ test('Task 12 events rules enforce 10 categories, draft isolation, mediaImages, 
   );
   assert.match(
     rulesText,
-    /incoming\(\)\.targetCollection in \['posts', 'anonymousPosts', 'marketplaceListings', 'opportunities', 'events'\]/
+    /incoming\(\)\.targetCollection in \['posts', 'updates', 'anonymousPosts', 'marketplaceListings', 'opportunities', 'events'\]/
   );
   assert.match(
     rulesText,
-    /incoming\(\)\.targetCollection in \['events', 'postComments'\]/
+    /incoming\(\)\.targetCollection in \['events', 'updates', 'postComments'\]/
   );
 });
 
@@ -442,7 +442,7 @@ test('Prompt 20 designated Supreme Admins, underground privacy, compulsory Trust
     rulesText.indexOf('match /anonymousHistory/{postId}')
   );
   assert.match(privateBlock, /allow get: if isValidId\(userId\) && isOwnerOf\(userId\);/);
-  assert.match(privateBlock, /data\.showSupremeAdminBadge == false/);
+  assert.match(privateBlock, /incoming\(\)\.showSupremeAdminBadge == false/);
   assert.doesNotMatch(privateBlock, /isPermanentOwner\(\)/);
 
   const trustFn = rulesText.slice(
@@ -517,4 +517,44 @@ test('Audit fixes enforce resource==null reads, unfollow decrements on suspended
   );
 });
 
+test('Official updates rules enforce strict two-admin publishing, underground official_desk isolation, separated photo/text formats, and atomic interactions', () => {
+  const fnBlock = rulesText.slice(
+    rulesText.indexOf('function isValidAdminUpdate('),
+    rulesText.indexOf('function isValidPostComment(')
+  );
+  assert.match(fnBlock, /data\.format in \['photo', 'text'\]/);
+  assert.match(fnBlock, /data\.authorMode in \['public_admin', 'official_desk'\]/);
+  assert.match(fnBlock, /!\('ownerUID' in data\)/);
+  assert.match(fnBlock, /LASUED Intel Official/);
+  assert.match(fnBlock, /isValidPhotoPostMediaItemsArray\(data\)/);
+  assert.match(fnBlock, /isValidTextPostBackgroundStyle\(data\.backgroundStyle\)/);
 
+  const updatesBlock = rulesText.slice(
+    rulesText.indexOf('match /updates/{updateId}'),
+    rulesText.indexOf('match /adminUpdateMappings/{updateId}')
+  );
+  assert.match(updatesBlock, /allow create: if isValidId\(updateId\) &&[\s\S]*isSupremeAdmin\(\)/);
+  assert.match(updatesBlock, /isUndergroundSupremeAdminEmail\(\) &&[\s\S]*incoming\(\)\.authorMode == 'official_desk' &&[\s\S]*!\('ownerUID' in incoming\(\)\)/);
+  assert.match(updatesBlock, /'updates_' \+ updateId \+ '_' \+ request\.auth\.uid/);
+  assert.match(updatesBlock, /hasOnly\(\['commentsCount'\]\)/);
+  assert.match(updatesBlock, /allow delete: if isValidId\(updateId\) && isSupremeAdmin\(\);/);
+
+  const mappingsBlock = rulesText.slice(
+    rulesText.indexOf('match /adminUpdateMappings/{updateId}')
+  );
+  assert.match(mappingsBlock, /allow get, list: if isSupremeAdmin\(\);/);
+  assert.match(mappingsBlock, /allow update: if false;/);
+
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  assert.match(usersBlock, /!\('hasPublicActivity' in incoming\(\)\) \|\| incoming\(\)\.hasPublicActivity == false/);
+
+  assert.match(rulesText, /incoming\(\)\.targetCollection == 'updates'/);
+  assert.match(rulesText, /'official_update'/);
+  assert.match(rulesText, /'update_created'/);
+  assert.match(rulesText, /'update_updated'/);
+  assert.match(rulesText, /'update_deleted'/);
+  assert.doesNotMatch(rulesText, /estheriawoyinfa52@gmail\.com/i);
+});

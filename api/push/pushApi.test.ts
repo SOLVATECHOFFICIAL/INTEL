@@ -171,12 +171,34 @@ test('/api/push/broadcast validates method, eventType whitelist, title requireme
   } finally {
     if (savedSa !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
   }
+  const officialSkipMock = createMockRes();
+  try {
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    await broadcastHandler(
+      {
+        method: 'POST',
+        headers: {},
+        body: {
+          eventType: 'official_update',
+          title: 'Official Semester Calendar Notice',
+          targetPath: '/?view=updates&postId=upd_1',
+        },
+      } as VercelLikeRequest,
+      officialSkipMock.res
+    );
+    assert.equal(officialSkipMock.getStatus(), 200);
+    assert.equal(officialSkipMock.getBody().skipped, true);
+  } finally {
+    if (savedSa !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
+  }
 });
 
-test('pushSanitizer defaults VAPID subject to lasuedintel@gmail.com, supports mention prefs, and constrains origin URLs', () => {
+test('pushSanitizer defaults VAPID subject to lasuedintel@gmail.com, supports mention & official_update prefs, and constrains origin URLs', () => {
   assert.equal(normalizeVapidSubject(undefined), 'mailto:lasuedintel@gmail.com');
   assert.equal(isNotificationAllowedByRawPrefs('mention', { mentions: true }), true);
   assert.equal(isNotificationAllowedByRawPrefs('mention', { mentions: false }), false);
+  assert.equal(isNotificationAllowedByRawPrefs('official_update', { announcements: true }), true);
+  assert.equal(isNotificationAllowedByRawPrefs('official_update', { announcements: false }), false);
 
   const sanitized = sanitizePushPayloadForClient({
     notificationId: 'mnt_post1_user2',
@@ -187,6 +209,6 @@ test('pushSanitizer defaults VAPID subject to lasuedintel@gmail.com, supports me
     unreadCount: 3,
     allowedOrigin: 'https://lasued-intel.vercel.app',
   });
-  assert.equal(sanitized.url, 'https://lasued-intel.vercel.app/?view=for-you&postId=post1');
+  assert.equal(sanitized.targetPath, '/?view=for-you&postId=post1');
   assert.equal(sanitized.isAnonymous, false);
 });

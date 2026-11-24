@@ -24,6 +24,7 @@ import {
   resolveMarketplaceUpdateFromQuantity,
   resolveOrdinaryPostType,
   resolvePublicBadgesForProfile,
+  validateAdminUpdatePayload,
   validateAnonymousPostPayload,
   validateAnonymousReportPayload,
   validateCommunityPostPayload,
@@ -587,6 +588,97 @@ test('mediaImages and 4-image post metadata validators enforce Firestore size an
     'photo'
   );
   assert.equal(resolveOrdinaryPostType({ mediaItems: [] }), 'text');
+});
+
+test('validateAdminUpdatePayload enforces strict format separation and underground privacy', () => {
+  const uncaptionedPhoto = {
+    imageId: 'img_upd_1',
+    width: 900,
+    height: 900,
+    byteSize: 82_000,
+    mimeType: 'image/webp' as const,
+    order: 0,
+  };
+
+  // Format 1: Photo Update (public admin)
+  assert.doesNotThrow(() =>
+    validateAdminUpdatePayload({
+      id: 'upd_photo_1',
+      format: 'photo',
+      authorMode: 'public_admin',
+      ownerUID: 'admin_pub_uid',
+      authorDisplayName: 'LASUED Intel',
+      authorBadge: 'supreme_admin',
+      category: 'announcement',
+      body: 'Shared caption for official photos.',
+      mediaItems: [uncaptionedPhoto],
+    })
+  );
+
+  // Format 2: Text-Only Update (official desk neutral identity)
+  assert.doesNotThrow(() =>
+    validateAdminUpdatePayload({
+      id: 'upd_text_1',
+      format: 'text',
+      authorMode: 'official_desk',
+      authorDisplayName: 'LASUED Intel Official',
+      authorBadge: 'verified',
+      category: 'academic',
+      body: 'Lecture schedule update for all 200L students.',
+      backgroundStyle: 'navy_slate',
+    })
+  );
+
+  // Official desk must NEVER leak ownerUID or email
+  assert.throws(
+    () =>
+      validateAdminUpdatePayload({
+        id: 'upd_leak_1',
+        format: 'text',
+        authorMode: 'official_desk',
+        ownerUID: 'secret_hidden_uid',
+        authorDisplayName: 'LASUED Intel Official',
+        authorBadge: 'verified',
+        category: 'announcement',
+        body: 'Leaked identity.',
+        backgroundStyle: 'navy_slate',
+      }),
+    /never expose hidden admin field "ownerUID"/i
+  );
+
+  // Text-only cannot attach photos
+  assert.throws(
+    () =>
+      validateAdminUpdatePayload({
+        id: 'upd_mixed_1',
+        format: 'text',
+        authorMode: 'official_desk',
+        authorDisplayName: 'LASUED Intel Official',
+        authorBadge: 'verified',
+        category: 'announcement',
+        body: 'Mixed update.',
+        backgroundStyle: 'ocean_blue',
+        mediaItems: [uncaptionedPhoto],
+      }),
+    /cannot include photo attachments/i
+  );
+
+  // Photo format cannot combine coloured background
+  assert.throws(
+    () =>
+      validateAdminUpdatePayload({
+        id: 'upd_mixed_2',
+        format: 'photo',
+        authorMode: 'official_desk',
+        authorDisplayName: 'LASUED Intel Official',
+        authorBadge: 'verified',
+        category: 'announcement',
+        body: 'Photo with background.',
+        backgroundStyle: 'ocean_blue',
+        mediaItems: [uncaptionedPhoto],
+      }),
+    /cannot use coloured text-post backgrounds/i
+  );
 });
 
 test('marketplace approval, 7-day expiry, and quantity=0 sold transition work accurately', () => {

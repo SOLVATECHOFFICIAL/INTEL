@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
   Clock,
   Edit3,
@@ -14,7 +13,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  Share2,
   ShieldAlert,
   ShieldCheck,
   ShoppingBag,
@@ -95,6 +93,7 @@ import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
+import { ShareActionMenu } from '../shared/ShareActionMenu';
 import { MarketplaceListingComments } from './MarketplaceListingComments';
 import { MarketplaceListingCard } from './marketplace/MarketplaceListingCard';
 
@@ -215,7 +214,6 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   const [galleryIndexByListingId, setGalleryIndexByListingId] = useState<
     Record<string, number>
   >(() => initialCache?.activeGalleryIndexByListingId ?? {});
-  const [listingLinkCopied, setListingLinkCopied] = useState(false);
   const [confirmDeleteListingId, setConfirmDeleteListingId] = useState<
     string | null
   >(null);
@@ -674,7 +672,6 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
   const openListingModal = (listingId: string | null) => {
     setDetailLightboxIndex(null);
-    setListingLinkCopied(false);
     if (listingId !== null && typeof window !== 'undefined') {
       savedScrollYRef.current = window.scrollY;
     }
@@ -693,33 +690,6 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
       window.requestAnimationFrame(() => {
         window.scrollTo({ top: targetY });
       });
-    }
-  };
-
-  const handleShareListing = async (listing: MarketplaceListing) => {
-    const url = buildMarketplaceListingShareUrl(listing.id);
-
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      try {
-        await navigator.share({
-          title: listing.title,
-          text: `${listing.title} — ₦${listing.price.toLocaleString()} on LASUED Intel Marketplace`,
-          url,
-        });
-        return;
-      } catch {
-        // Fallback to clipboard copy below
-      }
-    }
-
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(url);
-        setListingLinkCopied(true);
-        window.setTimeout(() => setListingLinkCopied(false), 2500);
-      } catch {
-        // Ignore clipboard denial
-      }
     }
   };
 
@@ -2321,25 +2291,15 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => void handleShareListing(selectedProduct)}
-                  aria-label="Share listing link"
-                  title="Share or copy link"
-                  className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]"
-                >
-                  {listingLinkCopied ? (
-                    <>
-                      <Check
-                        className="h-3.5 w-3.5 text-emerald-600"
-                        aria-hidden="true"
-                      />
-                      <span className="text-emerald-700">Copied</span>
-                    </>
-                  ) : (
-                    <Share2 className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </button>
+                <ShareActionMenu
+                  shareUrl={buildMarketplaceListingShareUrl(selectedProduct.id)}
+                  title={selectedProduct.title}
+                  text={`${selectedProduct.title} — ₦${selectedProduct.price.toLocaleString()} on LASUED Intel Marketplace`}
+                  align="right"
+                  ariaLabel="Share listing link"
+                  buttonClassName="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                  testId={`marketplace-share-btn-${selectedProduct.id}`}
+                />
                 <button
                   type="button"
                   onClick={() => openListingModal(null)}

@@ -20,6 +20,7 @@ const ALLOWED_BROADCAST_EVENTS = new Set([
   'new_event',
   'new_opportunity',
   'announcement',
+  'official_update',
 ]);
 
 export default async function handler(
@@ -114,29 +115,43 @@ export default async function handler(
   >();
 
   try {
-    const groupSnap = await clients.db
-      .collectionGroup('pushSubscriptions')
-      .limit(500)
-      .get();
-
     const allowedSet = requestedUids ? new Set(requestedUids) : null;
-    for (const docSnap of groupSnap.docs) {
-      const data = docSnap.data() ?? {};
-      const uid =
-        typeof data.uid === 'string' && isValidFirestoreId(data.uid)
-          ? data.uid
-          : docSnap.ref.parent.parent?.id ?? '';
-      if (!isValidFirestoreId(uid)) continue;
-      if (allowedSet && !allowedSet.has(uid)) continue;
+    const PAGE_SIZE = 400;
+    const MAX_PAGES = 12;
+    let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
 
-      const list = subsByUid.get(uid) ?? [];
-      list.push({
-        id: docSnap.id,
-        endpoint: String(data.endpoint ?? ''),
-        p256dh: String(data.p256dh ?? ''),
-        auth: String(data.auth ?? ''),
-      });
-      subsByUid.set(uid, list);
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      let groupQuery = clients.db
+        .collectionGroup('pushSubscriptions')
+        .orderBy('__name__')
+        .limit(PAGE_SIZE);
+      if (lastDoc) {
+        groupQuery = groupQuery.startAfter(lastDoc);
+      }
+      const groupSnap = await groupQuery.get();
+      if (groupSnap.empty) break;
+
+      for (const docSnap of groupSnap.docs) {
+        const data = docSnap.data() ?? {};
+        const uid =
+          typeof data.uid === 'string' && isValidFirestoreId(data.uid)
+            ? data.uid
+            : docSnap.ref.parent.parent?.id ?? '';
+        if (!isValidFirestoreId(uid)) continue;
+        if (allowedSet && !allowedSet.has(uid)) continue;
+
+        const list = subsByUid.get(uid) ?? [];
+        list.push({
+          id: docSnap.id,
+          endpoint: String(data.endpoint ?? ''),
+          p256dh: String(data.p256dh ?? ''),
+          auth: String(data.auth ?? ''),
+        });
+        subsByUid.set(uid, list);
+      }
+
+      if (groupSnap.docs.length < PAGE_SIZE) break;
+      lastDoc = groupSnap.docs[groupSnap.docs.length - 1];
     }
   } catch {
     // Fallback if collectionGroup query is unavailable: deliver directly for smaller explicit target batches

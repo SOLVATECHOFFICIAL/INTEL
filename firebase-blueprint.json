@@ -157,7 +157,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "postId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "targetCollection": { "type": "string", "enum": ["posts", "events", "marketplaceListings"] },
+        "targetCollection": { "type": "string", "enum": ["posts", "events", "marketplaceListings", "updates"] },
         "parentCommentId": { "type": "string", "maxLength": 128 },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "body": { "type": "string", "minLength": 1, "maxLength": 1500 },
@@ -184,7 +184,7 @@
       "description": "Like or reaction on a public post, anonymous post, or anonymous comment ({targetCollection}_{targetId}_{uid}).",
       "type": "object",
       "properties": {
-        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts", "anonymousComments", "events", "postComments"] },
+        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts", "anonymousComments", "events", "updates", "postComments"] },
         "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "reactionType": { "type": "string", "enum": ["like", "insightful", "support"] },
@@ -284,7 +284,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts", "marketplaceListings", "opportunities", "events"] },
+        "targetCollection": { "type": "string", "enum": ["posts", "updates", "anonymousPosts", "marketplaceListings", "opportunities", "events"] },
         "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
@@ -412,7 +412,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "recipientUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "eventType": { "type": "string", "enum": ["follow", "comment", "reply", "mention", "anonymous_reply", "reaction", "marketplace_approved", "marketplace_rejected", "marketplace_expired", "new_opportunity", "new_event", "badge_change", "account_change", "announcement"] },
+        "eventType": { "type": "string", "enum": ["follow", "comment", "reply", "mention", "anonymous_reply", "reaction", "marketplace_approved", "marketplace_rejected", "marketplace_expired", "new_opportunity", "new_event", "badge_change", "account_change", "announcement", "official_update"] },
         "title": { "type": "string", "minLength": 1, "maxLength": 160 },
         "body": { "type": "string", "maxLength": 500 },
         "targetPath": { "type": "string", "maxLength": 256 },
@@ -465,7 +465,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "targetCollection": { "type": "string", "enum": ["users_avatar", "users_cover", "posts", "anonymousPosts", "marketplaceListings", "trustedContacts", "events"] },
+        "targetCollection": { "type": "string", "enum": ["users_avatar", "users_cover", "posts", "anonymousPosts", "marketplaceListings", "trustedContacts", "events", "updates"] },
         "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "mimeType": { "type": "string", "enum": ["image/webp", "image/jpeg"] },
@@ -546,7 +546,10 @@
             "trusted_contact_updated",
             "trusted_contact_deleted",
             "settings_updated",
-            "announcement_broadcast"
+            "announcement_broadcast",
+            "update_created",
+            "update_updated",
+            "update_deleted"
           ]
         },
         "targetCollection": { "type": "string", "minLength": 2, "maxLength": 64 },
@@ -586,6 +589,46 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "title", "body", "category", "published", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "AdminUpdate": {
+      "title": "AdminUpdate",
+      "description": "Official administrator update supporting strictly separated 'photo' (1-4 images + shared caption) or 'text' (styled coloured/gradient card without photos) formats, plus anonymous 'official_desk' identity projection for the Underground Supreme Admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "format": { "type": "string", "enum": ["photo", "text"] },
+        "authorMode": { "type": "string", "enum": ["public_admin", "official_desk"] },
+        "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorDisplayName": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "authorBadge": { "type": "string", "enum": ["supreme_admin", "verified"] },
+        "authorPhotoUrl": { "type": "string", "maxLength": 512 },
+        "authorPhotoImageId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": { "type": "string", "enum": ["announcement", "academic", "campus_life", "security", "urgent"] },
+        "title": { "type": "string", "maxLength": 180 },
+        "body": { "type": "string", "maxLength": 5000 },
+        "backgroundStyle": { "type": "string", "enum": ["navy_slate", "ocean_blue", "cobalt_indigo", "midnight_emerald", "sunset_amber", "crimson_rose", "royal_plum", "warm_charcoal"] },
+        "mediaItems": { "type": "array" },
+        "isPinned": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["published", "deleted"] },
+        "visibility": { "type": "string", "enum": ["public"] },
+        "likesCount": { "type": "integer" },
+        "commentsCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "format", "authorMode", "authorDisplayName", "authorBadge", "category", "body", "isPinned", "status", "visibility", "likesCount", "commentsCount", "createdAt", "updatedAt"]
+    },
+    "AdminUpdateMapping": {
+      "title": "AdminUpdateMapping",
+      "description": "Strictly isolated authorship mapping linking each official update to its creator UID. Readable ONLY by the two designated Supreme Admins.",
+      "type": "object",
+      "properties": {
+        "updateId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorMode": { "type": "string", "enum": ["public_admin", "official_desk"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["updateId", "authorUid", "authorMode", "createdAt"]
     }
   },
   "firestore": {
@@ -700,6 +743,14 @@
     "/marketplaceUpdates/{updateId}": {
       "schema": { "$ref": "#/entities/MarketplaceUpdate" },
       "description": "Authoritative campus Marketplace notices and safety guidance published by Supreme Admins."
+    },
+    "/updates/{updateId}": {
+      "schema": { "$ref": "#/entities/AdminUpdate" },
+      "description": "Dedicated official administrator updates section feed supporting Photo (1-4 photos) and Text-Only coloured updates."
+    },
+    "/adminUpdateMappings/{updateId}": {
+      "schema": { "$ref": "#/entities/AdminUpdateMapping" },
+      "description": "Supreme-Admin-only internal authorship mapping protecting underground administrator identity."
     }
   }
 }

@@ -16,7 +16,6 @@ import {
   MessageCircle,
   MoreHorizontal,
   Package,
-  Share2,
   Shield,
   ShieldAlert,
   Trash2,
@@ -57,6 +56,7 @@ import {
   fetchViewerSavedPostIds,
   type SavedContentBundle,
 } from '../../services/socialPosts';
+import { ShareActionMenu } from '../shared/ShareActionMenu';
 import type {
   AnonymousPost,
   CommunityPost,
@@ -286,7 +286,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   } | null>(null);
 
   // Feedback & actions
-  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showGuestPrompt, setShowGuestPrompt] = useState(false);
@@ -823,34 +822,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
     setActiveTab(tab);
     setActionError(null);
     onTabChange?.(tab);
-  };
-
-  const handleShareProfile = async () => {
-    if (!bundle || !displayedProfile) return;
-    const shareUrl = buildProfileShareUrl(bundle.resolvedUsername);
-    try {
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({
-          title: `${displayedProfile.fullName} (@${displayedProfile.username}) — LASUED Intel`,
-          text:
-            displayedProfile.bio?.trim() ||
-            `View @${displayedProfile.username} on LASUED Intel`,
-          url: shareUrl,
-        });
-        setShareFeedback('Profile shared.');
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-        setShareFeedback(`Profile link copied (@${displayedProfile.username})`);
-      } else {
-        setShareFeedback(`Share link: ${shareUrl}`);
-      }
-    } catch {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareUrl).catch(() => {});
-        setShareFeedback(`Profile link copied (@${displayedProfile.username})`);
-      }
-    }
-    window.setTimeout(() => setShareFeedback(null), 3200);
   };
 
   // Direct Header Cover Picker Handlers
@@ -1624,14 +1595,18 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     Edit Profile
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => void handleShareProfile()}
-                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
-                  >
-                    <Share2 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                    Share Profile
-                  </button>
+                  <ShareActionMenu
+                    shareUrl={buildProfileShareUrl(bundle.resolvedUsername)}
+                    title={`${displayedProfile.fullName} (@${displayedProfile.username}) — LASUED Intel`}
+                    text={
+                      displayedProfile.bio?.trim() ||
+                      `View @${displayedProfile.username} on LASUED Intel`
+                    }
+                    variant="button"
+                    label="Share Profile"
+                    align="left"
+                    buttonClassName="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
+                  />
 
                   <button
                     type="button"
@@ -1684,15 +1659,19 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     </a>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => void handleShareProfile()}
-                    aria-label="Share profile"
-                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
-                  >
-                    <Share2 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-                    <span>Share</span>
-                  </button>
+                  <ShareActionMenu
+                    shareUrl={buildProfileShareUrl(bundle.resolvedUsername)}
+                    title={`${displayedProfile.fullName} (@${displayedProfile.username}) — LASUED Intel`}
+                    text={
+                      displayedProfile.bio?.trim() ||
+                      `View @${displayedProfile.username} on LASUED Intel`
+                    }
+                    variant="button"
+                    label="Share"
+                    align="left"
+                    ariaLabel="Share profile"
+                    buttonClassName="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
+                  />
                 </>
               )}
             </div>
@@ -1848,15 +1827,6 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               )}
             </div>
           </div>
-
-          {shareFeedback && (
-            <div
-              role="status"
-              className="mt-4 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/10 px-3.5 py-2.5 text-xs font-medium text-[#0B1A2E]"
-            >
-              {shareFeedback}
-            </div>
-          )}
 
           {actionMessage && (
             <div

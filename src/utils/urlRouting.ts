@@ -10,6 +10,7 @@ const VALID_ROUTES: readonly ActiveRoute[] = [
   'for-you',
   'following',
   'latest',
+  'updates',
   'anonymous',
   'marketplace',
   'trusted-circle',
@@ -26,6 +27,7 @@ const VALID_ROUTES: readonly ActiveRoute[] = [
 
 const VALID_SEARCH_SCOPES: readonly SearchScopeId[] = [
   'all',
+  'updates',
   'posts',
   'people',
   'home',
@@ -100,6 +102,8 @@ export function isValidSearchScope(
 
 export function getSearchScopeFromRoute(route: ActiveRoute): SearchScopeId {
   switch (route) {
+    case 'updates':
+      return 'updates';
     case 'anonymous':
       return 'anonymous';
     case 'marketplace':
@@ -171,7 +175,9 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
     route === 'search' ? parseSafeSearchQueryParam(params) : null;
   const opportunityId = parseSafeIdParam(params, 'opportunityId');
   const eventId = parseSafeIdParam(params, 'eventId');
-  const postId = parseSafeIdParam(params, 'postId');
+  const postId =
+    parseSafeIdParam(params, 'postId') ??
+    (route === 'updates' ? parseSafeIdParam(params, 'updateId') : null);
   const commentId = parseSafeIdParam(params, 'commentId');
   const listingId = parseSafeIdParam(params, 'listingId');
   const rawMktTab = params.get('mktTab');
@@ -264,6 +270,7 @@ export function buildSearchForRoute(
     (route === 'for-you' ||
       route === 'following' ||
       route === 'latest' ||
+      route === 'updates' ||
       route === 'anonymous') &&
     options?.postId
   ) {

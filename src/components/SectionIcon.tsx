@@ -4,6 +4,7 @@ import {
   Calendar,
   Compass,
   Clock,
+  Megaphone,
   MessageSquare,
   ShieldCheck,
   ShoppingBag,
@@ -27,6 +28,8 @@ export const SectionIcon: React.FC<SectionIconProps> = ({
       return <Users className={className} aria-hidden="true" />;
     case 'latest':
       return <Clock className={className} aria-hidden="true" />;
+    case 'updates':
+      return <Megaphone className={className} aria-hidden="true" />;
     case 'anonymous':
       return <MessageSquare className={className} aria-hidden="true" />;
     case 'marketplace':

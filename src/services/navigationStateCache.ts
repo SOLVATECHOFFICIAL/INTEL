@@ -23,6 +23,7 @@ import {
   stripFirestoreCursor,
 } from '../utils/cacheSync';
 import type {
+  AdminUpdate,
   AnonymousPost,
   CampusEvent,
   CommunityPost,
@@ -1326,6 +1327,47 @@ export async function hydrateThreadCommentsSnapshot(
 }
 
 // ---------------------------------------------------------------------------
+// 9. Official Admin Updates Session Snapshots
+// ---------------------------------------------------------------------------
+export interface AdminUpdatesSessionSnapshot {
+  viewerKey: string;
+  updates: AdminUpdate[];
+  authorMap: Map<string, PublicProfileProjection>;
+  likedIds: Set<string>;
+  savedIds: Set<string>;
+  hasMore: boolean;
+  cachedAt: number;
+}
+
+const adminUpdatesCache = new Map<string, AdminUpdatesSessionSnapshot>();
+
+export function getAdminUpdatesSnapshot(
+  viewerKey: string
+): AdminUpdatesSessionSnapshot | null {
+  const entry = adminUpdatesCache.get(viewerKey);
+  if (!entry) return null;
+  if (!isFresh(entry.cachedAt)) {
+    adminUpdatesCache.delete(viewerKey);
+    return null;
+  }
+  return entry;
+}
+
+export function saveAdminUpdatesSnapshot(
+  snapshot: AdminUpdatesSessionSnapshot
+): void {
+  adminUpdatesCache.set(snapshot.viewerKey, snapshot);
+}
+
+export function updateAllCachedAdminUpdatesSnapshots(
+  updater: (snap: AdminUpdatesSessionSnapshot) => AdminUpdatesSessionSnapshot
+): void {
+  for (const [key, entry] of Array.from(adminUpdatesCache.entries())) {
+    adminUpdatesCache.set(key, updater(entry));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Auth / Account Isolation Purge
 // ---------------------------------------------------------------------------
 export function clearAllViewerNavigationCaches(): void {
@@ -1341,4 +1383,5 @@ export function clearAllViewerNavigationCaches(): void {
   accountSectionCache.clear();
   anonymousTabCache.clear();
   threadCommentsCache.clear();
+  adminUpdatesCache.clear();
 }

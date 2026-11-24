@@ -15,6 +15,7 @@ import { db } from '../lib/firebase';
 import {
   COLLECTION_NAMES,
   isValidFirestoreId,
+  type AdminUpdate,
   type AnonymousPost,
   type CampusEvent,
   type CommunityPost,
@@ -31,6 +32,7 @@ import {
 } from '../utils/authValidation';
 import {
   deduplicateByKey,
+  filterAdminUpdates,
   filterAnonymousPosts,
   filterCampusEvents,
   filterCommunityPosts,
@@ -69,6 +71,7 @@ import {
 
 export type SearchCollectionKey =
   | 'posts'
+  | 'updates'
   | 'people'
   | 'anonymous'
   | 'marketplace'
@@ -88,6 +91,8 @@ export interface SearchViewerInteractions {
   viewerUid: string | null;
   likedPostIds: Set<string>;
   savedPostIds: Set<string>;
+  likedUpdateIds: Set<string>;
+  savedUpdateIds: Set<string>;
   likedAnonIds: Set<string>;
   savedAnonIds: Set<string>;
   ownedAnonPostIds: Set<string>;
@@ -101,6 +106,8 @@ export interface SearchViewerInteractions {
 export interface SearchDiscoveryBundle {
   normalizedQuery: string;
   posts: SearchSliceState<SearchableCommunityPostItem>;
+  updates: SearchSliceState<AdminUpdate>;
+  updateAuthors: Map<string, PublicProfileProjection>;
   people: SearchSliceState<PublicProfileProjection>;
   anonymous: SearchSliceState<AnonymousPost>;
   marketplace: SearchSliceState<MarketplaceListing>;
@@ -130,6 +137,8 @@ export function createEmptySearchBundle(
   return {
     normalizedQuery,
     posts: createEmptySlice(),
+    updates: createEmptySlice(),
+    updateAuthors: new Map(),
     people: createEmptySlice(),
     anonymous: createEmptySlice(),
     marketplace: createEmptySlice(),
@@ -205,6 +214,8 @@ export function setCachedSearchBundle(bundle: SearchDiscoveryBundle): void {
   const serializable = {
     normalizedQuery: stamped.normalizedQuery,
     posts: serializeSearchSlice(stamped.posts),
+    updates: serializeSearchSlice(stamped.updates),
+    updateAuthors: serializeRecordMap(stamped.updateAuthors),
     people: serializeSearchSlice(stamped.people),
     anonymous: serializeSearchSlice({
       ...stamped.anonymous,
@@ -235,6 +246,8 @@ export async function hydrateCachedSearchBundle(
   const stored = await readPersistentContent<{
     normalizedQuery: string;
     posts: SearchSliceState<SearchableCommunityPostItem>;
+    updates?: SearchSliceState<AdminUpdate>;
+    updateAuthors?: Array<[string, PublicProfileProjection]>;
     people: SearchSliceState<PublicProfileProjection>;
     anonymous: SearchSliceState<AnonymousPost>;
     marketplace: SearchSliceState<MarketplaceListing>;
@@ -250,6 +263,8 @@ export async function hydrateCachedSearchBundle(
   const hydrated: SearchDiscoveryBundle = {
     normalizedQuery: stored.normalizedQuery,
     posts: { ...(stored.posts ?? createEmptySlice()), cursor: null },
+    updates: { ...(stored.updates ?? createEmptySlice()), cursor: null },
+    updateAuthors: deserializeRecordMap(stored.updateAuthors),
     people: { ...(stored.people ?? createEmptySlice()), cursor: null },
     anonymous: {
       ...(stored.anonymous ?? createEmptySlice()),
@@ -294,6 +309,7 @@ export function getRequiredCollectionsForScope(
   switch (scope) {
     case 'all':
       return [
+        'updates',
         'posts',
         'people',
         'anonymous',
@@ -303,7 +319,9 @@ export function getRequiredCollectionsForScope(
         'trustedCircle',
       ];
     case 'home':
-      return ['people', 'posts'];
+      return ['updates', 'people', 'posts'];
+    case 'updates':
+      return ['updates'];
     case 'posts':
       return ['posts'];
     case 'people':
@@ -641,6 +659,69 @@ async function fetchPostsBatch(
   };
 }
 
+async function fetchUpdatesBatch(
+  rawQuery: string,
+  cursor: QueryDocumentSnapshot<DocumentData> | null
+): Promise<{
+  slice: SearchSliceState<AdminUpdate>;
+  authors: Map<string, PublicProfileProjection>;
+}> {
+  let pageDocs: QueryDocumentSnapshot<DocumentData>[];
+  let hasMore: boolean;
+
+  try {
+    const orderedQuery = query(
+      collection(db, COLLECTION_NAMES.updates),
+      where('status', '==', 'published'),
+      orderBy('createdAt', 'desc'),
+      ...(cursor ? [startAfter(cursor)] : []),
+      limit(SEARCH_BATCH_SIZE + 1)
+    );
+    const snap = await getDocs(orderedQuery);
+    hasMore = snap.docs.length > SEARCH_BATCH_SIZE;
+    pageDocs = snap.docs.slice(0, SEARCH_BATCH_SIZE);
+  } catch (err) {
+    if (!isFirebaseErrorCode(err, 'failed-precondition') || cursor) {
+      throw err;
+    }
+    const fallbackSnap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.updates),
+        where('status', '==', 'published'),
+        limit(SEARCH_BATCH_SIZE)
+      )
+    );
+    pageDocs = fallbackSnap.docs;
+    hasMore = false;
+  }
+
+  const lastDoc = pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null;
+  const rawUpdates = pageDocs.map((d) => d.data() as AdminUpdate);
+  const matched = filterAdminUpdates(rawUpdates, rawQuery);
+  const publicUids = Array.from(
+    new Set(
+      matched
+        .filter((u) => u.authorMode === 'public_admin' && u.ownerUID)
+        .map((u) => u.ownerUID!)
+    )
+  );
+  const authors =
+    publicUids.length > 0
+      ? await hydrateAuthorsByUids(publicUids)
+      : new Map<string, PublicProfileProjection>();
+
+  return {
+    slice: {
+      items: matched,
+      cursor: hasMore ? lastDoc : null,
+      hasMore,
+      loaded: true,
+      error: false,
+    },
+    authors,
+  };
+}
+
 async function fetchAnonymousBatch(
   rawQuery: string,
   cursor: QueryDocumentSnapshot<DocumentData> | null
@@ -854,6 +935,7 @@ export async function executeScopedSearchDiscovery(input: {
 
     const nextBundle: SearchDiscoveryBundle = {
       ...bundle,
+      updateAuthors: new Map(bundle.updateAuthors),
       marketplaceSellers: new Map(bundle.marketplaceSellers),
     };
 
@@ -864,6 +946,10 @@ export async function executeScopedSearchDiscovery(input: {
             nextBundle.people = await fetchPeopleBatch(normalized, null);
           } else if (key === 'posts') {
             nextBundle.posts = await fetchPostsBatch(normalized, null);
+          } else if (key === 'updates') {
+            const { slice, authors } = await fetchUpdatesBatch(normalized, null);
+            nextBundle.updates = slice;
+            authors.forEach((v, k) => nextBundle.updateAuthors.set(k, v));
           } else if (key === 'anonymous') {
             nextBundle.anonymous = await fetchAnonymousBatch(normalized, null);
           } else if (key === 'marketplace') {
@@ -916,6 +1002,7 @@ export async function loadMoreSearchSlice(input: {
 
   const nextBundle: SearchDiscoveryBundle = {
     ...bundle,
+    updateAuthors: new Map(bundle.updateAuthors),
     marketplaceSellers: new Map(bundle.marketplaceSellers),
   };
 
@@ -946,6 +1033,22 @@ export async function loadMoreSearchSlice(input: {
       ),
       cursor: extra.cursor,
       hasMore: extra.hasMore,
+      loaded: true,
+      error: false,
+    };
+  } else if (sliceKey === 'updates') {
+    const { slice, authors } = await fetchUpdatesBatch(
+      bundle.normalizedQuery,
+      currentSlice.cursor
+    );
+    authors.forEach((v, k) => nextBundle.updateAuthors.set(k, v));
+    nextBundle.updates = {
+      items: deduplicateByKey(
+        [...bundle.updates.items, ...slice.items],
+        (u) => u.id
+      ),
+      cursor: slice.cursor,
+      hasMore: slice.hasMore,
       loaded: true,
       error: false,
     };
@@ -1039,6 +1142,8 @@ export async function fetchSearchViewerInteractions(
       viewerUid: null,
       likedPostIds: new Set(),
       savedPostIds: new Set(),
+      likedUpdateIds: new Set(),
+      savedUpdateIds: new Set(),
       likedAnonIds: new Set(),
       savedAnonIds: new Set(),
       ownedAnonPostIds: new Set(),
@@ -1053,6 +1158,8 @@ export async function fetchSearchViewerInteractions(
   const [
     likedPostIds,
     savedPostIds,
+    likedUpdateIds,
+    savedUpdateIds,
     likedAnonIds,
     savedAnonIds,
     ownedAnon,
@@ -1062,6 +1169,8 @@ export async function fetchSearchViewerInteractions(
   ] = await Promise.all([
     fetchViewerLikedPostIds('posts', viewerUid).catch(() => new Set<string>()),
     fetchViewerSavedPostIds('posts', viewerUid).catch(() => new Set<string>()),
+    fetchViewerLikedPostIds('updates', viewerUid).catch(() => new Set<string>()),
+    fetchViewerSavedPostIds('updates', viewerUid).catch(() => new Set<string>()),
     fetchViewerLikedPostIds('anonymousPosts', viewerUid).catch(
       () => new Set<string>()
     ),
@@ -1083,6 +1192,8 @@ export async function fetchSearchViewerInteractions(
     viewerUid,
     likedPostIds,
     savedPostIds,
+    likedUpdateIds,
+    savedUpdateIds,
     likedAnonIds,
     savedAnonIds,
     ownedAnonPostIds: ownedAnon.postIds,

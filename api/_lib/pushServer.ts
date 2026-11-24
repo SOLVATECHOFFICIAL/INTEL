@@ -1,7 +1,7 @@
 import { cert, getApp, getApps, initializeApp, type ServiceAccount } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, type Firestore } from 'firebase-admin/firestore';
-import webpush from 'web-push';
+import * as webpush from 'web-push';
 import {
   isNotificationAllowedByRawPrefs,
   isValidFirestoreId,

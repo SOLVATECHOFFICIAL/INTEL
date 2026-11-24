@@ -54,6 +54,7 @@ import { computeOptimisticReactionToggle } from '../utils/optimisticInteractions
 import { GuestPromptCard } from './auth/GuestPromptCard';
 import { AvatarMedia } from './media/FirestoreImage';
 import { PostCard } from './posts/PostCard';
+import { UpdateCard } from './updates/UpdateCard';
 import { EventCard } from './sections/events/EventCard';
 import { MarketplaceListingCard } from './sections/marketplace/MarketplaceListingCard';
 import { OpportunityCard } from './sections/opportunities/OpportunityCard';
@@ -171,6 +172,8 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
     viewerUid: null,
     likedPostIds: new Set(),
     savedPostIds: new Set(),
+    likedUpdateIds: new Set(),
+    savedUpdateIds: new Set(),
     likedAnonIds: new Set(),
     savedAnonIds: new Set(),
     ownedAnonPostIds: new Set(),
@@ -699,6 +702,8 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
   const members = bundle?.people.items ?? [];
   const posts = bundle?.posts.items ?? [];
+  const updates = bundle?.updates.items ?? [];
+  const updateAuthors = bundle?.updateAuthors ?? new Map();
   const anonymousPosts = bundle?.anonymous.items ?? [];
   const marketplaceListings = bundle?.marketplace.items ?? [];
   const marketplaceSellers = bundle?.marketplaceSellers ?? new Map();
@@ -710,13 +715,15 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
     ((scope === 'home' || scope === 'all') &&
       (members.length > 0 || posts.length > 0)) ||
     (scope === 'all' &&
-      (anonymousPosts.length > 0 ||
+      (updates.length > 0 ||
+        anonymousPosts.length > 0 ||
         marketplaceListings.length > 0 ||
         trustedContacts.length > 0 ||
         opportunities.length > 0 ||
         events.length > 0)) ||
     (scope === 'people' && members.length > 0) ||
     (scope === 'posts' && posts.length > 0) ||
+    (scope === 'updates' && updates.length > 0) ||
     (scope === 'anonymous' && anonymousPosts.length > 0) ||
     (scope === 'marketplace' && marketplaceListings.length > 0) ||
     (scope === 'trusted-circle' && trustedContacts.length > 0) ||
@@ -1217,6 +1224,87 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                   onToggleSave={(item) => void handleToggleEventSave(item)}
                 />
               ))}
+            </div>
+          )}
+
+          {(scope === 'updates' || scope === 'all') && updates.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                Official Updates ({updates.length})
+              </p>
+              <div className="space-y-3">
+                {updates.slice(0, 8).map((update) => (
+                  <UpdateCard
+                    key={update.id}
+                    update={update}
+                    author={
+                      update.authorMode === 'public_admin' && update.ownerUID
+                        ? updateAuthors.get(update.ownerUID) ?? null
+                        : null
+                    }
+                    viewerUid={user?.uid ?? null}
+                    viewerTier={effectiveTier}
+                    viewerSuspended={isSuspended}
+                    isLiked={interactions.likedUpdateIds.has(update.id)}
+                    isSaved={interactions.savedUpdateIds.has(update.id)}
+                    onSaveChanged={(uidSavedId, saved) =>
+                      setInteractions((prev) => {
+                        const next = new Set(prev.savedUpdateIds);
+                        if (saved) next.add(uidSavedId);
+                        else next.delete(uidSavedId);
+                        return { ...prev, savedUpdateIds: next };
+                      })
+                    }
+                    onUpdateMutated={(updated) =>
+                      setBundle((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              updates: {
+                                ...prev.updates,
+                                items: prev.updates.items.map((item) =>
+                                  item.id === updated.id ? updated : item
+                                ),
+                              },
+                            }
+                          : prev
+                      )
+                    }
+                    onUpdateDeleted={(deletedId) =>
+                      setBundle((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              updates: {
+                                ...prev.updates,
+                                items: prev.updates.items.filter(
+                                  (item) => item.id !== deletedId
+                                ),
+                              },
+                            }
+                          : prev
+                      )
+                    }
+                    onNavigateProfile={(uname) =>
+                      onNavigate('profile', { username: uname })
+                    }
+                    onRequireAuth={onRequireAuth}
+                    returnRoute={returnRoute}
+                  />
+                ))}
+              </div>
+              {bundle.updates.hasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMoreSlice === 'updates'}
+                  onClick={() => void handleLoadMoreSlice('updates')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
+                >
+                  {loadingMoreSlice === 'updates'
+                    ? 'Loading more updates...'
+                    : 'Check more official updates'}
+                </button>
+              )}
             </div>
           )}
 

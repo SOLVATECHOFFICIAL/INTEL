@@ -37,6 +37,12 @@ test('public routes are marked index, follow and build clean canonical URLs', ()
   assert.equal(anonMeta.robots, 'index, follow');
   assert.equal(anonMeta.canonicalUrl, `${origin}/?view=anonymous`);
   assert.doesNotMatch(anonMeta.description, /gmail\.com/i);
+
+  const updates = normalizeRouteDestination({ route: 'updates', postId: 'upd_7' });
+  const updatesMeta = resolvePageSeoMetadata(updates, origin);
+  assert.equal(updatesMeta.robots, 'index, follow');
+  assert.equal(updatesMeta.canonicalUrl, `${origin}/?view=updates&postId=upd_7`);
+  assert.match(updatesMeta.title, /Updates/i);
 });
 
 test('protected, auth, admin, personal tabs, and active search queries are marked noindex, nofollow', () => {

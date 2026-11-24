@@ -40,12 +40,14 @@ import {
 } from '../../services/searchDiscovery';
 import { toggleSavedPost } from '../../services/socialPosts';
 import type {
+  AdminUpdate,
   AnonymousPost,
   CampusEvent,
   CommunityPost,
 } from '../../types/database';
 import type { ActiveRoute, SearchScopeId } from '../../types/platform';
 import {
+  applyAdminUpdateSearchFilters,
   applyAnonymousSearchFilters,
   applyEventSearchFilters,
   applyMarketplaceSearchFilters,
@@ -83,6 +85,7 @@ import {
   MemberDirectoryCard,
   TrustedDirectoryCard,
 } from '../sections/shared/DirectoryProfileCards';
+import { UpdateCard } from '../updates/UpdateCard';
 
 interface SearchPageProps {
   initialScope: SearchScopeId;
@@ -112,6 +115,7 @@ interface SearchPageProps {
 
 const DISCOVERY_TABS: { id: SearchScopeId; label: string }[] = [
   { id: 'all', label: 'All' },
+  { id: 'updates', label: 'Updates' },
   { id: 'posts', label: 'Posts' },
   { id: 'people', label: 'People' },
   { id: 'anonymous', label: 'Anonymous' },
@@ -159,6 +163,14 @@ const ANON_CATEGORIES = [
   'Gist',
   'Advice',
   'General',
+];
+
+const UPDATE_CATEGORIES = [
+  { id: 'announcement', label: 'Announcement' },
+  { id: 'academic', label: 'Academic' },
+  { id: 'campus_life', label: 'Campus Life' },
+  { id: 'security', label: 'Security Notice' },
+  { id: 'urgent', label: 'Urgent' },
 ];
 
 function normalizeTabScope(scope: SearchScopeId): SearchScopeId {
@@ -276,6 +288,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     viewerUid: null,
     likedPostIds: new Set(),
     savedPostIds: new Set(),
+    likedUpdateIds: new Set(),
+    savedUpdateIds: new Set(),
     likedAnonIds: new Set(),
     savedAnonIds: new Set(),
     ownedAnonPostIds: new Set(),
@@ -1045,6 +1059,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         : [],
     [bundle, filters, nowMs]
   );
+  const filteredUpdates = useMemo(
+    () =>
+      bundle
+        ? applyAdminUpdateSearchFilters(bundle.updates?.items ?? [], filters)
+        : [],
+    [bundle, filters]
+  );
   const filteredTrusted = useMemo(
     () =>
       bundle
@@ -1058,6 +1079,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     if (!bundle) {
       return {
         all: 0,
+        updates: 0,
         posts: 0,
         people: 0,
         home: 0,
@@ -1068,6 +1090,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         'trusted-circle': 0,
       };
     }
+    const updatesCount = filteredUpdates.length;
     const postsCount = filteredPosts.length;
     const peopleCount = filteredPeople.length;
     const anonCount = filteredAnon.length;
@@ -1077,6 +1100,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     const tcCount = filteredTrusted.length;
     return {
       all:
+        updatesCount +
         postsCount +
         peopleCount +
         anonCount +
@@ -1084,9 +1108,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         evtCount +
         oppCount +
         tcCount,
+      updates: updatesCount,
       posts: postsCount,
       people: peopleCount,
-      home: postsCount + peopleCount,
+      home: updatesCount + postsCount + peopleCount,
       anonymous: anonCount,
       marketplace: mktCount,
       'upcoming-events': evtCount,
@@ -1095,6 +1120,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     };
   }, [
     bundle,
+    filteredUpdates.length,
     filteredPosts.length,
     filteredPeople.length,
     filteredAnon.length,
@@ -1124,6 +1150,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   }, [bundle]);
 
   const showCategoryFilter =
+    activeScope === 'updates' ||
     activeScope === 'posts' ||
     activeScope === 'anonymous' ||
     activeScope === 'marketplace' ||
@@ -1404,6 +1431,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
                 >
                   <option value="all">All Categories</option>
+                  {activeScope === 'updates' &&
+                    UPDATE_CATEGORIES.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
                   {activeScope === 'posts' &&
                     POST_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -1609,6 +1642,111 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             </div>
           ) : (
             <>
+              {/* Official Updates Results */}
+              {(activeScope === 'all' || activeScope === 'updates') &&
+                filteredUpdates.length > 0 && (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                        Official Updates ({filteredUpdates.length})
+                      </h2>
+                      {activeScope === 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => handleTabChange('updates')}
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                        >
+                          Focus Updates
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-4">
+                      {(activeScope === 'all'
+                        ? filteredUpdates.slice(0, 4)
+                        : filteredUpdates
+                      ).map((updateItem: AdminUpdate) => (
+                        <UpdateCard
+                          key={updateItem.id}
+                          update={updateItem}
+                          author={
+                            updateItem.authorMode === 'public_admin' &&
+                            updateItem.ownerUID
+                              ? bundle.updateAuthors?.get(updateItem.ownerUID) ??
+                                null
+                              : null
+                          }
+                          viewerUid={user?.uid ?? null}
+                          viewerTier={effectiveTier}
+                          viewerSuspended={isSuspended}
+                          isLiked={interactions.likedUpdateIds.has(updateItem.id)}
+                          isSaved={interactions.savedUpdateIds.has(updateItem.id)}
+                          onUpdateMutated={(updated) =>
+                            setBundle((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    updates: {
+                                      ...prev.updates,
+                                      items: prev.updates.items.map((u) =>
+                                        u.id === updated.id ? updated : u
+                                      ),
+                                    },
+                                  }
+                                : prev
+                            )
+                          }
+                          onUpdateDeleted={(deletedId) =>
+                            setBundle((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    updates: {
+                                      ...prev.updates,
+                                      items: prev.updates.items.filter(
+                                        (u) => u.id !== deletedId
+                                      ),
+                                    },
+                                  }
+                                : prev
+                            )
+                          }
+                          onSaveChanged={(updateId, saved) =>
+                            setInteractions((prev) => {
+                              const next = new Set(prev.savedUpdateIds);
+                              if (saved) next.add(updateId);
+                              else next.delete(updateId);
+                              return { ...prev, savedUpdateIds: next };
+                            })
+                          }
+                          onNavigateProfile={(uname) =>
+                            onNavigate('profile', { username: uname })
+                          }
+                          onRequireAuth={onRequireAuth}
+                          returnRoute="search"
+                        />
+                      ))}
+                    </div>
+                    {bundle.updates?.hasMore && (
+                      <div className="mt-4 flex justify-center">
+                        <button
+                          type="button"
+                          disabled={loadingMoreSlice === 'updates'}
+                          onClick={() => void handleLoadMoreSlice('updates')}
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          {loadingMoreSlice === 'updates' && (
+                            <Loader2
+                              className="h-3.5 w-3.5 animate-spin text-[#1E88E5]"
+                              aria-hidden="true"
+                            />
+                          )}
+                          Load more official updates
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
               {/* People Results */}
               {(activeScope === 'all' || activeScope === 'people') &&
                 filteredPeople.length > 0 && (

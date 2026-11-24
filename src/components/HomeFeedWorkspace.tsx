@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ImagePlus,
   Loader2,
+  Megaphone,
   MessageSquare,
   PenSquare,
   Search,
@@ -987,29 +988,55 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         returnRoute={activeFeedTab}
       />
 
-      {/* Prominent Marketplace Shortcut near the top of Homepage */}
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:px-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
-            <ShoppingBag className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
+      {/* Prominent Official Updates & Marketplace Shortcuts near the top of Homepage */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
+              <Megaphone className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-display text-sm font-bold text-[#0B1A2E]">
+                Official Updates
+              </p>
+              <p className="truncate text-xs text-slate-600">
+                Verified announcements & campus notices.
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="font-display text-sm font-bold text-[#0B1A2E]">
-              Campus Marketplace
-            </p>
-            <p className="text-xs text-slate-600">
-              Browse student textbooks, accommodation, gadgets, and campus services.
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('updates')}
+            className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844]"
+          >
+            View Updates
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => onNavigate('marketplace')}
-          className="inline-flex min-h-[42px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#1E88E5] px-4 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#1565C0]"
-        >
-          Open Marketplace
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
+              <ShoppingBag className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="font-display text-sm font-bold text-[#0B1A2E]">
+                Campus Marketplace
+              </p>
+              <p className="truncate text-xs text-slate-600">
+                Textbooks, hostels, gadgets & services.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('marketplace')}
+            className="inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg bg-[#1E88E5] px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#1565C0]"
+          >
+            Marketplace
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       {/* Main Feed Navigation Tabs: For You · Following · Latest */}

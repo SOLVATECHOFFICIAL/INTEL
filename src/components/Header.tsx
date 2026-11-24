@@ -24,6 +24,7 @@ interface HeaderProps {
 
 const DESKTOP_NAV_LINKS: { id: ActiveRoute; label: string }[] = [
   { id: 'for-you', label: 'Home' },
+  { id: 'updates', label: 'Updates' },
   { id: 'marketplace', label: 'Marketplace' },
   { id: 'anonymous', label: 'Anonymous' },
   { id: 'trusted-circle', label: 'Trusted Circle' },

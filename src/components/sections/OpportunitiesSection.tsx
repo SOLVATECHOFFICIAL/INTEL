@@ -18,6 +18,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { buildOpportunityShareUrl } from '../../config/site';
 import { useFirebase } from '../../context/firebaseContext';
 import { useActiveBackgroundRefresh } from '../../hooks/useActiveBackgroundRefresh';
 import {
@@ -53,6 +54,7 @@ import {
   reuseSetIfUnchanged,
 } from '../../utils/cacheSync';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { ShareActionMenu } from '../shared/ShareActionMenu';
 import { OpportunityCard } from './opportunities/OpportunityCard';
 
 interface OpportunitiesSectionProps {
@@ -536,22 +538,34 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
             Back to Opportunities
           </button>
 
-          <button
-            type="button"
-            disabled={savingId === selectedOpportunity.id}
-            onClick={() => void handleToggleSave(selectedOpportunity.id)}
-            className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
-              isSaved
-                ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
-            }`}
-          >
-            <Bookmark
-              className={`h-3.5 w-3.5 ${isSaved ? 'fill-current' : ''}`}
-              aria-hidden="true"
+          <div className="flex flex-wrap items-center gap-2">
+            <ShareActionMenu
+              shareUrl={buildOpportunityShareUrl(selectedOpportunity.id)}
+              title={selectedOpportunity.title}
+              text={`${selectedOpportunity.title} (${selectedOpportunity.organisation})`}
+              variant="button"
+              label="Share"
+              align="right"
+              testId={`opportunity-share-btn-${selectedOpportunity.id}`}
             />
-            {isSaved ? 'Saved Opportunity' : 'Save Opportunity'}
-          </button>
+
+            <button
+              type="button"
+              disabled={savingId === selectedOpportunity.id}
+              onClick={() => void handleToggleSave(selectedOpportunity.id)}
+              className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                isSaved
+                  ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5]'
+                  : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
+              }`}
+            >
+              <Bookmark
+                className={`h-3.5 w-3.5 ${isSaved ? 'fill-current' : ''}`}
+                aria-hidden="true"
+              />
+              {isSaved ? 'Saved Opportunity' : 'Save Opportunity'}
+            </button>
+          </div>
         </div>
 
         {guestPromptOpen && (

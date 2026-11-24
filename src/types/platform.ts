@@ -2,6 +2,7 @@ export type SectionId =
   | 'for-you'
   | 'following'
   | 'latest'
+  | 'updates'
   | 'anonymous'
   | 'marketplace'
   | 'trusted-circle'
@@ -12,6 +13,7 @@ export type FeedTabId = 'for-you' | 'following' | 'latest';
 
 export type SearchScopeId =
   | 'all'
+  | 'updates'
   | 'posts'
   | 'people'
   | 'home'

@@ -12,6 +12,7 @@ import {
   buildMarketplaceExpiredNotificationId,
   buildMarketplaceReviewNotificationId,
   buildMentionNotificationId,
+  buildOfficialUpdateNotificationId,
   buildReactionNotificationId,
   buildReplyNotificationId,
   computeUnreadNotificationsCount,
@@ -50,12 +51,14 @@ test('deterministic notification ID builders prevent duplicates and enforce Fire
   const longId = 'a'.repeat(160);
   for (const id of [
     buildReactionNotificationId('postComments', longId, longId),
+    buildReactionNotificationId('updates', longId, longId),
     buildCommentNotificationId(longId),
     buildReplyNotificationId(longId),
     buildAnonymousReplyNotificationId(longId),
     buildMarketplaceReviewNotificationId(longId, 'approved'),
     buildMarketplaceExpiredNotificationId(longId),
     buildAnnouncementNotificationId(longId, longId),
+    buildOfficialUpdateNotificationId(longId, longId),
     buildMentionNotificationId(longId, longId),
   ]) {
     assert.match(id, /^[a-zA-Z0-9_-]{1,128}$/);
@@ -225,6 +228,15 @@ test('resolveNotificationDestination routes every notification type to its exact
   );
   assert.equal(followDest?.route, 'profile');
   assert.equal(followDest?.options.username, 'chidi_law');
+
+  const updateDest = resolveNotificationDestination(
+    makeNotification({
+      eventType: 'official_update',
+      targetPath: '/?view=updates&postId=upd_9',
+    })
+  );
+  assert.equal(updateDest?.route, 'updates');
+  assert.equal(updateDest?.options.postId, 'upd_9');
 });
 
 test('formatNotificationRelativeTime produces readable human durations', () => {

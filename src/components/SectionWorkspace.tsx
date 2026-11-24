@@ -58,6 +58,7 @@ import { EventsSection } from './sections/EventsSection';
 import { MarketplaceSection } from './sections/MarketplaceSection';
 import { OpportunitiesSection } from './sections/OpportunitiesSection';
 import { TrustedCircleSection } from './sections/TrustedCircleSection';
+import { UpdatesSection } from './sections/UpdatesSection';
 
 interface SectionWorkspaceProps {
   sectionId: Exclude<SectionId, 'for-you' | 'following' | 'latest'>;
@@ -1017,6 +1018,15 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                   onNavigate('upcoming-events', { eventId: evtId });
                 }
               }}
+              onNavigateProfile={(uname) =>
+                onNavigate('profile', { username: uname })
+              }
+              onRequireAuth={onRequireAuth}
+            />
+          ) : sectionId === 'updates' ? (
+            <UpdatesSection
+              selectedUpdateId={selectedPostId}
+              focusedCommentId={selectedCommentId}
               onNavigateProfile={(uname) =>
                 onNavigate('profile', { username: uname })
               }

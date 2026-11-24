@@ -436,6 +436,12 @@ export function formatAdminAuditActionLabel(
       return 'Updated platform settings';
     case 'announcement_broadcast':
       return 'Published official announcement';
+    case 'update_created':
+      return 'Published official update';
+    case 'update_updated':
+      return 'Edited official update';
+    case 'update_deleted':
+      return 'Deleted official update';
   }
 }
 

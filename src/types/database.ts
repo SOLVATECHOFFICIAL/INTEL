@@ -15,6 +15,7 @@ export type MediaTargetCollection =
   | 'users_avatar'
   | 'users_cover'
   | 'posts'
+  | 'updates'
   | 'anonymousPosts'
   | 'marketplaceListings'
   | 'trustedContacts'
@@ -109,7 +110,8 @@ export type NotificationEventType =
   | 'new_event'
   | 'badge_change'
   | 'account_change'
-  | 'announcement';
+  | 'announcement'
+  | 'official_update';
 
 /**
  * Synchronized verbatim with firebase-blueprint.json & firestore.rules.
@@ -198,6 +200,8 @@ export const COLLECTION_NAMES = {
   adminAuditLogs: 'adminAuditLogs',
   usernames: 'usernames',
   posts: 'posts',
+  updates: 'updates',
+  adminUpdateMappings: 'adminUpdateMappings',
   postComments: 'postComments',
   follows: 'follows',
   postReactions: 'postReactions',
@@ -399,7 +403,10 @@ export type AdminAuditAction =
   | 'trusted_contact_updated'
   | 'trusted_contact_deleted'
   | 'settings_updated'
-  | 'announcement_broadcast';
+  | 'announcement_broadcast'
+  | 'update_created'
+  | 'update_updated'
+  | 'update_deleted';
 
 export interface AdminAuditLog {
   id: string;
@@ -455,10 +462,69 @@ export function resolveOrdinaryPostType(
   return hasMediaItems || hasMediaUrls ? 'photo' : 'text';
 }
 
+export type AdminUpdateFormat = 'photo' | 'text';
+export type AdminUpdateAuthorMode = 'public_admin' | 'official_desk';
+export type AdminUpdateCategory =
+  | 'announcement'
+  | 'academic'
+  | 'campus_life'
+  | 'security'
+  | 'urgent';
+
+export const ALLOWED_ADMIN_UPDATE_CATEGORIES: readonly AdminUpdateCategory[] = [
+  'announcement',
+  'academic',
+  'campus_life',
+  'security',
+  'urgent',
+] as const;
+
+export interface AdminUpdate {
+  id: string;
+  format: AdminUpdateFormat;
+  authorMode: AdminUpdateAuthorMode;
+  ownerUID?: string;
+  authorDisplayName: string;
+  authorBadge: 'supreme_admin' | 'verified';
+  authorPhotoUrl?: string;
+  authorPhotoImageId?: string;
+  category: AdminUpdateCategory | string;
+  title?: string;
+  body: string;
+  backgroundStyle?: TextPostBackgroundId;
+  mediaItems?: PostMediaMeta[];
+  isPinned: boolean;
+  status: PostStatus;
+  visibility: 'public';
+  likesCount: number;
+  commentsCount: number;
+  viewsCount?: number;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
+export interface AdminUpdateMapping {
+  updateId: string;
+  authorUid: string;
+  authorMode: AdminUpdateAuthorMode;
+  createdAt: unknown;
+}
+
+export function resolveAdminUpdateFormat(
+  update: Pick<AdminUpdate, 'format' | 'mediaItems'>
+): AdminUpdateFormat {
+  if (update.format === 'text' || update.format === 'photo') {
+    return update.format;
+  }
+  return Array.isArray(update.mediaItems) && update.mediaItems.length > 0
+    ? 'photo'
+    : 'text';
+}
+
 export interface PostComment {
   id: string;
   postId: string;
-  targetCollection?: 'posts' | 'events' | 'marketplaceListings';
+  targetCollection?: 'posts' | 'updates' | 'events' | 'marketplaceListings';
   parentCommentId?: string;
   ownerUID: string;
   body: string;
@@ -477,6 +543,7 @@ export interface FollowEdge {
 export interface PostReaction {
   targetCollection:
     | 'posts'
+    | 'updates'
     | 'anonymousPosts'
     | 'anonymousComments'
     | 'events'
@@ -577,6 +644,7 @@ export interface SavedPost {
   ownerUID: string;
   targetCollection:
     | 'posts'
+    | 'updates'
     | 'anonymousPosts'
     | 'marketplaceListings'
     | 'opportunities'
@@ -1050,6 +1118,152 @@ export function validateCommunityPostPayload(
     ) {
       throw new Error(
         'Photo posts use one shared caption above the photos; individual photo captions are not allowed.'
+      );
+    }
+  }
+  if (body.length > BLUEPRINT_LIMITS.photoPostCaptionMax) {
+    throw new Error(
+      `Shared photo caption must be ${BLUEPRINT_LIMITS.photoPostCaptionMax} characters or fewer.`
+    );
+  }
+}
+
+export function validateAdminUpdatePayload(
+  payload: Record<string, unknown>
+): void {
+  const id = String(payload.id ?? '');
+  const format = payload.format;
+  const authorMode = payload.authorMode;
+  const authorDisplayName = String(payload.authorDisplayName ?? '').trim();
+  const authorBadge = payload.authorBadge;
+  const category = String(payload.category ?? '').trim();
+  const title = payload.title === undefined ? '' : String(payload.title).trim();
+  const body = String(payload.body ?? '').trim();
+  const backgroundStyle = payload.backgroundStyle;
+  const mediaItems = Array.isArray(payload.mediaItems)
+    ? (payload.mediaItems as PostMediaMeta[])
+    : [];
+  const mediaUrls = Array.isArray(payload.mediaUrls)
+    ? (payload.mediaUrls as string[])
+    : [];
+
+  if (!isValidFirestoreId(id)) {
+    throw new Error('Invalid official update identifier.');
+  }
+  if (format !== 'text' && format !== 'photo') {
+    throw new Error(
+      'Official administrator updates must specify format as "text" or "photo".'
+    );
+  }
+  if (authorMode !== 'public_admin' && authorMode !== 'official_desk') {
+    throw new Error('Invalid administrator update authorMode.');
+  }
+  if (
+    authorDisplayName.length < BLUEPRINT_LIMITS.fullNameMin ||
+    authorDisplayName.length > BLUEPRINT_LIMITS.fullNameMax
+  ) {
+    throw new Error(
+      'Official update author display name must be between 2 and 100 characters.'
+    );
+  }
+  if (authorBadge !== 'supreme_admin' && authorBadge !== 'verified') {
+    throw new Error('Official update author badge must be supreme_admin or verified.');
+  }
+
+  if (authorMode === 'official_desk') {
+    const forbiddenIdentityKeys = [
+      'ownerUID',
+      'authorUid',
+      'uid',
+      'email',
+      'authEmail',
+      'authorEmail',
+      'authorUsername',
+      'isHiddenFromDirectory',
+      'hiddenFromDirectory',
+    ];
+    for (const key of forbiddenIdentityKeys) {
+      if (key in payload && payload[key] !== undefined) {
+        throw new Error(
+          `Official desk update must never expose hidden admin field "${key}".`
+        );
+      }
+    }
+    if (authorBadge !== 'verified') {
+      throw new Error(
+        'Official desk updates must use the neutral verified official badge.'
+      );
+    }
+  } else {
+    const ownerUID = String(payload.ownerUID ?? '');
+    if (!isValidFirestoreId(ownerUID)) {
+      throw new Error(
+        'Public admin updates require a valid ownerUID.'
+      );
+    }
+  }
+
+  if (
+    category.length < BLUEPRINT_LIMITS.categoryMin ||
+    category.length > BLUEPRINT_LIMITS.categoryMax
+  ) {
+    throw new Error('Update category must be between 2 and 64 characters.');
+  }
+  if (title.length > BLUEPRINT_LIMITS.postTitleMax) {
+    throw new Error(
+      `Update title must be ${BLUEPRINT_LIMITS.postTitleMax} characters or fewer.`
+    );
+  }
+
+  if (format === 'text') {
+    if (mediaItems.length > 0 || mediaUrls.length > 0) {
+      throw new Error(
+        'Text-only updates cannot include photo attachments. Switch to Photo Update to upload images.'
+      );
+    }
+    if (
+      typeof backgroundStyle !== 'string' ||
+      !ALLOWED_TEXT_POST_BACKGROUND_IDS.includes(
+        backgroundStyle as TextPostBackgroundId
+      )
+    ) {
+      throw new Error(
+        'Select a valid coloured or gradient background for your text-only update.'
+      );
+    }
+    if (body.length === 0) {
+      throw new Error('Write a message for your text-only update.');
+    }
+    if (body.length > BLUEPRINT_LIMITS.textPostBodyMax) {
+      throw new Error(
+        `Text-only updates must be ${BLUEPRINT_LIMITS.textPostBodyMax} characters or fewer.`
+      );
+    }
+    return;
+  }
+
+  // format === 'photo'
+  if (backgroundStyle !== undefined && backgroundStyle !== '') {
+    throw new Error(
+      'Photo updates cannot use coloured text-post backgrounds.'
+    );
+  }
+  if (
+    mediaItems.length === 0 ||
+    mediaItems.length > BLUEPRINT_LIMITS.mediaPostMaxCount
+  ) {
+    throw new Error(
+      `Photo updates require between 1 and ${BLUEPRINT_LIMITS.mediaPostMaxCount} photographs.`
+    );
+  }
+  validatePostMediaItems(mediaItems);
+  for (let i = 0; i < mediaItems.length; i += 1) {
+    if (
+      mediaItems[i].caption !== undefined &&
+      mediaItems[i].caption!.trim().length > 0
+    ) {
+      throw new Error(
+        'Photo updates use one shared caption above the photos; individual photo captions are not allowed.'
       );
     }
   }

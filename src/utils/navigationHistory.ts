@@ -93,13 +93,13 @@ export function normalizeRouteDestination(
   const eventId =
     route === 'upcoming-events' ? raw.eventId?.trim() || null : null;
   const postId =
-    isFeedRoute(route) || route === 'anonymous'
+    isFeedRoute(route) || route === 'updates' || route === 'anonymous'
       ? raw.postId?.trim() || null
       : null;
   const listingId =
     route === 'marketplace' ? raw.listingId?.trim() || null : null;
   const commentId =
-    (isFeedRoute(route) || route === 'anonymous') && postId
+    (isFeedRoute(route) || route === 'updates' || route === 'anonymous') && postId
       ? raw.commentId?.trim() || null
       : route === 'upcoming-events' && eventId
         ? raw.commentId?.trim() || null
@@ -368,7 +368,10 @@ export function getParentFallbackDestination(
   if (norm.route === 'opportunities' && norm.opportunityId) {
     return normalizeRouteDestination({ route: 'opportunities' });
   }
-  if ((isFeedRoute(norm.route) || norm.route === 'anonymous') && norm.postId) {
+  if (
+    (isFeedRoute(norm.route) || norm.route === 'updates' || norm.route === 'anonymous') &&
+    norm.postId
+  ) {
     return normalizeRouteDestination({ route: norm.route });
   }
   return normalizeRouteDestination({ route: 'for-you' });
@@ -449,6 +452,8 @@ export function getDestinationMemoryKey(dest: RouteDestination): string {
       return `upcoming-events:${norm.eventId ?? ''}`;
     case 'opportunities':
       return `opportunities:${norm.opportunityId ?? ''}`;
+    case 'updates':
+      return `updates:${norm.postId ?? ''}`;
     case 'anonymous':
       return `anonymous:${norm.postId ?? ''}`;
     case 'for-you':

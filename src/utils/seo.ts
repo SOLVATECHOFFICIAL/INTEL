@@ -40,6 +40,7 @@ export interface SitemapRouteDefinition {
 export const PUBLIC_SITEMAP_ROUTES: readonly SitemapRouteDefinition[] = [
   { path: '/', changefreq: 'hourly', priority: '1.0' },
   { path: '/?view=latest', changefreq: 'hourly', priority: '0.9' },
+  { path: '/?view=updates', changefreq: 'hourly', priority: '0.9' },
   { path: '/?view=anonymous', changefreq: 'hourly', priority: '0.8' },
   { path: '/?view=marketplace', changefreq: 'hourly', priority: '0.9' },
   { path: '/?view=trusted-circle', changefreq: 'daily', priority: '0.8' },
@@ -112,6 +113,7 @@ export function resolveCanonicalUrl(
       dest.route === 'for-you' ||
       dest.route === 'following' ||
       dest.route === 'latest' ||
+      dest.route === 'updates' ||
       dest.route === 'anonymous'
         ? dest.postId
         : undefined,
@@ -152,6 +154,13 @@ function resolveRouteCopy(dest: NormalizedRouteDestination): {
         title: `Following Feed — ${BRAND.name}`,
         description:
           'Personal following feed for signed-in LASUED Intel members.',
+        ogType: 'website',
+      };
+    case 'updates':
+      return {
+        title: `Official Campus Updates — ${BRAND.name}`,
+        description:
+          'Read official administrative briefings, advisories, and campus notices published directly by LASUED Intel administration.',
         ogType: 'website',
       };
     case 'anonymous':

@@ -1,4 +1,5 @@
 import type {
+  AdminUpdate,
   AnonymousPost,
   CampusEvent,
   CommunityPost,
@@ -14,6 +15,7 @@ import {
 } from './feedSessionCache';
 import {
   clearAllViewerNavigationCaches,
+  updateAllCachedAdminUpdatesSnapshots,
   updateAllCachedEventsSnapshots,
   updateAllCachedMarketplaceSnapshots,
   updateAllCachedOpportunitiesSnapshots,
@@ -47,6 +49,12 @@ export type CacheMutationEvent =
   | { type: 'anonymous_post_reaction'; postId: string; liked: boolean; likesCount: number }
   | { type: 'anonymous_post_saved'; postId: string; saved: boolean }
   | { type: 'post_view_updated'; kind: 'ordinary' | 'anonymous'; postId: string; viewsCount: number }
+  | { type: 'admin_update_created'; update: AdminUpdate; author: PublicProfileProjection | null }
+  | { type: 'admin_update_updated'; update: AdminUpdate }
+  | { type: 'admin_update_deleted'; updateId: string }
+  | { type: 'admin_update_reaction'; updateId: string; liked: boolean; likesCount: number }
+  | { type: 'admin_update_saved'; updateId: string; saved: boolean }
+  | { type: 'admin_update_comment_mutated'; updateId: string; commentsCount: number }
   | { type: 'marketplace_updates_mutated' }
   | { type: 'marketplace_mutated' }
   | { type: 'event_mutated' }
@@ -558,6 +566,107 @@ export function notifyPostViewCountUpdated(
 export function notifyMarketplaceUpdatesMutated(): void {
   void deletePersistentContent('mkt:updates:v1');
   emitMutation({ type: 'marketplace_updates_mutated' });
+}
+
+// ---------------------------------------------------------------------------
+// Official Admin Updates
+// ---------------------------------------------------------------------------
+
+export function notifyAdminUpdateCreated(
+  update: AdminUpdate,
+  author: PublicProfileProjection | null = null
+): void {
+  updateAllCachedAdminUpdatesSnapshots((snap) => {
+    const nextMap = new Map(snap.authorMap);
+    if (update.ownerUID && author) {
+      nextMap.set(update.ownerUID, author);
+    }
+    return {
+      ...snap,
+      updates: upsertItemById(snap.updates, update, true),
+      authorMap: nextMap,
+      cachedAt: Date.now(),
+    };
+  });
+  void deletePersistentContent('updates:public:v1');
+  searchCacheHandlers?.invalidate();
+  emitMutation({ type: 'admin_update_created', update, author });
+}
+
+export function notifyAdminUpdateUpdated(update: AdminUpdate): void {
+  updateAllCachedAdminUpdatesSnapshots((snap) => ({
+    ...snap,
+    updates: upsertItemById(snap.updates, update, false),
+    cachedAt: Date.now(),
+  }));
+  void deletePersistentContent('updates:public:v1');
+  searchCacheHandlers?.invalidate();
+  emitMutation({ type: 'admin_update_updated', update });
+}
+
+export function notifyAdminUpdateDeleted(updateId: string): void {
+  updateAllCachedAdminUpdatesSnapshots((snap) => ({
+    ...snap,
+    updates: removeItemById(snap.updates, updateId),
+    cachedAt: Date.now(),
+  }));
+  void deletePersistentContent('updates:public:v1');
+  searchCacheHandlers?.invalidate();
+  emitMutation({ type: 'admin_update_deleted', updateId });
+}
+
+export function notifyAdminUpdateReactionChanged(
+  updateId: string,
+  liked: boolean,
+  likesCount: number
+): void {
+  const safeCount = Math.max(0, likesCount);
+  updateAllCachedAdminUpdatesSnapshots((snap) => {
+    const nextLiked = new Set(snap.likedIds);
+    if (liked) nextLiked.add(updateId);
+    else nextLiked.delete(updateId);
+    return {
+      ...snap,
+      likedIds: nextLiked,
+      updates: snap.updates.map((item) =>
+        item.id === updateId ? { ...item, likesCount: safeCount } : item
+      ),
+      cachedAt: Date.now(),
+    };
+  });
+  emitMutation({ type: 'admin_update_reaction', updateId, liked, likesCount: safeCount });
+}
+
+export function notifyAdminUpdateSavedChanged(
+  updateId: string,
+  saved: boolean
+): void {
+  updateAllCachedAdminUpdatesSnapshots((snap) => {
+    const nextSaved = new Set(snap.savedIds);
+    if (saved) nextSaved.add(updateId);
+    else nextSaved.delete(updateId);
+    return {
+      ...snap,
+      savedIds: nextSaved,
+      cachedAt: Date.now(),
+    };
+  });
+  emitMutation({ type: 'admin_update_saved', updateId, saved });
+}
+
+export function notifyAdminUpdateCommentMutated(
+  updateId: string,
+  commentsCount: number
+): void {
+  const safeCount = Math.max(0, commentsCount);
+  updateAllCachedAdminUpdatesSnapshots((snap) => ({
+    ...snap,
+    updates: snap.updates.map((item) =>
+      item.id === updateId ? { ...item, commentsCount: safeCount } : item
+    ),
+    cachedAt: Date.now(),
+  }));
+  emitMutation({ type: 'admin_update_comment_mutated', updateId, commentsCount: safeCount });
 }
 
 // ---------------------------------------------------------------------------

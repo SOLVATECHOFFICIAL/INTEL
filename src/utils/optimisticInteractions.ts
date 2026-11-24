@@ -41,6 +41,7 @@ export function buildOptimisticCommentEntry(input: {
   targetCollection:
     | 'posts'
     | 'events'
+    | 'updates'
     | 'anonymousPosts'
     | 'marketplaceListings';
   postId: string;

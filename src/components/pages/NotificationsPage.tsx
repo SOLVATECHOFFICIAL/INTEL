@@ -111,6 +111,7 @@ function renderNotificationTypeVisual(eventType: NotificationEventType) {
         Icon: Briefcase,
       };
     case 'announcement':
+    case 'official_update':
       return {
         bgClass: 'bg-[#0B1A2E] text-white border-[#0B1A2E]',
         Icon: Megaphone,

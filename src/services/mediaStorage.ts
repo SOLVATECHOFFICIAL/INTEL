@@ -722,7 +722,11 @@ export function buildMediaImageFirestoreRecord(input: {
     createdAt: input.createdAtValue,
   };
 
-  if (input.targetCollection !== 'anonymousPosts') {
+  if (input.targetCollection === 'updates') {
+    if (input.ownerUID && isValidFirestoreId(input.ownerUID)) {
+      docData.ownerUID = input.ownerUID;
+    }
+  } else if (input.targetCollection !== 'anonymousPosts') {
     if (!input.ownerUID || !isValidFirestoreId(input.ownerUID)) {
       throw new Error('Authenticated ownerUID is required for non-anonymous images.');
     }

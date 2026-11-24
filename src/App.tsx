@@ -1057,7 +1057,11 @@ export function App() {
         selectedEventId={
           activeRoute === 'upcoming-events' ? selectedEventId : null
         }
-        selectedPostId={activeRoute === 'anonymous' ? selectedPostId : null}
+        selectedPostId={
+          activeRoute === 'anonymous' || activeRoute === 'updates'
+            ? selectedPostId
+            : null
+        }
         selectedCommentId={selectedCommentId}
         selectedListingId={
           activeRoute === 'marketplace' ? selectedListingId : null

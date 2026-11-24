@@ -47,3 +47,11 @@
 2. **Activity & Mention Spoof Protection**: Creating `'reaction'`, `'comment'`, `'reply'`, or `'mention'` notifications requires `actorUid == request.auth.uid`, `recipientUid != request.auth.uid`, and verification that `users/{recipientUid}` exists.
 3. **Zero-Identity Anonymous Reply Notifications**: Creating `'anonymous_reply'` notifications is allowed only for the recipient's own signed-in account (`recipientUid == request.auth.uid`) with `actorUid`, `actorUsername`, `actorName`, `actorPhotoUrl`, and `actorPhotoImageId` strictly absent.
 4. **Marketplace Listing Q&A**: `/postComments` supports `targetCollection == 'marketplaceListings'` strictly when the target listing is `'active'`.
+
+## 6. Official Administrator Updates (`/updates` & `/adminUpdateMappings`)
+1. **Strict Two-Admin Publishing Lock**: Only `lasuedintel@gmail.com` and `awoyinfasolomon1@gmail.com` (`isSupremeAdmin()`) can create, edit, pin, or delete documents in `/updates/{updateId}`.
+2. **Underground Identity Isolation (`official_desk`)**: Updates authored by `awoyinfasolomon1@gmail.com` MUST use `authorMode == 'official_desk'`, `authorDisplayName == 'LASUED Intel Official'`, `authorBadge == 'verified'`, and MUST OMIT `ownerUID` from `/updates/{updateId}`, `/mediaImages/{imageId}`, and `/notifications/{notificationId}`.
+3. **Isolated Mapping**: Real creator authorship is stored only inside `/adminUpdateMappings/{updateId}`, readable exclusively by `isSupremeAdmin()`.
+4. **Format Separation**: `format == 'text'` forbids `mediaItems` and requires a valid `backgroundStyle` (`1..500` chars); `format == 'photo'` forbids `backgroundStyle` and requires `1..4` compressed `mediaItems`.
+5. **Engagement Counters**: Reactions (`updates_{updateId}_{uid}`) and comments (`targetCollection == 'updates'`) use atomic Firestore security rule transitions matching `/posts` and `/events`.
+

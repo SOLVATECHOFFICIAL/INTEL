@@ -63,6 +63,7 @@ import {
 import {
   canRevealAnonymousAuthor,
   isFirebaseErrorCode,
+  isUndergroundSupremeAdminUser,
   resolveAuthoritativeMappingRole,
   toPublicProfileProjection,
 } from '../utils/authValidation';
@@ -100,6 +101,7 @@ import {
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
 import {
+  notifyAdminUpdateSavedChanged,
   notifyAnonymousPostCreated,
   notifyAnonymousPostDeleted,
   notifyAnonymousPostReactionChanged,
@@ -437,10 +439,12 @@ export async function createCommunityPostWithMedia(input: {
       primeMediaImageCache(att.imageId, att.compressed.dataUrl);
     }
   }
-  void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
-    hasPublicActivity: true,
-    updatedAt: serverTimestamp(),
-  }).catch(() => undefined);
+  if (!isUndergroundSupremeAdminUser(auth.currentUser)) {
+    void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
+      hasPublicActivity: true,
+      updatedAt: serverTimestamp(),
+    }).catch(() => undefined);
+  }
   input.onProgress?.({ percent: 100, label: 'Published' });
 
   const createdPost: CommunityPost = {
@@ -1196,7 +1200,8 @@ export async function fetchViewerLikedPostIds(
     | 'anonymousPosts'
     | 'anonymousComments'
     | 'events'
-    | 'postComments',
+    | 'postComments'
+    | 'updates',
   viewerUid: string | null | undefined
 ): Promise<Set<string>> {
   if (!viewerUid || !isValidFirestoreId(viewerUid)) {
@@ -1419,6 +1424,8 @@ export async function toggleSavedPost(input: {
       await runWithFirestoreConnectionRetry(() => deleteDoc(savedRef));
       if (input.targetCollection === 'posts') {
         notifyCommunityPostSavedChanged(input.targetId, false);
+      } else if (input.targetCollection === 'updates') {
+        notifyAdminUpdateSavedChanged(input.targetId, false);
       } else if (input.targetCollection === 'anonymousPosts') {
         notifyAnonymousPostSavedChanged(input.targetId, false);
       } else if (input.targetCollection === 'events') {
@@ -1439,6 +1446,8 @@ export async function toggleSavedPost(input: {
     );
     if (input.targetCollection === 'posts') {
       notifyCommunityPostSavedChanged(input.targetId, true);
+    } else if (input.targetCollection === 'updates') {
+      notifyAdminUpdateSavedChanged(input.targetId, true);
     } else if (input.targetCollection === 'anonymousPosts') {
       notifyAnonymousPostSavedChanged(input.targetId, true);
     } else if (input.targetCollection === 'events') {
@@ -1977,7 +1986,10 @@ export async function addPostComment(input: {
       });
     }
 
-    if (input.kind === 'posts') {
+    if (
+      input.kind === 'posts' &&
+      !isUndergroundSupremeAdminUser(auth.currentUser)
+    ) {
       void updateDoc(doc(db, COLLECTION_NAMES.users, input.actorUid), {
         hasPublicActivity: true,
         updatedAt: serverTimestamp(),

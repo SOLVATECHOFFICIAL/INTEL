@@ -182,6 +182,7 @@ export function mapEventTypeToPrefKey(
     case 'new_opportunity':
       return 'opportunities';
     case 'announcement':
+    case 'official_update':
       return 'announcements';
     case 'badge_change':
     case 'account_change':
@@ -220,6 +221,7 @@ export function getNotificationCategoryGroup(
     case 'new_opportunity':
       return 'campus_updates';
     case 'announcement':
+    case 'official_update':
     case 'badge_change':
     case 'account_change':
     default:
@@ -259,6 +261,8 @@ export function getNotificationTypeLabel(
       return 'Account Update';
     case 'announcement':
       return 'Official Announcement';
+    case 'official_update':
+      return 'Official Update';
   }
 }
 
@@ -267,18 +271,25 @@ function sanitizeIdPart(raw: string, maxLen: number): string {
 }
 
 export function buildReactionNotificationId(
-  targetCollection: 'posts' | 'events' | 'postComments' | 'marketplaceListings',
+  targetCollection:
+    | 'posts'
+    | 'updates'
+    | 'events'
+    | 'postComments'
+    | 'marketplaceListings',
   targetId: string,
   actorUid: string
 ): string {
   const shortCol =
     targetCollection === 'posts'
       ? 'p'
-      : targetCollection === 'events'
-        ? 'e'
-        : targetCollection === 'marketplaceListings'
-          ? 'm'
-          : 'pc';
+      : targetCollection === 'updates'
+        ? 'u'
+        : targetCollection === 'events'
+          ? 'e'
+          : targetCollection === 'marketplaceListings'
+            ? 'm'
+            : 'pc';
   return `rx_${shortCol}_${sanitizeIdPart(targetId, 44)}_${sanitizeIdPart(actorUid, 44)}`;
 }
 
@@ -335,6 +346,13 @@ export function buildAnnouncementNotificationId(
   recipientUid: string
 ): string {
   return `ann_${sanitizeIdPart(announcementId, 48)}_${sanitizeIdPart(recipientUid, 48)}`;
+}
+
+export function buildOfficialUpdateNotificationId(
+  updateId: string,
+  recipientUid: string
+): string {
+  return `upd_${sanitizeIdPart(updateId, 48)}_${sanitizeIdPart(recipientUid, 48)}`;
 }
 
 export function shouldEmitActivityNotification(input: {
@@ -600,6 +618,8 @@ export function resolveNotificationDestination(
       return { route: 'marketplace', options: {} };
     case 'anonymous_reply':
       return { route: 'anonymous', options: {} };
+    case 'official_update':
+      return { route: 'updates', options: {} };
     case 'announcement':
       return { route: 'for-you', options: {} };
     default:

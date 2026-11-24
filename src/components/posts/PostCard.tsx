@@ -11,7 +11,6 @@ import {
   Loader2,
   MessageCircle,
   Send,
-  Share2,
   Shield,
   Trash2,
 } from 'lucide-react';
@@ -89,6 +88,7 @@ import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
+import { ShareActionMenu } from '../shared/ShareActionMenu';
 
 interface PostCardProps {
   kind: 'ordinary' | 'anonymous';
@@ -209,7 +209,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       : rawViewsCount;
   const articleRef = useRef<HTMLElement | null>(null);
   const recordedViewKeyRef = useRef<string | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     return subscribeCacheMutations((event) => {
@@ -1231,40 +1230,6 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       });
   };
 
-  const handleSharePost = async () => {
-    const shareUrl = buildPostShareUrl(kind, post.id);
-    const titleText =
-      'title' in post && post.title?.trim()
-        ? post.title.trim()
-        : kind === 'anonymous'
-        ? `Anonymous post on LASUED Intel (${post.category})`
-        : `Post by ${author?.fullName || 'LASUED member'} on LASUED Intel`;
-    const bodyExcerpt = post.body.trim().slice(0, 120);
-
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      try {
-        await navigator.share({
-          title: titleText,
-          text: bodyExcerpt || titleText,
-          url: shareUrl,
-        });
-        return;
-      } catch {
-        // Fallback to clipboard copy below
-      }
-    }
-
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        setLinkCopied(true);
-        window.setTimeout(() => setLinkCopied(false), 2000);
-      } catch {
-        // Ignore clipboard errors gracefully
-      }
-    }
-  };
-
   const loadedCommentIds = new Set(comments.map((entry) => entry.comment.id));
   const topLevelComments = comments.filter(
     (entry) =>
@@ -1395,28 +1360,25 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
         {/* Share + Permitted Edit / Delete / Supreme Admin Reveal Triggers */}
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => void handleSharePost()}
-            aria-label="Share post"
-            title="Share or copy link"
-            className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
-          >
-            {linkCopied ? (
-              <>
-                <Check
-                  className="h-3.5 w-3.5 text-emerald-600"
-                  aria-hidden="true"
-                />
-                <span className="hidden text-emerald-700 sm:inline">Copied</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only sm:inline">Share</span>
-              </>
-            )}
-          </button>
+          <ShareActionMenu
+            shareUrl={buildPostShareUrl(kind, post.id)}
+            title={
+              'title' in post && post.title?.trim()
+                ? post.title.trim()
+                : kind === 'anonymous'
+                ? `Anonymous post on LASUED Intel (${post.category})`
+                : `Post by ${author?.fullName || 'LASUED member'} on LASUED Intel`
+            }
+            text={
+              post.body.trim().slice(0, 120) ||
+              (kind === 'anonymous'
+                ? 'Anonymous post on LASUED Intel'
+                : 'LASUED Intel campus post')
+            }
+            align="right"
+            ariaLabel="Share post"
+            testId={`post-share-btn-${post.id}`}
+          />
           {kind === 'anonymous' && canRevealAnonymous && (
             <button
               type="button"

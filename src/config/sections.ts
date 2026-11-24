@@ -44,6 +44,20 @@ export const PLATFORM_SECTIONS: readonly SectionDefinition[] = [
       'The latest campus stream encountered an interruption. Use Retry to attempt loading again.',
   },
   {
+    id: 'updates',
+    title: 'Updates',
+    shortTitle: 'Updates',
+    group: 'Feeds',
+    summary:
+      'Official notices, verified campus advisories, and visual briefings published directly by LASUED Intel administration.',
+    emptyTitle: 'No official updates yet',
+    emptyDescription:
+      'Verified administrative announcements and campus advisories will appear here once published.',
+    errorTitle: 'Unable to load Updates',
+    errorDescription:
+      'Official updates could not be retrieved right now. Please retry.',
+  },
+  {
     id: 'anonymous',
     title: 'Anonymous',
     shortTitle: 'Anonymous',

@@ -1,4 +1,5 @@
 import type {
+  AdminUpdate,
   AnonymousPost,
   CampusEvent,
   CommunityPost,
@@ -29,7 +30,15 @@ export const SEARCH_SCOPE_CONFIG: Record<SearchScopeId, SearchScopeMeta> = {
     placeholder:
       'Search posts, @usernames, marketplace listings, events, or opportunities...',
     description:
-      'Searches public campus updates, anonymous posts, member profiles, Marketplace listings, events, opportunities, and Trusted Circle.',
+      'Searches official updates, public campus updates, anonymous posts, member profiles, Marketplace listings, events, opportunities, and Trusted Circle.',
+  },
+  updates: {
+    id: 'updates',
+    label: 'Official Updates',
+    placeholder:
+      'Search official campus updates, notices, or categories...',
+    description:
+      'Matches published official administrative updates and campus notices.',
   },
   posts: {
     id: 'posts',
@@ -446,6 +455,50 @@ export function filterCommunityPosts(
   );
 }
 
+export function filterAdminUpdates(
+  updates: AdminUpdate[],
+  rawQuery: string
+): AdminUpdate[] {
+  const tokens = tokenizeSearchQuery(rawQuery);
+  if (tokens.length === 0) return [];
+
+  const scored: Array<{
+    score: number;
+    createdAtMs: number;
+    update: AdminUpdate;
+  }> = [];
+
+  for (const update of updates) {
+    if (update.status !== 'published') continue;
+    const score = scoreSearchFields(
+      [
+        { text: update.title, weight: 3.0 },
+        { text: update.category.replace(/_/g, ' '), weight: 2.0 },
+        { text: update.authorDisplayName, weight: 1.5 },
+        { text: update.body, weight: 1.6 },
+      ],
+      rawQuery
+    );
+    if (score > 0) {
+      scored.push({
+        score,
+        createdAtMs: extractTimestampMs(update.createdAt) ?? 0,
+        update,
+      });
+    }
+  }
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.createdAtMs - a.createdAtMs;
+  });
+
+  return deduplicateByKey(
+    scored.map((entry) => entry.update),
+    (u) => u.id
+  );
+}
+
 export function filterAnonymousPosts(
   rawPosts: Record<string, unknown>[],
   rawQuery: string
@@ -755,6 +808,22 @@ export function applyPostSearchFilters(
     list,
     filters.sortBy,
     (item) => extractTimestampMs(item.post.createdAt) ?? 0
+  );
+}
+
+export function applyAdminUpdateSearchFilters(
+  updates: AdminUpdate[],
+  filters: SearchFiltersState
+): AdminUpdate[] {
+  let list = deduplicateByKey(updates, (u) => u.id);
+  if (filters.category !== 'all') {
+    const cat = filters.category.toLowerCase();
+    list = list.filter((u) => u.category.toLowerCase() === cat);
+  }
+  return sortByOption(
+    list,
+    filters.sortBy,
+    (u) => extractTimestampMs(u.createdAt) ?? 0
   );
 }
 

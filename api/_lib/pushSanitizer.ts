@@ -93,6 +93,7 @@ export function mapEventTypeToPrefKey(eventType: string): string | null {
     case 'new_opportunity':
       return 'opportunities';
     case 'announcement':
+    case 'official_update':
       return 'announcements';
     default:
       return null;

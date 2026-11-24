@@ -1123,10 +1123,12 @@ export async function createMarketplaceListingItem(
 
   try {
     await runWithFirestoreConnectionRetry(() => batch.commit());
-    void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
-      hasPublicActivity: true,
-      updatedAt: serverTimestamp(),
-    }).catch(() => undefined);
+    if (!isUndergroundSupremeAdminUser(auth.currentUser)) {
+      void updateDoc(doc(db, COLLECTION_NAMES.users, input.ownerUID), {
+        hasPublicActivity: true,
+        updatedAt: serverTimestamp(),
+      }).catch(() => undefined);
+    }
     attachments.forEach((attachment, index) => {
       const meta = mediaItems[index];
       if (meta) {

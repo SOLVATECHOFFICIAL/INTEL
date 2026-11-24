@@ -2912,13 +2912,15 @@ export async function resolveUserUidsByUsernames(
           );
           if (!snap.exists()) break;
           const data = snap.data() as {
+            ownerUID?: string;
             uid?: string;
             redirectToUsername?: string;
           };
-          if (data.uid && isValidFirestoreId(data.uid)) {
-            if (!seenUids.has(data.uid)) {
-              seenUids.add(data.uid);
-              resolved.push({ username, uid: data.uid });
+          const resolvedUid = data.ownerUID ?? data.uid;
+          if (resolvedUid && isValidFirestoreId(resolvedUid)) {
+            if (!seenUids.has(resolvedUid)) {
+              seenUids.add(resolvedUid);
+              resolved.push({ username, uid: resolvedUid });
             }
             break;
           }

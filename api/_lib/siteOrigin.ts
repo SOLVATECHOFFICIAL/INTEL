@@ -78,6 +78,7 @@ const SITEMAP_PATHS: ReadonlyArray<{
 }> = [
   { path: '/', changefreq: 'hourly', priority: '1.0' },
   { path: '/?view=latest', changefreq: 'hourly', priority: '0.9' },
+  { path: '/?view=updates', changefreq: 'hourly', priority: '0.9' },
   { path: '/?view=anonymous', changefreq: 'hourly', priority: '0.8' },
   { path: '/?view=marketplace', changefreq: 'hourly', priority: '0.9' },
   { path: '/?view=trusted-circle', changefreq: 'daily', priority: '0.8' },

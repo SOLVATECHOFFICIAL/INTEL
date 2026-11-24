@@ -91,3 +91,23 @@ export function buildPostShareUrl(
   );
 }
 
+export function buildUpdateShareUrl(
+  updateId: string,
+  originOverride?: string
+): string {
+  return buildPublicAppUrl(
+    `/?view=updates&postId=${encodeURIComponent(updateId.trim())}`,
+    originOverride
+  );
+}
+
+export function buildOpportunityShareUrl(
+  opportunityId: string,
+  originOverride?: string
+): string {
+  return buildPublicAppUrl(
+    `/?view=opportunities&opportunityId=${encodeURIComponent(opportunityId.trim())}`,
+    originOverride
+  );
+}
+
