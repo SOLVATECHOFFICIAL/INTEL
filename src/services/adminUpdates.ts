@@ -785,6 +785,7 @@ export async function deleteOfficialUpdateCascading(input: {
       query(
         collection(db, COLLECTION_NAMES.postComments),
         where('postId', '==', input.updateId),
+        where('status', '==', 'published'),
         limit(200)
       )
     ).catch(() => null),
@@ -799,6 +800,7 @@ export async function deleteOfficialUpdateCascading(input: {
     getDocs(
       query(
         collection(db, COLLECTION_NAMES.savedPosts),
+        where('ownerUID', '==', input.actorUid),
         where('targetCollection', '==', 'updates'),
         where('targetId', '==', input.updateId),
         limit(200)
