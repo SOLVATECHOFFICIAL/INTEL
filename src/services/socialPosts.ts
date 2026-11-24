@@ -18,6 +18,7 @@ import {
   type DocumentData,
   type QueryDocumentSnapshot,
   type UpdateData,
+  type WriteBatch,
 } from 'firebase/firestore';
 import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import {
@@ -250,6 +251,34 @@ async function resolveExistingImageIds(imageIds: string[]): Promise<string[]> {
   return existing;
 }
 
+async function commitWriteBatchWithRetry(
+  batch: WriteBatch,
+  opType: OperationType,
+  path: string,
+  actorUid?: string
+): Promise<void> {
+  try {
+    await runWithFirestoreConnectionRetry(() => batch.commit());
+  } catch (error) {
+    const isPermDenied =
+      isFirebaseErrorCode(error, 'permission-denied') ||
+      isFirebaseErrorCode(error, 'firestore/permission-denied') ||
+      (error instanceof Error && /insufficient permissions/i.test(error.message));
+
+    if (isPermDenied && actorUid && auth.currentUser?.uid === actorUid) {
+      try {
+        await auth.currentUser.reload();
+        await auth.currentUser.getIdToken(true);
+        await runWithFirestoreConnectionRetry(() => batch.commit());
+        return;
+      } catch (retryError) {
+        handleFirestoreError(retryError, opType, path);
+      }
+    }
+    handleFirestoreError(error, opType, path);
+  }
+}
+
 async function readPrivateAnonymousOwnership(uid: string): Promise<{
   exists: boolean;
   postIds: string[];
@@ -428,26 +457,7 @@ export async function createCommunityPostWithMedia(input: {
   input.onProgress?.({ percent: 70, label: 'Confirming with Firebase...' });
 
   const path = `${COLLECTION_NAMES.posts}/${postId}`;
-  try {
-    await batch.commit();
-  } catch (error) {
-    const isPermDenied =
-      isFirebaseErrorCode(error, 'permission-denied') ||
-      isFirebaseErrorCode(error, 'firestore/permission-denied') ||
-      (error instanceof Error && /insufficient permissions/i.test(error.message));
-
-    if (isPermDenied && auth.currentUser?.uid === input.ownerUID) {
-      try {
-        await auth.currentUser.reload();
-        await auth.currentUser.getIdToken(true);
-        await batch.commit();
-      } catch (retryError) {
-        handleFirestoreError(retryError, OperationType.CREATE, path);
-      }
-    } else {
-      handleFirestoreError(error, OperationType.CREATE, path);
-    }
-  }
+  await commitWriteBatchWithRetry(batch, OperationType.CREATE, path, input.ownerUID);
 
   for (const att of effectiveAttachments) {
     if (att.compressed) {
@@ -594,11 +604,12 @@ export async function createAnonymousPostWithMedia(input: {
   input.onProgress?.({ percent: 72, label: 'Confirming with Firebase...' });
 
   const path = `${COLLECTION_NAMES.anonymousPosts}/${postId}`;
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  await commitWriteBatchWithRetry(
+    batch,
+    OperationType.CREATE,
+    path,
+    input.authorUid
+  );
 
   for (const att of effectiveAttachments) {
     if (att.compressed) {
@@ -701,11 +712,7 @@ export async function updateCommunityPostWithMedia(input: {
   }
 
   const path = `${COLLECTION_NAMES.posts}/${input.post.id}`;
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await commitWriteBatchWithRetry(batch, OperationType.UPDATE, path, input.actorUid);
 
   for (const removedId of removedCandidates) {
     evictMediaImageCache(removedId);
@@ -806,11 +813,12 @@ export async function updateAnonymousPostWithMedia(input: {
   }
 
   const path = `${COLLECTION_NAMES.anonymousPosts}/${input.post.id}`;
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await commitWriteBatchWithRetry(
+    batch,
+    OperationType.UPDATE,
+    path,
+    auth.currentUser?.uid
+  );
 
   for (const removedId of removedCandidates) {
     evictMediaImageCache(removedId);

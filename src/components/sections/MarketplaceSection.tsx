@@ -740,11 +740,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   };
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
+    const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (!fileList || fileList.length === 0 || submitting) return;
-
-    const files = Array.from(fileList);
+    if (files.length === 0 || submitting) return;
     const existingFingerprints = new Set<string>(
       formAttachments
         .map((att) => att.compressed.fingerprint)
@@ -1461,8 +1459,8 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                         submitting ||
                         formAttachments.length >= 4
                       }
-                      onChange={handlePhotoSelect}
-                      className="sr-only"
+                      onChange={(e) => void handlePhotoSelect(e)}
+                      className="hidden"
                     />
                   </label>
                   <input
@@ -1470,8 +1468,8 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     type="file"
                     accept={ALL_IMAGE_FILE_ACCEPT}
                     disabled={compressingPhotos || submitting}
-                    onChange={handleReplacePhoto}
-                    className="sr-only"
+                    onChange={(e) => void handleReplacePhoto(e)}
+                    className="hidden"
                   />
                 </div>
 

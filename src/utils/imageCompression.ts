@@ -23,7 +23,7 @@ export interface CompressedImageResult {
  * GIF, BMP, TIFF, SVG, ICO, JFIF, camera RAW previews, etc.).
  */
 export const ALL_IMAGE_FILE_ACCEPT =
-  'image/*,.jpg,.jpeg,.jfif,.pjpeg,.pjp,.png,.webp,.gif,.bmp,.avif,.heic,.heif,.svg,.ico,.cur,.tif,.tiff,.dng,.cr2,.nef,.arw';
+  'image/*,.jpg,.jpeg,.jfif,.pjpeg,.pjp,.png,.apng,.webp,.gif,.bmp,.avif,.heic,.heif,.svg,.ico,.cur,.tif,.tiff,.dng,.cr2,.nef,.arw';
 
 const PRESET_MAX_DIMENSION: Record<ImageCompressionPreset, number> = {
   avatar: 480,
@@ -48,7 +48,7 @@ const DISALLOWED_NON_IMAGE_EXT_RE =
 const VIDEO_EXT_RE = /\.(mp4|mov|webm|mkv|avi|3gp|m4v|flv|wmv)$/i;
 const AUDIO_EXT_RE = /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i;
 const IMAGE_EXT_RE =
-  /\.(jpe?g|jfif|pjpeg|pjp|png|webp|gif|bmp|avif|heic|heif|svg|ico|cur|tiff?|dng|cr2|nef|arw|orf|rw2)$/i;
+  /\.(jpe?g|jfif|pjpeg|pjp|a?png|webp|gif|bmp|avif|heic|heif|svg|ico|cur|tiff?|dng|cr2|nef|arw|orf|rw2)$/i;
 
 export function validateImageFileCandidate(candidate: {
   type?: string;
@@ -222,10 +222,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 async function decodeSvgFallback(file: File): Promise<DecodedImageSource> {
   const rawSvg = await file.text();
-  if (!/<svg[\s>]/i.test(rawSvg)) {
+  const rootOpenMatch = rawSvg.match(/<svg\b[^>]*>/i);
+  if (!rootOpenMatch) {
     throw new Error('Not a valid SVG document.');
   }
-  const normalizedSvg = /width\s*=|height\s*=/i.test(rawSvg)
+  const hasRootDimensions = /\b(?:width|height)\s*=/i.test(rootOpenMatch[0]);
+  const normalizedSvg = hasRootDimensions
     ? rawSvg
     : rawSvg.replace(/<svg\b/i, '<svg width="1080" height="1080"');
   const encoded = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalizedSvg)}`;
@@ -242,21 +244,27 @@ async function decodeImageSource(file: File): Promise<DecodedImageSource> {
       const bitmap = await createImageBitmap(file, {
         imageOrientation: 'from-image',
       });
-      return {
-        width: bitmap.width,
-        height: bitmap.height,
-        drawToCanvas: (ctx, w, h) => ctx.drawImage(bitmap, 0, 0, w, h),
-        cleanup: () => bitmap.close(),
-      };
-    } catch {
-      try {
-        const bitmap = await createImageBitmap(file);
+      if (bitmap.width > 0 && bitmap.height > 0) {
         return {
           width: bitmap.width,
           height: bitmap.height,
           drawToCanvas: (ctx, w, h) => ctx.drawImage(bitmap, 0, 0, w, h),
           cleanup: () => bitmap.close(),
         };
+      }
+      bitmap.close();
+    } catch {
+      try {
+        const bitmap = await createImageBitmap(file);
+        if (bitmap.width > 0 && bitmap.height > 0) {
+          return {
+            width: bitmap.width,
+            height: bitmap.height,
+            drawToCanvas: (ctx, w, h) => ctx.drawImage(bitmap, 0, 0, w, h),
+            cleanup: () => bitmap.close(),
+          };
+        }
+        bitmap.close();
       } catch {
         // Fall through to Image / FileReader / SVG decoders
       }
@@ -359,8 +367,8 @@ export async function compressImageFile(
       throw new Error('Canvas 2D graphics context is unavailable on this device.');
     }
 
-    const scaleSteps = [1, 0.78, 0.6, 0.45];
-    const qualitySteps = [0.78, 0.66, 0.54, 0.42];
+    const scaleSteps = [1, 0.78, 0.6, 0.45, 0.32];
+    const qualitySteps = [0.78, 0.66, 0.54, 0.42, 0.32];
 
     let bestAttempt: {
       base64Data: string;

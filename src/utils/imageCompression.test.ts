@@ -69,6 +69,7 @@ test('validateImageFileCandidate rejects videos, audio, documents, empty files, 
 test('validateImageFileCandidate accepts all standard, modern, vector, and mobile-gallery image formats', () => {
   const acceptedCandidates = [
     { type: 'image/webp', size: 1_250_000, name: 'campus_event.webp' },
+    { type: 'image/apng', size: 840_000, name: 'badge_anim.apng' },
     { type: 'image/heic', size: 3_400_000, name: 'IMG_0192.HEIC' },
     { type: 'image/heif', size: 2_800_000, name: 'shot.heif' },
     { type: 'image/avif', size: 650_000, name: 'banner.avif' },
@@ -90,6 +91,7 @@ test('validateImageFileCandidate accepts all standard, modern, vector, and mobil
   }
 
   assert.match(ALL_IMAGE_FILE_ACCEPT, /image\/\*/);
+  assert.match(ALL_IMAGE_FILE_ACCEPT, /\.apng/i);
   assert.match(ALL_IMAGE_FILE_ACCEPT, /\.heic/i);
   assert.match(ALL_IMAGE_FILE_ACCEPT, /\.avif/i);
   assert.match(ALL_IMAGE_FILE_ACCEPT, /\.svg/i);

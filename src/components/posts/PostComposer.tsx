@@ -153,16 +153,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
   const [title, setTitle] = useState<string>(
     initialCommunityPost?.title ?? ''
   );
-  const [body, setBody] = useState<string>(() => {
-    const raw = initialPost?.body ?? '';
-    if (
-      mode === 'ordinary' &&
-      (lockedOrdinaryType ?? initialOrdinaryType) === 'text'
-    ) {
-      return raw.slice(0, BLUEPRINT_LIMITS.textPostBodyMax);
-    }
-    return raw;
-  });
+  const [body, setBody] = useState<string>(() => initialPost?.body ?? '');
   const [isOfficial, setIsOfficial] = useState<boolean>(
     mode === 'ordinary' && initialPost && 'isOfficial' in initialPost
       ? Boolean(initialPost.isOfficial)
@@ -317,33 +308,23 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     if (isEditing || isSubmitting || nextType === ordinaryPostType) return;
     setErrorMessage(null);
     setOrdinaryPostType(nextType);
-    if (nextType === 'text' && body.length > BLUEPRINT_LIMITS.textPostBodyMax) {
-      setBody((prev) => prev.slice(0, BLUEPRINT_LIMITS.textPostBodyMax));
-    }
   };
 
   const handleSwitchAnonType = (nextType: AnonymousPostType) => {
     if (isEditing || isSubmitting || nextType === anonPostType) return;
     setErrorMessage(null);
     setAnonPostType(nextType);
-    if (
-      nextType === 'photo' &&
-      body.length > BLUEPRINT_LIMITS.photoPostCaptionMax
-    ) {
-      setBody((prev) => prev.slice(0, BLUEPRINT_LIMITS.photoPostCaptionMax));
-    }
   };
 
   const handleSelectFiles = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const fileList = event.target.files;
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (!fileList || fileList.length === 0 || isSubmitting) return;
+    if (files.length === 0 || isSubmitting) return;
     if (mode === 'ordinary' && ordinaryPostType !== 'photo') return;
     if (mode === 'anonymous' && anonPostType !== 'photo') return;
 
-    const files = Array.from(fileList);
     setErrorMessage(null);
 
     const existingFingerprints = new Set<string>(
@@ -776,7 +757,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
         </div>
 
         <form
-          onSubmit={handleSubmit}
+          onSubmit={(e) => void handleSubmit(e)}
+          noValidate
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
           <input
@@ -784,8 +766,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             type="file"
             accept={ALL_IMAGE_FILE_ACCEPT}
             disabled={isSubmitting}
-            onChange={handleReplaceFile}
-            className="sr-only"
+            onChange={(e) => void handleReplaceFile(e)}
+            className="hidden"
             data-testid="post-image-replace-input"
           />
 
@@ -800,15 +782,6 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 >
                   Discard draft
                 </button>
-              </div>
-            )}
-
-            {errorMessage && (
-              <div
-                role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-              >
-                {errorMessage}
               </div>
             )}
 
@@ -954,27 +927,50 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   /* FORMAT A: TEXT-ONLY POST (Background Colour/Gradient + Message + Live Preview, Zero Photos) */
                   <>
                     <div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <label
                           htmlFor="composer-body"
                           className="block text-xs font-semibold text-[#0B1A2E]"
                         >
                           Message
                         </label>
-                        <span className="text-[11px] text-slate-500 tabular-nums">
+                        <span
+                          className={`text-[11px] tabular-nums ${
+                            body.trim().length > BLUEPRINT_LIMITS.textPostBodyMax
+                              ? 'font-semibold text-red-600'
+                              : 'text-slate-500'
+                          }`}
+                        >
                           {body.length} / {BLUEPRINT_LIMITS.textPostBodyMax}
                         </span>
                       </div>
                       <textarea
                         id="composer-body"
                         rows={4}
-                        maxLength={BLUEPRINT_LIMITS.textPostBodyMax}
                         disabled={isSubmitting}
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
-                        placeholder="Share a concise campus update on a coloured background..."
+                        placeholder="Share a campus update on a coloured background (supports line breaks, emojis, and links)..."
                         className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
                       />
+                      {body.trim().length > BLUEPRINT_LIMITS.textPostBodyMax && (
+                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-red-700">
+                          <span>
+                            Text-only posts support up to{' '}
+                            {BLUEPRINT_LIMITS.textPostBodyMax} characters.
+                          </span>
+                          {!isEditing && (
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchOrdinaryType('photo')}
+                              className="font-semibold text-[#1E88E5] hover:underline"
+                            >
+                              Switch to Photo Post (up to{' '}
+                              {BLUEPRINT_LIMITS.photoPostCaptionMax})
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
@@ -1060,18 +1056,23 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         >
                           Shared Caption (displayed above your photos)
                         </label>
-                        <span className="text-[11px] text-slate-500 tabular-nums">
+                        <span
+                          className={`text-[11px] tabular-nums ${
+                            body.trim().length > BLUEPRINT_LIMITS.photoPostCaptionMax
+                              ? 'font-semibold text-red-600'
+                              : 'text-slate-500'
+                          }`}
+                        >
                           {body.length} / {BLUEPRINT_LIMITS.photoPostCaptionMax}
                         </span>
                       </div>
                       <textarea
                         id="composer-body"
                         rows={3}
-                        maxLength={BLUEPRINT_LIMITS.photoPostCaptionMax}
                         disabled={isSubmitting}
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
-                        placeholder="Add one shared caption for all photos in this post (optional)..."
+                        placeholder="Add one shared caption for all photos in this post (optional, any text format)..."
                         className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
                       />
                     </div>
@@ -1116,8 +1117,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           accept={ALL_IMAGE_FILE_ACCEPT}
                           multiple
                           disabled={isSubmitting}
-                          onChange={handleSelectFiles}
-                          className="sr-only"
+                          onChange={(e) => void handleSelectFiles(e)}
+                          className="hidden"
                           data-testid="post-image-file-input"
                         />
                       </div>
@@ -1190,6 +1191,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                   )}
                                   <span className="pointer-events-none absolute top-1 left-1 rounded bg-[#0B1A2E]/80 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
                                     #{idx + 1}
+                                    {att.compressed
+                                      ? ` · ${formatByteSize(att.compressed.byteSize)}`
+                                      : ''}
                                   </span>
                                   <button
                                     type="button"
@@ -1273,18 +1277,23 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           >
                             Anonymous Message
                           </label>
-                          <span className="text-[11px] text-slate-500 tabular-nums">
+                          <span
+                            className={`text-[11px] tabular-nums ${
+                              body.trim().length > maxBodyLength
+                                ? 'font-semibold text-red-600'
+                                : 'text-slate-500'
+                            }`}
+                          >
                             {body.length} / {maxBodyLength}
                           </span>
                         </div>
                         <textarea
                           id="composer-body"
                           rows={4}
-                          maxLength={maxBodyLength}
                           disabled={isSubmitting}
                           value={body}
                           onChange={(e) => setBody(e.target.value)}
-                          placeholder="Share an anonymous thought, question, or campus story..."
+                          placeholder="Share an anonymous thought, question, or campus story (supports line breaks, emojis, and links)..."
                           className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
                         />
                       </div>
@@ -1377,18 +1386,23 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           >
                             Shared Caption (displayed above your photos)
                           </label>
-                          <span className="text-[11px] text-slate-500 tabular-nums">
+                          <span
+                            className={`text-[11px] tabular-nums ${
+                              body.trim().length > maxBodyLength
+                                ? 'font-semibold text-red-600'
+                                : 'text-slate-500'
+                            }`}
+                          >
                             {body.length} / {maxBodyLength}
                           </span>
                         </div>
                         <textarea
                           id="composer-body"
                           rows={3}
-                          maxLength={maxBodyLength}
                           disabled={isSubmitting}
                           value={body}
                           onChange={(e) => setBody(e.target.value)}
-                          placeholder="Add one shared caption above all photos in this anonymous post (optional)..."
+                          placeholder="Add one shared caption above all photos in this anonymous post (optional, any text format)..."
                           className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
                         />
                       </div>
@@ -1433,8 +1447,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                             accept={ALL_IMAGE_FILE_ACCEPT}
                             multiple
                             disabled={isSubmitting}
-                            onChange={handleSelectFiles}
-                            className="sr-only"
+                            onChange={(e) => void handleSelectFiles(e)}
+                            className="hidden"
                             data-testid="post-image-file-input"
                           />
                         </div>
@@ -1507,6 +1521,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                     )}
                                     <span className="pointer-events-none absolute top-1 left-1 rounded bg-[#0B1A2E]/80 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
                                       #{idx + 1}
+                                      {att.compressed
+                                        ? ` · ${formatByteSize(att.compressed.byteSize)}`
+                                        : ''}
                                     </span>
                                     <button
                                       type="button"
@@ -1696,6 +1713,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             )}
           </div>
 
+          {errorMessage && (
+            <div
+              role="alert"
+              className="mx-5 mt-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800 sm:text-sm"
+            >
+              {errorMessage}
+            </div>
+          )}
+
           {/* Always-Pinned Footer Actions OUTSIDE Scroll Container */}
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
@@ -1722,13 +1748,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 data-testid="composer-submit-button"
                 className="lasued-accent-gradient inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg px-5 py-2 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSubmitting ? (
+                {isSubmitting || compressingCount > 0 ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <Send className="h-3.5 w-3.5 text-sky-200" aria-hidden="true" />
                 )}
                 <span>
-                  {isSubmitting
+                  {compressingCount > 0
+                    ? 'Compressing...'
+                    : isSubmitting
                     ? 'Saving...'
                     : isEditing
                     ? 'Save Changes'
