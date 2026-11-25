@@ -696,12 +696,13 @@ service cloud.firestore {
     function isValidPostComment(data, commentId) {
       let d = data;
       return d.keys().hasAll(['id', 'postId', 'ownerUID', 'body', 'status', 'createdAt', 'updatedAt']) &&
-        d.keys().hasOnly(['id', 'postId', 'targetCollection', 'parentCommentId', 'ownerUID', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
+        d.keys().hasOnly(['id', 'postId', 'targetCollection', 'parentCommentId', 'replyToCommentId', 'ownerUID', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
         d.id == commentId &&
         isValidId(d.id) &&
         isValidId(d.postId) &&
         (!('targetCollection' in d) || d.targetCollection in ['posts', 'events', 'marketplaceListings', 'updates']) &&
         isOptionalShortString(d, 'parentCommentId', 128) &&
+        isOptionalShortString(d, 'replyToCommentId', 128) &&
         isValidId(d.ownerUID) &&
         d.body is string && d.body.size() >= 1 && d.body.size() <= 1500 &&
         d.status in ['published', 'deleted'] &&
@@ -770,11 +771,12 @@ service cloud.firestore {
 
     function isValidAnonymousComment(data, commentId) {
       return data.keys().hasAll(['id', 'postId', 'body', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'postId', 'parentCommentId', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'postId', 'parentCommentId', 'replyToCommentId', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
         data.id == commentId &&
         isValidId(data.id) &&
         isValidId(data.postId) &&
         isOptionalShortString(data, 'parentCommentId', 128) &&
+        isOptionalShortString(data, 'replyToCommentId', 128) &&
         data.body is string && data.body.size() >= 1 && data.body.size() <= 1500 &&
         data.status in ['published', 'deleted'] &&
         (!('likesCount' in data) || (data.likesCount is int && data.likesCount >= 0)) &&
@@ -1044,7 +1046,7 @@ service cloud.firestore {
         isValidId(data.id) &&
         isValidId(data.recipientUid) &&
         data.eventType in [
-          'follow', 'comment', 'reply', 'mention', 'anonymous_reply', 'reaction',
+          'follow', 'comment', 'reply', 'mention', 'anonymous_reply', 'anonymous_reaction', 'reaction',
           'marketplace_approved', 'marketplace_rejected', 'marketplace_expired',
           'new_opportunity', 'new_event', 'badge_change', 'account_change',
           'announcement', 'official_update'
@@ -2497,7 +2499,7 @@ service cloud.firestore {
             incoming().actorUid == request.auth.uid &&
             exists(/databases/$(database)/documents/users/$(incoming().recipientUid))) ||
           (isActiveSignedInUser() &&
-            incoming().eventType == 'anonymous_reply' &&
+            incoming().eventType in ['anonymous_reply', 'anonymous_reaction'] &&
             incoming().recipientUid == request.auth.uid &&
             !('actorUid' in incoming()) &&
             !('actorUsername' in incoming()) &&

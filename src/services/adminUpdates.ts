@@ -323,7 +323,7 @@ async function notifyUsersOfOfficialUpdate(input: {
       query(
         collection(db, COLLECTION_NAMES.users),
         where('isHiddenFromDirectory', '==', false),
-        limit(400)
+        limit(1000)
       )
     );
 
@@ -1194,6 +1194,7 @@ export async function addOfficialUpdateComment(input: {
   updateId: string;
   body: string;
   parentCommentId?: string;
+  replyToCommentId?: string;
   actorUid: string;
 }): Promise<{ comment: PostComment; commentsCount: number }> {
   if (!isValidFirestoreId(input.actorUid) || !isValidFirestoreId(input.updateId)) {
@@ -1228,6 +1229,13 @@ export async function addOfficialUpdateComment(input: {
   };
   if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
     payload.parentCommentId = input.parentCommentId;
+  }
+  if (
+    input.replyToCommentId &&
+    isValidFirestoreId(input.replyToCommentId) &&
+    input.replyToCommentId !== input.parentCommentId
+  ) {
+    payload.replyToCommentId = input.replyToCommentId;
   }
 
   let publicAuthorUid: string | null = null;
@@ -1265,30 +1273,44 @@ export async function addOfficialUpdateComment(input: {
     const targetPath = `/?view=updates&postId=${input.updateId}&commentId=${commentId}`;
     const excerpt = summarizeNotificationExcerpt(cleanBody, 140);
     let parentOwnerUid: string | null = null;
+    let replyToOwnerUid: string | null = null;
 
-    if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
-      try {
-        const parentSnap = await getDoc(
-          doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
-        );
-        if (parentSnap.exists()) {
-          parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
-        }
-      } catch {
-        parentOwnerUid = null;
-      }
-    }
+    await Promise.all([
+      input.parentCommentId && isValidFirestoreId(input.parentCommentId)
+        ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.parentCommentId))
+            .then((snap) => {
+              if (snap.exists()) {
+                parentOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+              }
+            })
+            .catch(() => undefined)
+        : Promise.resolve(),
+      input.replyToCommentId &&
+      isValidFirestoreId(input.replyToCommentId) &&
+      input.replyToCommentId !== input.parentCommentId
+        ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.replyToCommentId))
+            .then((snap) => {
+              if (snap.exists()) {
+                replyToOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+              }
+            })
+            .catch(() => undefined)
+        : Promise.resolve(),
+    ]);
 
-    if (
-      parentOwnerUid &&
+    const directReplyOwnerUid =
+      replyToOwnerUid &&
       shouldEmitActivityNotification({
         actorUid: input.actorUid,
-        recipientUid: parentOwnerUid,
+        recipientUid: replyToOwnerUid,
       })
-    ) {
+        ? replyToOwnerUid
+        : null;
+
+    if (directReplyOwnerUid) {
       void createSafeMemberNotification({
         id: buildReplyNotificationId(commentId),
-        recipientUid: parentOwnerUid,
+        recipientUid: directReplyOwnerUid,
         eventType: 'reply',
         title: `Reply on "${summarizeNotificationExcerpt(updateTitle, 60)}"`,
         body: excerpt || undefined,
@@ -1299,8 +1321,33 @@ export async function addOfficialUpdateComment(input: {
     }
 
     if (
+      parentOwnerUid &&
+      parentOwnerUid !== directReplyOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: parentOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: directReplyOwnerUid
+          ? `${buildReplyNotificationId(commentId)}_root`
+          : buildReplyNotificationId(commentId),
+        recipientUid: parentOwnerUid,
+        eventType: 'reply',
+        title: directReplyOwnerUid
+          ? `New reply in your thread on "${summarizeNotificationExcerpt(updateTitle, 50)}"`
+          : `Reply on "${summarizeNotificationExcerpt(updateTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: updateImageId,
+      });
+    }
+
+    if (
       publicAuthorUid &&
       publicAuthorUid !== parentOwnerUid &&
+      publicAuthorUid !== directReplyOwnerUid &&
       shouldEmitActivityNotification({
         actorUid: input.actorUid,
         recipientUid: publicAuthorUid,
@@ -1323,6 +1370,7 @@ export async function addOfficialUpdateComment(input: {
     const mentionedUsernames = extractMentionedUsernames(cleanBody);
     if (mentionedUsernames.length > 0) {
       const excludeUids = new Set<string>([input.actorUid]);
+      if (directReplyOwnerUid) excludeUids.add(directReplyOwnerUid);
       if (parentOwnerUid) excludeUids.add(parentOwnerUid);
       if (publicAuthorUid) excludeUids.add(publicAuthorUid);
       void resolveUserUidsByUsernames(mentionedUsernames, excludeUids).then(
@@ -1360,6 +1408,7 @@ export async function addOfficialUpdateComment(input: {
         postId: input.updateId,
         targetCollection: 'updates',
         parentCommentId: payload.parentCommentId as string | undefined,
+        replyToCommentId: payload.replyToCommentId as string | undefined,
         ownerUID: input.actorUid,
         body: cleanBody,
         status: 'published',

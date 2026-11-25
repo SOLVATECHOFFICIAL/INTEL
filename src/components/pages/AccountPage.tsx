@@ -1034,8 +1034,8 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                       </h3>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
                         Choose which community activities appear in your
-                        Notification Centre and unread counter. Updates apply
-                        immediately.
+                        Notification Centre, unread counter, and Web Push
+                        alerts. Updates apply immediately.
                       </p>
                     </div>
                   </div>

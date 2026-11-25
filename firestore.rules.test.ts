@@ -427,7 +427,8 @@ test('Task 13 notification rules enforce actor isolation, zero-actor anonymous r
   );
   assert.match(notifBlock, /incoming\(\)\.actorUid == request\.auth\.uid/);
   assert.match(notifBlock, /incoming\(\)\.recipientUid != request\.auth\.uid/);
-  assert.match(notifBlock, /incoming\(\)\.eventType == 'anonymous_reply'/);
+  assert.match(notifFn, /'anonymous_reaction'/);
+  assert.match(notifBlock, /incoming\(\)\.eventType in \['anonymous_reply', 'anonymous_reaction'\]/);
   assert.match(notifBlock, /!\('actorUid' in incoming\(\)\)/);
   assert.match(notifBlock, /!\('actorUsername' in incoming\(\)\)/);
   assert.match(notifBlock, /!\('actorName' in incoming\(\)\)/);

@@ -106,6 +106,7 @@ import {
   shouldEmitActivityNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
+import { triggerBestEffortAnonymousPush } from './webPush';
 import {
   notifyAdminUpdateSavedChanged,
   notifyAnonymousPostCreated,
@@ -1380,6 +1381,11 @@ export async function togglePostReaction(input: {
         actorUid: input.actorUid,
         targetImageId: result.postImageId,
       });
+    } else if (input.kind === 'anonymousPosts' && result.liked) {
+      void triggerBestEffortAnonymousPush({
+        action: 'post_like',
+        postId: input.postId,
+      });
     }
 
     if (input.kind === 'posts') {
@@ -1457,7 +1463,7 @@ export async function toggleAnonymousCommentReaction(input: {
   const path = `${COLLECTION_NAMES.anonymousComments}/${input.commentId}`;
 
   try {
-    return await runWithFirestoreConnectionRetry(() =>
+    const result = await runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         const [commentSnap, reactionSnap] = await Promise.all([
           tx.get(commentRef),
@@ -1492,6 +1498,15 @@ export async function toggleAnonymousCommentReaction(input: {
         return { liked: true, likesCount: nextState.likesCount };
       })
     );
+
+    if (result.liked) {
+      void triggerBestEffortAnonymousPush({
+        action: 'comment_like',
+        commentId: input.commentId,
+      });
+    }
+
+    return result;
   } catch (error) {
     if (!isFirestoreSdkError(error)) {
       throw error;
@@ -2032,6 +2047,7 @@ export async function addPostComment(input: {
   postId: string;
   body: string;
   parentCommentId?: string;
+  replyToCommentId?: string;
   actorUid: string;
   actorRole: UserRole;
 }): Promise<{ comment: PostComment | AnonymousComment; commentsCount: number }> {
@@ -2079,6 +2095,13 @@ export async function addPostComment(input: {
   };
   if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
     commentPayload.parentCommentId = input.parentCommentId;
+  }
+  if (
+    input.replyToCommentId &&
+    isValidFirestoreId(input.replyToCommentId) &&
+    input.replyToCommentId !== input.parentCommentId
+  ) {
+    commentPayload.replyToCommentId = input.replyToCommentId;
   }
   if (input.kind === 'posts') {
     commentPayload.ownerUID = input.actorUid;
@@ -2135,30 +2158,44 @@ export async function addPostComment(input: {
       const targetPath = `/?view=for-you&postId=${input.postId}&commentId=${commentId}`;
       const excerpt = summarizeNotificationExcerpt(cleanBody, 140);
       let parentOwnerUid: string | null = null;
+      let replyToOwnerUid: string | null = null;
 
-      if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
-        try {
-          const parentSnap = await getDoc(
-            doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
-          );
-          if (parentSnap.exists()) {
-            parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
-          }
-        } catch {
-          parentOwnerUid = null;
-        }
-      }
+      await Promise.all([
+        input.parentCommentId && isValidFirestoreId(input.parentCommentId)
+          ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.parentCommentId))
+              .then((snap) => {
+                if (snap.exists()) {
+                  parentOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        input.replyToCommentId &&
+        isValidFirestoreId(input.replyToCommentId) &&
+        input.replyToCommentId !== input.parentCommentId
+          ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.replyToCommentId))
+              .then((snap) => {
+                if (snap.exists()) {
+                  replyToOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+      ]);
 
-      if (
-        parentOwnerUid &&
+      const directReplyOwnerUid =
+        replyToOwnerUid &&
         shouldEmitActivityNotification({
           actorUid: input.actorUid,
-          recipientUid: parentOwnerUid,
+          recipientUid: replyToOwnerUid,
         })
-      ) {
+          ? replyToOwnerUid
+          : null;
+
+      if (directReplyOwnerUid) {
         void createSafeMemberNotification({
           id: buildReplyNotificationId(commentId),
-          recipientUid: parentOwnerUid,
+          recipientUid: directReplyOwnerUid,
           eventType: 'reply',
           title: 'Someone replied to your comment',
           body: excerpt || undefined,
@@ -2169,8 +2206,33 @@ export async function addPostComment(input: {
       }
 
       if (
+        parentOwnerUid &&
+        parentOwnerUid !== directReplyOwnerUid &&
+        shouldEmitActivityNotification({
+          actorUid: input.actorUid,
+          recipientUid: parentOwnerUid,
+        })
+      ) {
+        void createSafeMemberNotification({
+          id: directReplyOwnerUid
+            ? `${buildReplyNotificationId(commentId)}_root`
+            : buildReplyNotificationId(commentId),
+          recipientUid: parentOwnerUid,
+          eventType: 'reply',
+          title: directReplyOwnerUid
+            ? 'New reply under your comment thread'
+            : 'Someone replied to your comment',
+          body: excerpt || undefined,
+          targetPath,
+          actorUid: input.actorUid,
+          targetImageId: postImageId,
+        });
+      }
+
+      if (
         postOwnerUid &&
         postOwnerUid !== parentOwnerUid &&
+        postOwnerUid !== directReplyOwnerUid &&
         shouldEmitActivityNotification({
           actorUid: input.actorUid,
           recipientUid: postOwnerUid,
@@ -2194,10 +2256,18 @@ export async function addPostComment(input: {
         sourceId: commentId,
         text: cleanBody,
         actorUid: input.actorUid,
-        excludeUids: [parentOwnerUid, postOwnerUid],
+        excludeUids: [directReplyOwnerUid, parentOwnerUid, postOwnerUid],
         title: 'Someone mentioned you in a comment',
         targetPath,
         targetImageId: postImageId,
+      });
+    } else {
+      void triggerBestEffortAnonymousPush({
+        action: 'comment',
+        postId: input.postId,
+        commentId,
+        parentCommentId: input.parentCommentId,
+        replyToCommentId: input.replyToCommentId,
       });
     }
 
@@ -2509,6 +2579,7 @@ export async function addMarketplaceListingComment(input: {
   listingId: string;
   body: string;
   parentCommentId?: string;
+  replyToCommentId?: string;
   actorUid: string;
 }): Promise<{ comment: PostComment; commentsCount: number }> {
   if (
@@ -2547,6 +2618,13 @@ export async function addMarketplaceListingComment(input: {
   if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
     payload.parentCommentId = input.parentCommentId;
   }
+  if (
+    input.replyToCommentId &&
+    isValidFirestoreId(input.replyToCommentId) &&
+    input.replyToCommentId !== input.parentCommentId
+  ) {
+    payload.replyToCommentId = input.replyToCommentId;
+  }
 
   let sellerUid: string | null = null;
   let listingTitle = '';
@@ -2579,30 +2657,44 @@ export async function addMarketplaceListingComment(input: {
     const targetPath = `/?view=marketplace&listingId=${input.listingId}&commentId=${commentId}`;
     const excerpt = summarizeNotificationExcerpt(trimmed, 140);
     let parentOwnerUid: string | null = null;
+    let replyToOwnerUid: string | null = null;
 
-    if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
-      try {
-        const parentSnap = await getDoc(
-          doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
-        );
-        if (parentSnap.exists()) {
-          parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
-        }
-      } catch {
-        parentOwnerUid = null;
-      }
-    }
+    await Promise.all([
+      input.parentCommentId && isValidFirestoreId(input.parentCommentId)
+        ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.parentCommentId))
+            .then((snap) => {
+              if (snap.exists()) {
+                parentOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+              }
+            })
+            .catch(() => undefined)
+        : Promise.resolve(),
+      input.replyToCommentId &&
+      isValidFirestoreId(input.replyToCommentId) &&
+      input.replyToCommentId !== input.parentCommentId
+        ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.replyToCommentId))
+            .then((snap) => {
+              if (snap.exists()) {
+                replyToOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+              }
+            })
+            .catch(() => undefined)
+        : Promise.resolve(),
+    ]);
 
-    if (
-      parentOwnerUid &&
+    const directReplyOwnerUid =
+      replyToOwnerUid &&
       shouldEmitActivityNotification({
         actorUid: input.actorUid,
-        recipientUid: parentOwnerUid,
+        recipientUid: replyToOwnerUid,
       })
-    ) {
+        ? replyToOwnerUid
+        : null;
+
+    if (directReplyOwnerUid) {
       void createSafeMemberNotification({
         id: buildReplyNotificationId(commentId),
-        recipientUid: parentOwnerUid,
+        recipientUid: directReplyOwnerUid,
         eventType: 'reply',
         title: `Reply on "${summarizeNotificationExcerpt(listingTitle, 60)}"`,
         body: excerpt || undefined,
@@ -2613,8 +2705,33 @@ export async function addMarketplaceListingComment(input: {
     }
 
     if (
+      parentOwnerUid &&
+      parentOwnerUid !== directReplyOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: parentOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: directReplyOwnerUid
+          ? `${buildReplyNotificationId(commentId)}_root`
+          : buildReplyNotificationId(commentId),
+        recipientUid: parentOwnerUid,
+        eventType: 'reply',
+        title: directReplyOwnerUid
+          ? `New reply in your thread on "${summarizeNotificationExcerpt(listingTitle, 50)}"`
+          : `Reply on "${summarizeNotificationExcerpt(listingTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: listingImageId,
+      });
+    }
+
+    if (
       sellerUid &&
       sellerUid !== parentOwnerUid &&
+      sellerUid !== directReplyOwnerUid &&
       shouldEmitActivityNotification({
         actorUid: input.actorUid,
         recipientUid: sellerUid,
@@ -2636,7 +2753,7 @@ export async function addMarketplaceListingComment(input: {
       sourceId: commentId,
       text: trimmed,
       actorUid: input.actorUid,
-      excludeUids: [parentOwnerUid, sellerUid],
+      excludeUids: [directReplyOwnerUid, parentOwnerUid, sellerUid],
       title: `You were mentioned on "${summarizeNotificationExcerpt(listingTitle, 60)}"`,
       targetPath,
       targetImageId: listingImageId,
@@ -2651,6 +2768,7 @@ export async function addMarketplaceListingComment(input: {
         postId: input.listingId,
         targetCollection: 'marketplaceListings',
         parentCommentId: payload.parentCommentId as string | undefined,
+        replyToCommentId: payload.replyToCommentId as string | undefined,
         ownerUID: input.actorUid,
         body: trimmed,
         status: 'published',

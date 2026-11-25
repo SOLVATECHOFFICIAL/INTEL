@@ -401,6 +401,11 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     () => initialUiSnapshot?.replyingToId ?? null
   );
   const [replyBody, setReplyBody] = useState('');
+  const [replyTarget, setReplyTarget] = useState<{
+    parentCommentId: string;
+    replyToCommentId?: string;
+    label?: string;
+  } | null>(null);
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentBody, setEditingCommentBody] = useState('');
@@ -915,7 +920,11 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     }
   };
 
-  const handleAddComment = (text: string, parentCommentId?: string) => {
+  const handleAddComment = (
+    text: string,
+    parentCommentId?: string,
+    replyToCommentId?: string
+  ) => {
     setCardError(null);
     setGuestActionPrompt(null);
     if (!viewerUid) {
@@ -962,6 +971,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     if (parentCommentId) {
       setReplyBody('');
       setReplyingToId(null);
+      setReplyTarget(null);
     } else {
       setNewCommentBody('');
     }
@@ -972,6 +982,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       postId: post.id,
       body: trimmed,
       parentCommentId,
+      replyToCommentId,
       actorUid: viewerUid,
       actorRole: roleForWrite,
     })
@@ -1964,6 +1975,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                             setReplyingToId((prev) =>
                               prev === comment.id ? null : comment.id
                             );
+                            setReplyTarget(null);
                             setReplyBody('');
                           }}
                           className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
@@ -2029,29 +2041,68 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
                     {/* Reply Input */}
                     {replyingToId === comment.id && (
-                      <div className="mt-2 flex items-center gap-2 pl-4">
-                        <input
-                          type="text"
-                          value={replyBody}
-                          maxLength={BLUEPRINT_LIMITS.commentBodyMax}
-                          onChange={(e) => setReplyBody(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              handleAddComment(replyBody, comment.id);
+                      <div className="mt-2 space-y-1.5 pl-4">
+                        {replyTarget?.parentCommentId === comment.id &&
+                          replyTarget.label && (
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                              <span>
+                                Replying to{' '}
+                                <span className="font-semibold text-[#0B1A2E]">
+                                  {replyTarget.label}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setReplyTarget(null)}
+                                className="font-semibold text-slate-500 hover:text-[#0B1A2E]"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          )}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={replyBody}
+                            maxLength={BLUEPRINT_LIMITS.commentBodyMax}
+                            onChange={(e) => setReplyBody(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleAddComment(
+                                  replyBody,
+                                  comment.id,
+                                  replyTarget?.parentCommentId === comment.id
+                                    ? replyTarget.replyToCommentId
+                                    : undefined
+                                );
+                              }
+                            }}
+                            placeholder={
+                              replyTarget?.parentCommentId === comment.id &&
+                              replyTarget.label
+                                ? `Reply to ${replyTarget.label}...`
+                                : 'Write a reply...'
                             }
-                          }}
-                          placeholder="Write a reply..."
-                          className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
-                        />
-                        <button
-                          type="button"
-                          disabled={!replyBody.trim()}
-                          onClick={() => handleAddComment(replyBody, comment.id)}
-                          className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
-                        >
-                          Reply
-                        </button>
+                            className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
+                          />
+                          <button
+                            type="button"
+                            disabled={!replyBody.trim()}
+                            onClick={() =>
+                              handleAddComment(
+                                replyBody,
+                                comment.id,
+                                replyTarget?.parentCommentId === comment.id
+                                  ? replyTarget.replyToCommentId
+                                  : undefined
+                              )
+                            }
+                            className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            Reply
+                          </button>
+                        </div>
                       </div>
                     )}
 
@@ -2165,6 +2216,39 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                         {commentLikesCounts[reply.id] ??
                                           Number(reply.likesCount ?? 0)}
                                       </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isOptimisticTempId(reply.id)}
+                                      onClick={() => {
+                                        if (!viewerUid) {
+                                          setGuestActionPrompt(
+                                            'Sign in to reply to comments.'
+                                          );
+                                          return;
+                                        }
+                                        const mentionPrefix =
+                                          kind === 'ordinary' && replyAuthor
+                                            ? `@${replyAuthor.username} `
+                                            : '';
+                                        setReplyingToId(comment.id);
+                                        setReplyTarget({
+                                          parentCommentId: comment.id,
+                                          replyToCommentId: reply.id,
+                                          label:
+                                            kind === 'ordinary' && replyAuthor
+                                              ? `@${replyAuthor.username}`
+                                              : 'anonymous reply',
+                                        });
+                                        if (mentionPrefix) {
+                                          setReplyBody((curr) =>
+                                            curr.trim() ? curr : mentionPrefix
+                                          );
+                                        }
+                                      }}
+                                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                                    >
+                                      Reply
                                     </button>
                                     {canModifyReply &&
                                       !isOptimisticTempId(reply.id) && (

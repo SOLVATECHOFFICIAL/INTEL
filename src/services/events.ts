@@ -253,6 +253,7 @@ export async function addEventComment(input: {
   eventId: string;
   body: string;
   parentCommentId?: string;
+  replyToCommentId?: string;
   actorUid: string;
 }): Promise<{ comment: PostComment; commentsCount: number }> {
   if (
@@ -288,6 +289,13 @@ export async function addEventComment(input: {
   if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
     payload.parentCommentId = input.parentCommentId;
   }
+  if (
+    input.replyToCommentId &&
+    isValidFirestoreId(input.replyToCommentId) &&
+    input.replyToCommentId !== input.parentCommentId
+  ) {
+    payload.replyToCommentId = input.replyToCommentId;
+  }
 
   let eventOwnerUid: string | null = null;
   let eventTitle = '';
@@ -322,30 +330,44 @@ export async function addEventComment(input: {
     const targetPath = `/?view=upcoming-events&eventId=${input.eventId}&commentId=${commentId}`;
     const excerpt = summarizeNotificationExcerpt(trimmed, 140);
     let parentOwnerUid: string | null = null;
+    let replyToOwnerUid: string | null = null;
 
-    if (input.parentCommentId && isValidFirestoreId(input.parentCommentId)) {
-      try {
-        const parentSnap = await getDoc(
-          doc(db, COLLECTION_NAMES.postComments, input.parentCommentId)
-        );
-        if (parentSnap.exists()) {
-          parentOwnerUid = (parentSnap.data() as PostComment).ownerUID ?? null;
-        }
-      } catch {
-        parentOwnerUid = null;
-      }
-    }
+    await Promise.all([
+      input.parentCommentId && isValidFirestoreId(input.parentCommentId)
+        ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.parentCommentId))
+            .then((snap) => {
+              if (snap.exists()) {
+                parentOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+              }
+            })
+            .catch(() => undefined)
+        : Promise.resolve(),
+      input.replyToCommentId &&
+      isValidFirestoreId(input.replyToCommentId) &&
+      input.replyToCommentId !== input.parentCommentId
+        ? getDoc(doc(db, COLLECTION_NAMES.postComments, input.replyToCommentId))
+            .then((snap) => {
+              if (snap.exists()) {
+                replyToOwnerUid = (snap.data() as PostComment).ownerUID ?? null;
+              }
+            })
+            .catch(() => undefined)
+        : Promise.resolve(),
+    ]);
 
-    if (
-      parentOwnerUid &&
+    const directReplyOwnerUid =
+      replyToOwnerUid &&
       shouldEmitActivityNotification({
         actorUid: input.actorUid,
-        recipientUid: parentOwnerUid,
+        recipientUid: replyToOwnerUid,
       })
-    ) {
+        ? replyToOwnerUid
+        : null;
+
+    if (directReplyOwnerUid) {
       void createSafeMemberNotification({
         id: buildReplyNotificationId(commentId),
-        recipientUid: parentOwnerUid,
+        recipientUid: directReplyOwnerUid,
         eventType: 'reply',
         title: `Reply on "${summarizeNotificationExcerpt(eventTitle, 60)}"`,
         body: excerpt || undefined,
@@ -357,8 +379,34 @@ export async function addEventComment(input: {
     }
 
     if (
+      parentOwnerUid &&
+      parentOwnerUid !== directReplyOwnerUid &&
+      shouldEmitActivityNotification({
+        actorUid: input.actorUid,
+        recipientUid: parentOwnerUid,
+      })
+    ) {
+      void createSafeMemberNotification({
+        id: directReplyOwnerUid
+          ? `${buildReplyNotificationId(commentId)}_root`
+          : buildReplyNotificationId(commentId),
+        recipientUid: parentOwnerUid,
+        eventType: 'reply',
+        title: directReplyOwnerUid
+          ? `New reply in your thread on "${summarizeNotificationExcerpt(eventTitle, 50)}"`
+          : `Reply on "${summarizeNotificationExcerpt(eventTitle, 60)}"`,
+        body: excerpt || undefined,
+        targetPath,
+        actorUid: input.actorUid,
+        targetImageId: eventImageId,
+        targetImageUrl: eventImageId ? undefined : eventBannerUrl,
+      });
+    }
+
+    if (
       eventOwnerUid &&
       eventOwnerUid !== parentOwnerUid &&
+      eventOwnerUid !== directReplyOwnerUid &&
       shouldEmitActivityNotification({
         actorUid: input.actorUid,
         recipientUid: eventOwnerUid,
@@ -380,6 +428,7 @@ export async function addEventComment(input: {
     const mentionedUsernames = extractMentionedUsernames(trimmed);
     if (mentionedUsernames.length > 0) {
       const excludeUids = new Set<string>([input.actorUid]);
+      if (directReplyOwnerUid) excludeUids.add(directReplyOwnerUid);
       if (parentOwnerUid) excludeUids.add(parentOwnerUid);
       if (eventOwnerUid) excludeUids.add(eventOwnerUid);
       void resolveUserUidsByUsernames(mentionedUsernames, excludeUids).then(
@@ -411,6 +460,7 @@ export async function addEventComment(input: {
         postId: input.eventId,
         targetCollection: 'events',
         parentCommentId: payload.parentCommentId as string | undefined,
+        replyToCommentId: payload.replyToCommentId as string | undefined,
         ownerUID: input.actorUid,
         body: trimmed,
         status: 'published',

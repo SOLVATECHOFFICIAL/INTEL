@@ -49,10 +49,21 @@ export default async function handler(
     return;
   }
 
-  const notifSnap = await clients.db
+  let notifSnap = await clients.db
     .collection('notifications')
     .doc(notificationId)
     .get();
+
+  if (!notifSnap.exists) {
+    for (const delayMs of [150, 350]) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      notifSnap = await clients.db
+        .collection('notifications')
+        .doc(notificationId)
+        .get();
+      if (notifSnap.exists) break;
+    }
+  }
 
   if (!notifSnap.exists) {
     sendJson(res, 404, { error: 'Notification record not found.' });
@@ -78,7 +89,9 @@ export default async function handler(
     const isActor = Boolean(actorUid) && caller.uid === actorUid;
     const isSelfSynced =
       caller.uid === recipientUid &&
-      (eventType === 'anonymous_reply' || eventType === 'marketplace_expired');
+      (eventType === 'anonymous_reply' ||
+        eventType === 'anonymous_reaction' ||
+        eventType === 'marketplace_expired');
 
     if (!isAdmin && !isMarketplaceModerator && !isActor && !isSelfSynced) {
       sendJson(res, 403, { error: 'Not authorized to dispatch this notification.' });

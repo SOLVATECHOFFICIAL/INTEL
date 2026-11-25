@@ -109,6 +109,11 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
   const [newCommentBody, setNewCommentBody] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
+  const [replyTarget, setReplyTarget] = useState<{
+    parentCommentId: string;
+    replyToCommentId?: string;
+    label?: string;
+  } | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState('');
@@ -290,7 +295,11 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     return false;
   };
 
-  const handleSubmitComment = (rawText: string, parentCommentId?: string) => {
+  const handleSubmitComment = (
+    rawText: string,
+    parentCommentId?: string,
+    replyToCommentId?: string
+  ) => {
     setErrorMessage(null);
     if (!viewerUid) {
       onRequireGuestAuth('Sign in to comment or reply on campus events.');
@@ -337,6 +346,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     if (parentCommentId) {
       setReplyBody('');
       setReplyingToId(null);
+      setReplyTarget(null);
     } else {
       setNewCommentBody('');
     }
@@ -345,6 +355,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
       eventId,
       body: trimmed,
       parentCommentId,
+      replyToCommentId,
       actorUid: viewerUid,
     })
       .then((res) => {
@@ -755,6 +766,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                         setReplyingToId((curr) =>
                           curr === comment.id ? null : comment.id
                         );
+                        setReplyTarget(null);
                         setReplyBody('');
                       }}
                       className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
@@ -821,29 +833,60 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                 )}
 
                 {replyingToId === comment.id && (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleSubmitComment(replyBody, comment.id);
-                    }}
-                    className="mt-2.5 flex items-center gap-2 pl-4"
-                  >
-                    <input
-                      type="text"
-                      value={replyBody}
-                      maxLength={BLUEPRINT_LIMITS.commentBodyMax}
-                      onChange={(e) => setReplyBody(e.target.value)}
-                      placeholder="Write a reply..."
-                      className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!replyBody.trim()}
-                      className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                  <div className="mt-2.5 space-y-1.5 pl-4">
+                    {replyTarget?.parentCommentId === comment.id &&
+                      replyTarget.label && (
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                          <span>
+                            Replying to{' '}
+                            <span className="font-semibold text-[#0B1A2E]">
+                              {replyTarget.label}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setReplyTarget(null)}
+                            className="font-semibold text-slate-500 hover:text-[#0B1A2E]"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      )}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSubmitComment(
+                          replyBody,
+                          comment.id,
+                          replyTarget?.parentCommentId === comment.id
+                            ? replyTarget.replyToCommentId
+                            : undefined
+                        );
+                      }}
+                      className="flex items-center gap-2"
                     >
-                      Reply
-                    </button>
-                  </form>
+                      <input
+                        type="text"
+                        value={replyBody}
+                        maxLength={BLUEPRINT_LIMITS.commentBodyMax}
+                        onChange={(e) => setReplyBody(e.target.value)}
+                        placeholder={
+                          replyTarget?.parentCommentId === comment.id &&
+                          replyTarget.label
+                            ? `Reply to ${replyTarget.label}...`
+                            : 'Write a reply...'
+                        }
+                        className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!replyBody.trim()}
+                        className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Reply
+                      </button>
+                    </form>
+                  </div>
                 )}
 
                 {replies.length > 0 && (
@@ -930,6 +973,38 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                 <span className="tabular-nums">
                                   {replyLikeCount}
                                 </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={isOptimisticTempId(reply.id)}
+                                onClick={() => {
+                                  if (!viewerUid) {
+                                    onRequireGuestAuth(
+                                      'Sign in to reply to comments.'
+                                    );
+                                    return;
+                                  }
+                                  const mentionPrefix = replyAuthor
+                                    ? `@${replyAuthor.username} `
+                                    : '';
+                                  setReplyingToId(comment.id);
+                                  setReplyTarget({
+                                    parentCommentId: comment.id,
+                                    replyToCommentId: reply.id,
+                                    label: replyAuthor
+                                      ? `@${replyAuthor.username}`
+                                      : 'this reply',
+                                  });
+                                  if (mentionPrefix) {
+                                    setReplyBody((curr) =>
+                                      curr.trim() ? curr : mentionPrefix
+                                    );
+                                  }
+                                }}
+                                className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                              >
+                                Reply
                               </button>
 
                               {canEditReply && (

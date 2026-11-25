@@ -97,6 +97,7 @@ import {
 } from '../utils/feedRanking';
 import {
   DEFAULT_NOTIFICATION_PREFS,
+  buildAnonymousLikeMilestoneNotificationId,
   buildAnonymousReplyNotificationId,
   buildMarketplaceExpiredNotificationId,
   normalizeNotificationPrefs,
@@ -105,7 +106,10 @@ import {
   type NotificationPreferences,
 } from '../utils/notifications';
 import type { FeedTabId } from '../types/platform';
-import { triggerBestEffortPushDispatch } from './webPush';
+import {
+  fetchConfiguredVapidPublicKey,
+  triggerBestEffortPushDispatch,
+} from './webPush';
 
 export interface InitializeMemberProfileInput {
   uid: string;
@@ -2223,7 +2227,7 @@ export async function searchEventsScope(
   }
 }
 
-const INITIAL_NOTIFICATION_PAGE_SIZE = 40;
+const INITIAL_NOTIFICATION_PAGE_SIZE = 150;
 
 export interface NotificationSubscriptionSnapshot {
   items: NotificationItem[];
@@ -2346,7 +2350,7 @@ export function subscribeUserNotifications(
     const fallbackQuery = query(
       collection(db, COLLECTION_NAMES.notifications),
       where('recipientUid', '==', uid),
-      limit(60)
+      limit(200)
     );
     activeUnsubscribe = onSnapshot(
       fallbackQuery,
@@ -2595,6 +2599,7 @@ export async function createSafeMemberNotification(input: {
     if (
       !hideUndergroundActor &&
       input.eventType !== 'anonymous_reply' &&
+      input.eventType !== 'anonymous_reaction' &&
       input.actorUid &&
       isValidFirestoreId(input.actorUid)
     ) {
@@ -2667,6 +2672,38 @@ function writeSyncedIdCache(storageKey: string, ids: Set<string>): void {
   }
 }
 
+function readLikeCountBaselineMap(storageKey: string): Record<string, number> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const result: Record<string, number> = {};
+    for (const [key, val] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof val === 'number' && Number.isFinite(val)) {
+        result[key] = Math.max(0, Math.floor(val));
+      }
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+function writeLikeCountBaselineMap(
+  storageKey: string,
+  map: Record<string, number>
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const entries = Object.entries(map).slice(-250);
+    window.localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
 export async function syncOwnAnonymousReplyNotifications(
   uid: string,
   existingNotificationIds: ReadonlySet<string>
@@ -2677,7 +2714,7 @@ export async function syncOwnAnonymousReplyNotifications(
   existingNotificationIds.forEach((id) => syncedCache.add(id));
 
   try {
-    const [privateSnap, historySnap] = await Promise.all([
+    const [privateSnap, historySnap, vapidKey] = await Promise.all([
       getDoc(doc(db, COLLECTION_NAMES.privateUserData, uid)),
       getDocs(
         query(
@@ -2690,6 +2727,7 @@ export async function syncOwnAnonymousReplyNotifications(
           limit(100)
         )
       ).catch(() => null),
+      fetchConfiguredVapidPublicKey().catch(() => null),
     ]);
     const privateData = privateSnap.exists()
       ? (privateSnap.data() as PrivateUserData)
@@ -2717,26 +2755,38 @@ export async function syncOwnAnonymousReplyNotifications(
       query(
         collection(db, COLLECTION_NAMES.anonymousComments),
         where('status', '==', 'published'),
-        limit(120)
+        limit(250)
       )
     );
 
-    const candidates: Array<{ comment: AnonymousComment; isDirectReply: boolean }> = [];
+    const candidates: Array<{
+      comment: AnonymousComment;
+      isDirectReply: boolean;
+      isThreadReply: boolean;
+    }> = [];
     for (const item of commentsSnap.docs) {
       const comment = item.data() as AnonymousComment;
       if (ownedCommentSet.has(comment.id)) continue;
-      const isReplyToOwnComment = Boolean(
-        comment.parentCommentId && ownedCommentSet.has(comment.parentCommentId)
+      const isDirectReply = Boolean(
+        (comment.replyToCommentId && ownedCommentSet.has(comment.replyToCommentId)) ||
+          (!comment.replyToCommentId &&
+            comment.parentCommentId &&
+            ownedCommentSet.has(comment.parentCommentId))
+      );
+      const isThreadReply = Boolean(
+        !isDirectReply &&
+          comment.parentCommentId &&
+          ownedCommentSet.has(comment.parentCommentId)
       );
       const isCommentOnOwnPost = ownedPostSet.has(comment.postId);
-      if (!isReplyToOwnComment && !isCommentOnOwnPost) continue;
+      if (!isDirectReply && !isThreadReply && !isCommentOnOwnPost) continue;
 
       const notifId = buildAnonymousReplyNotificationId(comment.id);
       if (syncedCache.has(notifId)) continue;
-      candidates.push({ comment, isDirectReply: isReplyToOwnComment });
+      candidates.push({ comment, isDirectReply, isThreadReply });
     }
 
-    for (const candidate of candidates.slice(0, 12)) {
+    for (const candidate of candidates) {
       const notifId = buildAnonymousReplyNotificationId(candidate.comment.id);
       const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
       try {
@@ -2746,13 +2796,18 @@ export async function syncOwnAnonymousReplyNotifications(
           continue;
         }
         const excerpt = summarizeNotificationExcerpt(candidate.comment.body, 140);
+        const title = candidate.isDirectReply
+          ? 'Someone replied to your anonymous comment'
+          : candidate.isThreadReply
+            ? 'New reply in your anonymous comment thread'
+            : candidate.comment.parentCommentId
+              ? 'New reply on your anonymous post'
+              : 'New comment on your anonymous post';
         await setDoc(notifRef, {
           id: notifId,
           recipientUid: uid,
           eventType: 'anonymous_reply',
-          title: candidate.isDirectReply
-            ? 'New anonymous reply to your comment'
-            : 'New reply on your anonymous post',
+          title,
           ...(excerpt ? { body: excerpt } : {}),
           targetPath: `/?view=anonymous&postId=${candidate.comment.postId}&commentId=${candidate.comment.id}`,
           isRead: false,
@@ -2766,6 +2821,104 @@ export async function syncOwnAnonymousReplyNotifications(
       } catch {
         // Ignore individual duplicate/rule races
       }
+    }
+
+    // Client-fallback anonymous reaction sync when server push/Admin SDK is not configured
+    if (!vapidKey) {
+      const likeCacheKey = `lasued_anon_like_counts_${uid}`;
+      const existingBaseline = readLikeCountBaselineMap(likeCacheKey);
+      const nextBaseline: Record<string, number> = existingBaseline
+        ? { ...existingBaseline }
+        : {};
+      const shouldEmitIncrements = existingBaseline !== null;
+
+      const ownedPostIds = Array.from(ownedPostSet).slice(0, 60);
+      const postSnaps = await Promise.all(
+        ownedPostIds.map((postId) =>
+          getDoc(doc(db, COLLECTION_NAMES.anonymousPosts, postId)).catch(() => null)
+        )
+      );
+
+      for (const snap of postSnaps) {
+        if (!snap?.exists()) continue;
+        const post = snap.data() as AnonymousPost;
+        if (post.status !== 'published') continue;
+        const currentLikes = Math.max(0, Math.floor(Number(post.likesCount ?? 0)));
+        const key = `p_${post.id}`;
+        const prevLikes = nextBaseline[key] ?? 0;
+        nextBaseline[key] = currentLikes;
+
+        if (shouldEmitIncrements && currentLikes > prevLikes) {
+          const notifId = buildAnonymousLikeMilestoneNotificationId(
+            'anonymousPosts',
+            post.id,
+            currentLikes
+          );
+          if (!syncedCache.has(notifId)) {
+            const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+            try {
+              const existingNotif = await getDoc(notifRef).catch(() => null);
+              if (!existingNotif?.exists()) {
+                const excerpt = summarizeNotificationExcerpt(post.body, 120);
+                await setDoc(notifRef, {
+                  id: notifId,
+                  recipientUid: uid,
+                  eventType: 'anonymous_reaction',
+                  title: 'Someone liked your anonymous post',
+                  ...(excerpt ? { body: excerpt } : {}),
+                  targetPath: `/?view=anonymous&postId=${post.id}`,
+                  isRead: false,
+                  createdAt: serverTimestamp(),
+                });
+              }
+              syncedCache.add(notifId);
+            } catch {
+              // Ignore rule/duplicate race
+            }
+          }
+        }
+      }
+
+      for (const item of commentsSnap.docs) {
+        const comment = item.data() as AnonymousComment;
+        if (!ownedCommentSet.has(comment.id) || comment.status !== 'published') continue;
+        const currentLikes = Math.max(0, Math.floor(Number(comment.likesCount ?? 0)));
+        const key = `c_${comment.id}`;
+        const prevLikes = nextBaseline[key] ?? 0;
+        nextBaseline[key] = currentLikes;
+
+        if (shouldEmitIncrements && currentLikes > prevLikes) {
+          const notifId = buildAnonymousLikeMilestoneNotificationId(
+            'anonymousComments',
+            comment.id,
+            currentLikes
+          );
+          if (!syncedCache.has(notifId)) {
+            const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
+            try {
+              const existingNotif = await getDoc(notifRef).catch(() => null);
+              if (!existingNotif?.exists()) {
+                const excerpt = summarizeNotificationExcerpt(comment.body, 120);
+                await setDoc(notifRef, {
+                  id: notifId,
+                  recipientUid: uid,
+                  eventType: 'anonymous_reaction',
+                  title: 'Someone liked your anonymous comment',
+                  ...(excerpt ? { body: excerpt } : {}),
+                  targetPath: `/?view=anonymous&postId=${comment.postId}&commentId=${comment.id}`,
+                  isRead: false,
+                  createdAt: serverTimestamp(),
+                });
+              }
+              syncedCache.add(notifId);
+            } catch {
+              // Ignore rule/duplicate race
+            }
+          }
+        }
+      }
+
+      writeLikeCountBaselineMap(likeCacheKey, nextBaseline);
     }
 
     writeSyncedIdCache(cacheKey, syncedCache);

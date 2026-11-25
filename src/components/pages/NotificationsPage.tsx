@@ -44,7 +44,6 @@ import { TikTokFollowButton } from '../TikTokFollowButton';
 import { EmailVerificationBanner } from '../auth/EmailVerificationBanner';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
-import { PushTestControls } from '../pwa/PushTestControls';
 import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 interface NotificationsPageProps {
@@ -90,6 +89,11 @@ function renderNotificationTypeVisual(eventType: NotificationEventType) {
       return {
         bgClass: 'bg-[#0B1A2E] text-[#1E88E5] border-[#0B1A2E]',
         Icon: Shield,
+      };
+    case 'anonymous_reaction':
+      return {
+        bgClass: 'bg-rose-50 text-rose-600 border-rose-200',
+        Icon: Heart,
       };
     case 'follow':
       return {
@@ -324,7 +328,6 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
               (enabled) => enabled === false
             )}
           />
-          <PushTestControls compact />
         </div>
       )}
 
@@ -469,15 +472,17 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
         ) : (
           <ul className="space-y-2.5">
             {visibleNotifications.map((item) => {
-              const isAnonReply = item.eventType === 'anonymous_reply';
-              const actorUsername = isAnonReply
+              const isAnonActivity =
+                item.eventType === 'anonymous_reply' ||
+                item.eventType === 'anonymous_reaction';
+              const actorUsername = isAnonActivity
                 ? null
                 : extractActorUsernameFromNotification(item);
-              const actorDisplayName = isAnonReply
+              const actorDisplayName = isAnonActivity
                 ? null
                 : item.actorName || (actorUsername ? `@${actorUsername}` : null);
               const hasPublicActorVisual = Boolean(
-                !isAnonReply && (item.actorName || actorUsername)
+                !isAnonActivity && (item.actorName || actorUsername)
               );
               const hasContentThumb = Boolean(
                 item.targetImageId || item.targetImageUrl

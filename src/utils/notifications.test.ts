@@ -8,6 +8,8 @@ import {
   applyOptimisticMarkRead,
   applyOptimisticMarkUnread,
   buildAnnouncementNotificationId,
+  buildAnonymousLikeMilestoneNotificationId,
+  buildAnonymousLikeNotificationId,
   buildAnonymousReplyNotificationId,
   buildCommentNotificationId,
   buildMarketplaceExpiredNotificationId,
@@ -20,7 +22,9 @@ import {
   extractMentionedUsernames,
   filterNotifications,
   formatNotificationRelativeTime,
+  getNotificationTypeLabel,
   isAnonymousNotificationLeakFree,
+  isNotificationAllowedByPrefs,
   mergeNotifications,
   normalizeNotificationPrefs,
   resolveNotificationDestination,
@@ -92,7 +96,7 @@ test('shouldEmitActivityNotification suppresses self-notifications and invalid I
   );
 });
 
-test('anonymous reply notifications must never leak actor identity fields', () => {
+test('anonymous reply and anonymous reaction notifications must never leak actor identity fields', () => {
   const safeAnon = makeNotification({
     eventType: 'anonymous_reply',
     title: 'New reply on your anonymous post',
@@ -100,11 +104,42 @@ test('anonymous reply notifications must never leak actor identity fields', () =
   });
   assert.equal(isAnonymousNotificationLeakFree(safeAnon), true);
 
+  const safeAnonLike = makeNotification({
+    eventType: 'anonymous_reaction',
+    title: 'Someone liked your anonymous post',
+    targetPath: '/?view=anonymous&postId=ap_1',
+  });
+  assert.equal(isAnonymousNotificationLeakFree(safeAnonLike), true);
+  assert.equal(getNotificationTypeLabel('anonymous_reaction'), 'Anonymous Like');
+
   const leakyAnon = makeNotification({
     eventType: 'anonymous_reply',
     actorUid: 'secret_uid',
   });
   assert.equal(isAnonymousNotificationLeakFree(leakyAnon), false);
+
+  const leakyAnonReaction = makeNotification({
+    eventType: 'anonymous_reaction',
+    actorUsername: 'adaobi',
+  });
+  assert.equal(isAnonymousNotificationLeakFree(leakyAnonReaction), false);
+
+  const secretActorUid = 'uid_secret_student_99';
+  const rxId1 = buildAnonymousLikeNotificationId('anonymousPosts', 'ap_1', secretActorUid);
+  const rxId2 = buildAnonymousLikeNotificationId('anonymousPosts', 'ap_1', secretActorUid);
+  const rxIdOther = buildAnonymousLikeNotificationId('anonymousPosts', 'ap_1', 'uid_other_student');
+  assert.equal(rxId1, rxId2);
+  assert.notEqual(rxId1, rxIdOther);
+  assert.match(rxId1, /^[a-zA-Z0-9_-]{1,128}$/);
+  assert.equal(rxId1.includes(secretActorUid), false);
+
+  const milestoneId = buildAnonymousLikeMilestoneNotificationId('anonymousComments', 'ac_2', 5);
+  assert.match(milestoneId, /^anon_lcnt_c_ac_2_5$/);
+
+  const threadReplyParentId = buildAnonymousReplyNotificationId('ac_3', 'par');
+  const threadReplyDirectId = buildAnonymousReplyNotificationId('ac_3', 'rpl');
+  assert.notEqual(threadReplyParentId, threadReplyDirectId);
+  assert.match(threadReplyParentId, /^[a-zA-Z0-9_-]{1,128}$/);
 });
 
 test('optimistic mark read, mark all read, delete, and rollback reconcile deterministically', () => {
@@ -214,6 +249,45 @@ test('notification preferences map legacy keys and filter unread count + list ac
     filteredUnread.map((i) => i.id),
     ['b']
   );
+
+  // anonymous_reaction requires both likes and anonymous_replies to be enabled
+  assert.equal(
+    isNotificationAllowedByPrefs(
+      { eventType: 'anonymous_reaction' },
+      { ...DEFAULT_NOTIFICATION_PREFS, likes: true, anonymous_replies: true }
+    ),
+    true
+  );
+  assert.equal(
+    isNotificationAllowedByPrefs(
+      { eventType: 'anonymous_reaction' },
+      { ...DEFAULT_NOTIFICATION_PREFS, likes: false, anonymous_replies: true }
+    ),
+    false
+  );
+  assert.equal(
+    isNotificationAllowedByPrefs(
+      { eventType: 'anonymous_reaction' },
+      { ...DEFAULT_NOTIFICATION_PREFS, likes: true, anonymous_replies: false }
+    ),
+    false
+  );
+});
+
+test('bursts of 100+ notifications remain unclipped and preference-filtered', () => {
+  const burst = Array.from({ length: 120 }, (_, i) =>
+    makeNotification({
+      id: `burst_${i}`,
+      eventType: i % 3 === 0 ? 'reaction' : i % 3 === 1 ? 'reply' : 'anonymous_reaction',
+      isRead: false,
+      createdAt: 1_700_000_000_000 + i,
+    })
+  );
+  assert.equal(computeUnreadNotificationsCount(burst, DEFAULT_NOTIFICATION_PREFS), 120);
+
+  const noLikesPrefs = { ...DEFAULT_NOTIFICATION_PREFS, likes: false };
+  // Only replies (40 items) remain when likes are disabled (blocks reaction & anonymous_reaction)
+  assert.equal(computeUnreadNotificationsCount(burst, noLikesPrefs), 40);
 });
 
 test('resolveNotificationDestination routes every notification type to its exact target', () => {

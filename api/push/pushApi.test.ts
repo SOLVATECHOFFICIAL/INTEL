@@ -8,6 +8,7 @@ import configHandler from './config.js';
 import dispatchHandler from './dispatch.js';
 import broadcastHandler from './broadcast.js';
 import testHandler from './test.js';
+import anonymousHandler from './anonymous.js';
 import {
   buildTestPushPayloads,
   clampTestPushOptions,
@@ -495,4 +496,124 @@ test('/api/push/test validates method, auth, clamping, and builds distinct stack
     else process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
   }
 });
+
+test('/api/push/anonymous validates method, action & IDs, safely skips unconfigured, enforces auth, and masks anonymous_reaction payloads', async () => {
+  const methodMock = createMockRes();
+  await anonymousHandler(
+    { method: 'GET', headers: {} } as VercelLikeRequest,
+    methodMock.res
+  );
+  assert.equal(methodMock.getStatus(), 405);
+
+  const badActionMock = createMockRes();
+  await anonymousHandler(
+    {
+      method: 'POST',
+      headers: {},
+      body: { action: 'unknown', postId: 'ap_1' },
+    } as VercelLikeRequest,
+    badActionMock.res
+  );
+  assert.equal(badActionMock.getStatus(), 400);
+
+  const badIdMock = createMockRes();
+  await anonymousHandler(
+    {
+      method: 'POST',
+      headers: {},
+      body: { action: 'post_like', postId: 'bad/id' },
+    } as VercelLikeRequest,
+    badIdMock.res
+  );
+  assert.equal(badIdMock.getStatus(), 400);
+
+  const savedSa = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  try {
+    delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    const skipMock = createMockRes();
+    await anonymousHandler(
+      {
+        method: 'POST',
+        headers: {},
+        body: { action: 'post_like', postId: 'ap_valid_1' },
+      } as VercelLikeRequest,
+      skipMock.res
+    );
+    assert.equal(skipMock.getStatus(), 200);
+    assert.equal(skipMock.getBody().configured, false);
+    assert.equal(skipMock.getBody().skipped, true);
+  } finally {
+    if (savedSa !== undefined) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
+  }
+
+  const savedPub = process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+  const savedPriv = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+  const vapidPair = webpush.generateVAPIDKeys();
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const pemKey = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
+  try {
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = vapidPair.publicKey;
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = vapidPair.privateKey;
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({
+      project_id: 'lasued-intel',
+      client_email: 'firebase-adminsdk@lasued-intel.iam.gserviceaccount.com',
+      private_key: pemKey,
+    });
+
+    const unauthMock = createMockRes();
+    await anonymousHandler(
+      {
+        method: 'POST',
+        headers: {},
+        body: { action: 'comment_like', postId: 'ap_valid_1', commentId: 'ac_valid_1' },
+      } as VercelLikeRequest,
+      unauthMock.res
+    );
+    assert.equal(unauthMock.getStatus(), 401);
+  } finally {
+    if (savedPub === undefined) delete process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+    else process.env.WEB_PUSH_VAPID_PUBLIC_KEY = savedPub;
+    if (savedPriv === undefined) delete process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+    else process.env.WEB_PUSH_VAPID_PRIVATE_KEY = savedPriv;
+    if (savedSa === undefined) delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    else process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
+  }
+
+  // Dual preference gating & payload masking for anonymous_reaction
+  assert.equal(
+    isNotificationAllowedByRawPrefs('anonymous_reaction', {
+      likes: true,
+      anonymous_replies: true,
+    }),
+    true
+  );
+  assert.equal(
+    isNotificationAllowedByRawPrefs('anonymous_reaction', {
+      likes: false,
+      anonymous_replies: true,
+    }),
+    false
+  );
+  assert.equal(
+    isNotificationAllowedByRawPrefs('anonymous_reaction', {
+      likes: true,
+      anonymous_replies: false,
+    }),
+    false
+  );
+
+  const sanitizedLike = sanitizePushPayloadForClient({
+    notificationId: 'anon_rx_p_ap1_abcdef123456',
+    eventType: 'anonymous_reaction',
+    title: '',
+    body: 'Someone liked your anonymous post.',
+    targetPath: '/?view=anonymous&postId=ap1',
+    unreadCount: 2,
+    allowedOrigin: 'https://lasuedintel.com.ng',
+  });
+  assert.equal(sanitizedLike.isAnonymous, true);
+  assert.equal(sanitizedLike.title, 'New like in The Unfiltered');
+  assert.equal(sanitizedLike.targetPath, '/?view=anonymous&postId=ap1');
+});
+
 

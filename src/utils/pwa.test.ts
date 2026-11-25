@@ -189,6 +189,27 @@ test('server push sanitizer enforces anonymous safety, path sanitization, prefer
     false
   );
   assert.equal(
+    isNotificationAllowedByRawPrefs('anonymous_reaction', {
+      likes: true,
+      anonymous_replies: true,
+    }),
+    true
+  );
+  assert.equal(
+    isNotificationAllowedByRawPrefs('anonymous_reaction', {
+      likes: false,
+      anonymous_replies: true,
+    }),
+    false
+  );
+  assert.equal(
+    isNotificationAllowedByRawPrefs('anonymous_reaction', {
+      likes: true,
+      anonymous_replies: false,
+    }),
+    false
+  );
+  assert.equal(
     isNotificationAllowedByRawPrefs('mention', { mentions: false }),
     false
   );
@@ -200,6 +221,18 @@ test('server push sanitizer enforces anonymous safety, path sanitization, prefer
     isNotificationAllowedByRawPrefs('new_event', { events: true }),
     true
   );
+
+  const anonLikePayload = sanitizePushPayloadForClient({
+    notificationId: 'anon_rx_p_ap1_hash1234',
+    eventType: 'anonymous_reaction',
+    title: '',
+    body: 'Your anonymous post received a new like.',
+    targetPath: '/?view=anonymous&postId=ap1',
+    unreadCount: 1,
+    allowedOrigin: 'https://lasuedintel.com.ng',
+  });
+  assert.equal(anonLikePayload.isAnonymous, true);
+  assert.equal(anonLikePayload.title, 'New like in The Unfiltered');
 
   assert.equal(normalizeVapidSubject('admin@lasued.edu.ng'), 'mailto:admin@lasued.edu.ng');
   assert.equal(normalizeVapidSubject(''), 'mailto:lasuedintel@gmail.com');

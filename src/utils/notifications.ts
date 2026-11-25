@@ -75,9 +75,9 @@ export const NOTIFICATION_PREFERENCE_OPTIONS: readonly NotificationPreferenceOpt
     },
     {
       key: 'anonymous_replies',
-      label: 'Anonymous Thread Replies',
+      label: 'Anonymous Thread Replies & Likes',
       description:
-        'Notify inside your private notification center when an anonymous post or comment receives a reply, without revealing any identity.',
+        'Receive Notification Centre and push alerts when an anonymous post or comment receives a reply or like, without revealing any identity.',
     },
     {
       key: 'followers',
@@ -170,6 +170,7 @@ export function mapEventTypeToPrefKey(
     case 'mention':
       return 'mentions';
     case 'anonymous_reply':
+    case 'anonymous_reaction':
       return 'anonymous_replies';
     case 'follow':
       return 'followers';
@@ -196,6 +197,9 @@ export function isNotificationAllowedByPrefs(
   prefs?: NotificationPreferences | null
 ): boolean {
   if (!prefs) return true;
+  if (item.eventType === 'anonymous_reaction') {
+    return prefs.likes !== false && prefs.anonymous_replies !== false;
+  }
   const prefKey = mapEventTypeToPrefKey(item.eventType);
   if (!prefKey) return true;
   return prefs[prefKey] !== false;
@@ -210,6 +214,7 @@ export function getNotificationCategoryGroup(
     case 'reply':
     case 'mention':
     case 'anonymous_reply':
+    case 'anonymous_reaction':
       return 'interactions';
     case 'follow':
       return 'followers';
@@ -243,6 +248,8 @@ export function getNotificationTypeLabel(
       return 'Mention';
     case 'anonymous_reply':
       return 'Anonymous Reply';
+    case 'anonymous_reaction':
+      return 'Anonymous Like';
     case 'follow':
       return 'Follower';
     case 'marketplace_approved':
@@ -326,8 +333,48 @@ export function extractMentionedUsernames(
   return result;
 }
 
-export function buildAnonymousReplyNotificationId(commentId: string): string {
+function hashIdentifierPart(raw: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let i = 0; i < raw.length; i += 1) {
+    const code = raw.charCodeAt(i);
+    h1 ^= code;
+    h1 = Math.imul(h1, 0x01000193);
+    h2 ^= code + ((i + 1) & 0xff);
+    h2 = Math.imul(h2, 0x85ebca6b);
+  }
+  const part1 = (h1 >>> 0).toString(16).padStart(8, '0');
+  const part2 = (h2 >>> 0).toString(16).padStart(8, '0');
+  return `${part1}${part2}`;
+}
+
+export function buildAnonymousReplyNotificationId(
+  commentId: string,
+  suffix?: string
+): string {
+  if (suffix) {
+    return `anon_reply_${sanitizeIdPart(commentId, 90)}_${sanitizeIdPart(suffix, 16)}`;
+  }
   return `anon_reply_${sanitizeIdPart(commentId, 110)}`;
+}
+
+export function buildAnonymousLikeNotificationId(
+  targetCollection: 'anonymousPosts' | 'anonymousComments',
+  targetId: string,
+  actorUid: string
+): string {
+  const shortCol = targetCollection === 'anonymousPosts' ? 'p' : 'c';
+  return `anon_rx_${shortCol}_${sanitizeIdPart(targetId, 44)}_${hashIdentifierPart(actorUid)}`;
+}
+
+export function buildAnonymousLikeMilestoneNotificationId(
+  targetCollection: 'anonymousPosts' | 'anonymousComments',
+  targetId: string,
+  likesCount: number
+): string {
+  const shortCol = targetCollection === 'anonymousPosts' ? 'p' : 'c';
+  const safeCount = Math.max(1, Math.floor(likesCount));
+  return `anon_lcnt_${shortCol}_${sanitizeIdPart(targetId, 44)}_${safeCount}`;
 }
 
 export function buildMarketplaceReviewNotificationId(
@@ -369,7 +416,12 @@ export function shouldEmitActivityNotification(input: {
 export function isAnonymousNotificationLeakFree(
   item: Partial<NotificationItem>
 ): boolean {
-  if (item.eventType !== 'anonymous_reply') return true;
+  if (
+    item.eventType !== 'anonymous_reply' &&
+    item.eventType !== 'anonymous_reaction'
+  ) {
+    return true;
+  }
   return (
     !item.actorUid &&
     !item.actorUsername &&
@@ -650,6 +702,7 @@ export function resolveNotificationDestination(
     case 'marketplace_expired':
       return { route: 'marketplace', options: {} };
     case 'anonymous_reply':
+    case 'anonymous_reaction':
       return { route: 'anonymous', options: {} };
     case 'official_update':
       return { route: 'updates', options: {} };

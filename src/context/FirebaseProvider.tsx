@@ -18,6 +18,7 @@ import { notifyViewerSessionReset } from '../services/cacheInvalidation';
 import { clearSearchBundleCache } from '../services/searchDiscovery';
 import { subscribeToAuthChanges } from '../services/auth';
 import {
+  dispatchLocalAllowedNotificationsBatch,
   syncAppBadgeWithServiceWorker,
   verifyStoredPushSubscriptionForUser,
 } from '../services/webPush';
@@ -134,12 +135,22 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   const notificationPrefsRef = useRef<NotificationPreferences>(
     DEFAULT_NOTIFICATION_PREFS
   );
+  const profileRef = useRef<PublicUserProfile | null>(null);
+  const liveNotificationsRef = useRef<NotificationItem[]>([]);
   const [foregroundNotificationToast, setForegroundNotificationToast] =
     useState<NotificationItem | null>(null);
 
   useEffect(() => {
     notificationPrefsRef.current = notificationPrefs;
   }, [notificationPrefs]);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    liveNotificationsRef.current = liveNotifications;
+  }, [liveNotifications]);
 
   const notifications = useMemo(
     () => mergeNotifications(liveNotifications, olderNotifications),
@@ -277,7 +288,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
           );
           notifBaselineReadyForUidRef.current = user.uid;
         } else {
-          const incomingNew = snapshot.items.find(
+          const incomingAllowed = snapshot.items.filter(
             (item) =>
               !seenLiveNotifIdsRef.current.has(item.id) &&
               !item.isRead &&
@@ -286,8 +297,14 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
           for (const item of snapshot.items) {
             seenLiveNotifIdsRef.current.add(item.id);
           }
-          if (incomingNew) {
-            setForegroundNotificationToast(incomingNew);
+          if (incomingAllowed.length > 0) {
+            setForegroundNotificationToast(incomingAllowed[0]);
+            if (!isAccountSuspended(profileRef.current)) {
+              void dispatchLocalAllowedNotificationsBatch(incomingAllowed, {
+                uid: user.uid,
+                prefs: notificationPrefsRef.current,
+              });
+            }
           }
         }
         setLiveNotifications(snapshot.items);
@@ -340,18 +357,44 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     }
 
     syncedBackgroundUidRef.current = user.uid;
-    const existingIds = new Set(liveNotifications.map((item) => item.id));
-    void syncOwnAnonymousReplyNotifications(user.uid, existingIds);
-    void syncOwnExpiredMarketplaceNotifications(user.uid, existingIds);
-    void syncOwnAnonymousLikesReceivedCount(user.uid);
-    if (
-      typeof window !== 'undefined' &&
-      'Notification' in window &&
-      Notification.permission === 'granted'
-    ) {
-      void verifyStoredPushSubscriptionForUser(user.uid);
-    }
-  }, [authReady, user, profile, notificationsStatus, liveNotifications]);
+    const runBackgroundSync = () => {
+      const existingIds = new Set(
+        liveNotificationsRef.current.map((item) => item.id)
+      );
+      void syncOwnAnonymousReplyNotifications(user.uid, existingIds);
+      void syncOwnExpiredMarketplaceNotifications(user.uid, existingIds);
+      void syncOwnAnonymousLikesReceivedCount(user.uid);
+      if (
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
+        void verifyStoredPushSubscriptionForUser(user.uid);
+      }
+    };
+
+    runBackgroundSync();
+
+    let lastSyncAt = Date.now();
+    const maybeResync = () => {
+      const now = Date.now();
+      if (now - lastSyncAt < 20_000) return;
+      lastSyncAt = now;
+      runBackgroundSync();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        maybeResync();
+      }
+    };
+
+    window.addEventListener('focus', maybeResync);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', maybeResync);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [authReady, user, profile, notificationsStatus]);
 
   const refreshAccountState = useCallback(async () => {
     const activeUser = auth.currentUser ?? user;

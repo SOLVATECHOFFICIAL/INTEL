@@ -102,6 +102,7 @@ export type NotificationEventType =
   | 'reply'
   | 'mention'
   | 'anonymous_reply'
+  | 'anonymous_reaction'
   | 'reaction'
   | 'marketplace_approved'
   | 'marketplace_rejected'
@@ -539,6 +540,7 @@ export interface PostComment {
   postId: string;
   targetCollection?: 'posts' | 'updates' | 'events' | 'marketplaceListings';
   parentCommentId?: string;
+  replyToCommentId?: string;
   ownerUID: string;
   body: string;
   status: PostStatus;
@@ -597,6 +599,7 @@ export interface AnonymousComment {
   id: string;
   postId: string;
   parentCommentId?: string;
+  replyToCommentId?: string;
   body: string;
   status: PostStatus;
   likesCount?: number;

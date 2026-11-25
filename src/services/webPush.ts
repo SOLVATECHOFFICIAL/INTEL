@@ -14,8 +14,14 @@ import {
   SUBCOLLECTION_NAMES,
   isValidFirestoreId,
   type NotificationEventType,
+  type NotificationItem,
   type PushSubscriptionRecord,
 } from '../types/database';
+import { extractTimestampMs } from '../utils/contextualSearch';
+import {
+  isNotificationAllowedByPrefs,
+  type NotificationPreferences,
+} from '../utils/notifications';
 import {
   computeDeterministicPushSubscriptionId,
   detectDeviceEnvironment,
@@ -548,6 +554,58 @@ async function getCurrentBearerToken(): Promise<string | null> {
   }
 }
 
+const MAX_CONCURRENT_PUSH_DISPATCHES = 6;
+let activePushDispatchCount = 0;
+const pendingPushDispatchQueue: Array<() => void> = [];
+
+function runQueuedPushTask<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const start = () => {
+      activePushDispatchCount += 1;
+      void task()
+        .then(resolve, reject)
+        .finally(() => {
+          activePushDispatchCount = Math.max(0, activePushDispatchCount - 1);
+          const next = pendingPushDispatchQueue.shift();
+          if (next) next();
+        });
+    };
+
+    if (activePushDispatchCount < MAX_CONCURRENT_PUSH_DISPATCHES) {
+      start();
+    } else {
+      pendingPushDispatchQueue.push(start);
+    }
+  });
+}
+
+async function postPushJsonWithRetry(
+  url: string,
+  token: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const sendOnce = () =>
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+  try {
+    const response = await sendOnce();
+    if (!response.ok && (response.status >= 500 || response.status === 429 || response.status === 404)) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await sendOnce().catch(() => undefined);
+    }
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await sendOnce().catch(() => undefined);
+  }
+}
+
 export async function triggerBestEffortPushDispatch(input: {
   notificationId: string;
   recipientUid?: string;
@@ -555,28 +613,163 @@ export async function triggerBestEffortPushDispatch(input: {
   if (typeof fetch !== 'function' || !isValidFirestoreId(input.notificationId)) {
     return;
   }
-  try {
-    const vapidKey = await fetchConfiguredVapidPublicKey();
-    if (!vapidKey) return;
-    const token = await getCurrentBearerToken();
-    if (!token) return;
+  await runQueuedPushTask(async () => {
+    try {
+      const vapidKey = await fetchConfiguredVapidPublicKey();
+      if (!vapidKey) return;
+      const token = await getCurrentBearerToken();
+      if (!token) return;
 
-    await fetch('/api/push/dispatch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
+      await postPushJsonWithRetry('/api/push/dispatch', token, {
         notificationId: input.notificationId,
         ...(input.recipientUid && isValidFirestoreId(input.recipientUid)
           ? { recipientUid: input.recipientUid }
           : {}),
-      }),
-    });
-  } catch {
-    // Non-blocking best-effort background push delivery
+      });
+    } catch {
+      // Non-blocking best-effort background push delivery
+    }
+  });
+}
+
+export async function triggerBestEffortAnonymousPush(input: {
+  action: 'comment' | 'post_like' | 'comment_like';
+  postId?: string;
+  commentId?: string;
+  parentCommentId?: string;
+  replyToCommentId?: string;
+}): Promise<void> {
+  if (typeof fetch !== 'function') return;
+  await runQueuedPushTask(async () => {
+    try {
+      const vapidKey = await fetchConfiguredVapidPublicKey();
+      if (!vapidKey) return;
+      const token = await getCurrentBearerToken();
+      if (!token) return;
+
+      await postPushJsonWithRetry('/api/push/anonymous', token, {
+        action: input.action,
+        ...(input.postId && isValidFirestoreId(input.postId)
+          ? { postId: input.postId }
+          : {}),
+        ...(input.commentId && isValidFirestoreId(input.commentId)
+          ? { commentId: input.commentId }
+          : {}),
+        ...(input.parentCommentId && isValidFirestoreId(input.parentCommentId)
+          ? { parentCommentId: input.parentCommentId }
+          : {}),
+        ...(input.replyToCommentId && isValidFirestoreId(input.replyToCommentId)
+          ? { replyToCommentId: input.replyToCommentId }
+          : {}),
+      });
+    } catch {
+      // Non-blocking best-effort anonymous push delivery
+    }
+  });
+}
+
+const deliveredLocalAlertTags = new Set<string>();
+
+export async function dispatchLocalAllowedNotificationsBatch(
+  items: readonly NotificationItem[],
+  options: {
+    uid: string;
+    prefs?: NotificationPreferences | null;
   }
+): Promise<number> {
+  if (
+    typeof window === 'undefined' ||
+    !('Notification' in window) ||
+    Notification.permission !== 'granted' ||
+    !isValidFirestoreId(options.uid) ||
+    readDevicePushOptOut(options.uid)
+  ) {
+    return 0;
+  }
+
+  const allowedItems = items
+    .filter(
+      (item) =>
+        !item.isRead && isNotificationAllowedByPrefs(item, options.prefs)
+    )
+    .sort((a, b) => {
+      const aMs = extractTimestampMs(a.createdAt) ?? 0;
+      const bMs = extractTimestampMs(b.createdAt) ?? 0;
+      return aMs - bMs;
+    });
+
+  if (allowedItems.length === 0) return 0;
+
+  const vapidKey = await fetchConfiguredVapidPublicKey().catch(() => null);
+  const activeSub = vapidKey
+    ? await getActiveBrowserPushSubscription().catch(() => null)
+    : null;
+  const serverPushActive = Boolean(vapidKey && activeSub);
+
+  // When active Web Push subscription is present, server /api/push/* handles tray alerts
+  // except client-synthesized offline fallback notifications (e.g. anon_lcnt_*).
+  const toShow = serverPushActive
+    ? allowedItems.filter((item) => item.id.startsWith('anon_lcnt_'))
+    : allowedItems;
+
+  if (toShow.length === 0) return 0;
+
+  const registration = await waitForActiveServiceWorker(2000).catch(() => null);
+  let shown = 0;
+
+  for (let i = 0; i < toShow.length; i += 1) {
+    const item = toShow[i];
+    const isAnon =
+      item.eventType === 'anonymous_reply' ||
+      item.eventType === 'anonymous_reaction';
+    const tag = isAnon
+      ? `anon_${item.id.slice(0, 48)}`
+      : `notif_${item.id.slice(0, 60)}`;
+    if (deliveredLocalAlertTags.has(tag)) continue;
+    deliveredLocalAlertTags.add(tag);
+    if (deliveredLocalAlertTags.size > 600) {
+      const firstKey = deliveredLocalAlertTags.values().next().value;
+      if (firstKey) deliveredLocalAlertTags.delete(firstKey);
+    }
+
+    const title = item.title?.trim() || 'LASUED Intel Update';
+    const body =
+      item.body?.trim() ||
+      'Tap to view the latest campus update on LASUED Intel.';
+    const targetPath = item.targetPath || '/?view=notifications';
+
+    try {
+      if (registration && typeof registration.showNotification === 'function') {
+        await registration.showNotification(title, {
+          body,
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+          tag,
+          renotify: true,
+          data: {
+            targetPath,
+            notificationId: item.id,
+            eventType: item.eventType,
+          },
+        } as NotificationOptions);
+      } else {
+        new Notification(title, {
+          body,
+          icon: '/pwa-192x192.png',
+          tag,
+        });
+      }
+      shown += 1;
+    } catch {
+      // Continue delivering remaining notifications in the batch
+    }
+
+    if (i < toShow.length - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 40));
+    }
+  }
+
+  return shown;
 }
 
 export async function triggerBestEffortPushBroadcast(input: {

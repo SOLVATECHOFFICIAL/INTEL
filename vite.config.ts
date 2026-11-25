@@ -132,7 +132,11 @@ function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
         res.end(JSON.stringify(resolveLocalPushConfig(req.url, req.headers)));
         return;
       }
-      if (pathname === '/api/push/test') {
+      if (
+        pathname === '/api/push/test' ||
+        pathname === '/api/push/dispatch' ||
+        pathname === '/api/push/anonymous'
+      ) {
         const method = (req as { method?: string }).method ?? 'GET';
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');

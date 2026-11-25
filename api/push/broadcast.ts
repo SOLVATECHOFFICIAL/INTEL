@@ -87,7 +87,7 @@ export default async function handler(
   const requestedUids = Array.isArray(body.recipientUids)
     ? Array.from(
         new Set(body.recipientUids.filter((id): id is string => isValidFirestoreId(id)))
-      ).slice(0, 500)
+      ).slice(0, 2500)
     : null;
 
   const firstNotifId =
@@ -156,7 +156,7 @@ export default async function handler(
   } catch {
     // Fallback if collectionGroup query is unavailable: deliver directly per recipient
     if (requestedUids && requestedUids.length > 0) {
-      for (const uid of requestedUids.slice(0, 500)) {
+      for (const uid of requestedUids.slice(0, 2500)) {
         subsByUid.set(uid, []);
       }
     } else {
@@ -165,7 +165,7 @@ export default async function handler(
           .collection('users')
           .where('accountStatus', '==', 'active')
           .select()
-          .limit(500)
+          .limit(2000)
           .get();
         for (const userDoc of activeSnap.docs) {
           if (isValidFirestoreId(userDoc.id)) {

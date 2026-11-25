@@ -104,6 +104,7 @@ export function mapEventTypeToPrefKey(eventType: string): string | null {
     case 'mention':
       return 'mentions';
     case 'anonymous_reply':
+    case 'anonymous_reaction':
       return 'anonymous_replies';
     case 'follow':
       return 'followers';
@@ -128,6 +129,19 @@ export function isNotificationAllowedByRawPrefs(
   rawPrefs?: Record<string, unknown> | null
 ): boolean {
   if (!rawPrefs || typeof rawPrefs !== 'object') return true;
+  if (eventType === 'anonymous_reaction') {
+    const likesAllowed =
+      typeof rawPrefs.likes === 'boolean'
+        ? rawPrefs.likes !== false
+        : typeof rawPrefs.reactions === 'boolean'
+          ? rawPrefs.reactions !== false
+          : true;
+    const anonAllowed =
+      typeof rawPrefs.anonymous_replies === 'boolean'
+        ? rawPrefs.anonymous_replies !== false
+        : true;
+    return likesAllowed && anonAllowed;
+  }
   const prefKey = mapEventTypeToPrefKey(eventType);
   if (!prefKey) return true;
 
@@ -162,11 +176,18 @@ export function sanitizePushPayloadForClient(input: {
   allowedOrigin?: string;
   tag?: string | null;
 }): SanitizedPushClientPayload {
-  const isAnonymous = input.eventType === 'anonymous_reply';
+  const isAnonymous =
+    input.eventType === 'anonymous_reply' ||
+    input.eventType === 'anonymous_reaction';
   const rawTitle =
     typeof input.title === 'string' ? input.title.replace(/\s+/g, ' ').trim() : '';
   const safeTitle = isAnonymous
-    ? (rawTitle || 'New reply in The Unfiltered').slice(0, 120)
+    ? (
+        rawTitle ||
+        (input.eventType === 'anonymous_reaction'
+          ? 'New like in The Unfiltered'
+          : 'New reply in The Unfiltered')
+      ).slice(0, 120)
     : (rawTitle || 'LASUED Intel Update').slice(0, 120);
 
   const rawBody =
