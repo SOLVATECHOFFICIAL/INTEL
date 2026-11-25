@@ -44,18 +44,13 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       : 'unsupported'
   );
   const [verifiedForUid, setVerifiedForUid] = useState<string | null>(null);
-  const [optedOutForUid, setOptedOutForUid] = useState<string | null>(() =>
-    user && readDevicePushOptOut(user.uid) ? user.uid : null
-  );
+  const [optedOutOverride, setOptedOutOverride] = useState<{
+    uid: string;
+    optedOut: boolean;
+  } | null>(null);
   const [enabling, setEnabling] = useState(false);
   const [vapidConfigured, setVapidConfigured] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setOptedOutForUid(
-      user && readDevicePushOptOut(user.uid) ? user.uid : null
-    );
-  }, [user]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -136,7 +131,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     if (enabling) return false;
     setErrorMessage(null);
     writeDevicePushOptOut(user.uid, false);
-    setOptedOutForUid(null);
+    setOptedOutOverride({ uid: user.uid, optedOut: false });
 
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setErrorMessage('Browser notifications are not supported on this device.');
@@ -197,7 +192,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     if (!user) return;
     setErrorMessage(null);
     writeDevicePushOptOut(user.uid, true);
-    setOptedOutForUid(user.uid);
+    setOptedOutOverride({ uid: user.uid, optedOut: true });
     await disableCurrentDevicePushSubscription(user.uid, { markOptedOut: true });
     setVerifiedForUid(null);
   }, [user]);
@@ -214,7 +209,12 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       verifiedForUid === user.uid
   );
 
-  const isOptedOut = Boolean(user && optedOutForUid === user.uid);
+  const isOptedOut = Boolean(
+    user &&
+      (optedOutOverride?.uid === user.uid
+        ? optedOutOverride.optedOut
+        : readDevicePushOptOut(user.uid))
+  );
 
   const status = resolveWebPushUiStatus({
     isSignedIn: Boolean(user),
