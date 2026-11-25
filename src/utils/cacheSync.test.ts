@@ -455,3 +455,89 @@ test('subtractPostLikesSafe safely decrements likes and clamps to zero', () => {
   assert.equal(subtractPostLikesSafe(Number.NaN, 3), 0);
   assert.equal(subtractPostLikesSafe(10, -4), 10);
 });
+
+test('mergeOrderedRecords and mergeCommunityPostItems prune deleted head items while preserving genuine paginated tail items', () => {
+  // 1. When preserveTail is false, any missing items (even all when incoming is empty) are pruned
+  const r1 = { id: 'e1', createdAt: 300, updatedAt: 300 };
+  const r2 = { id: 'e2', createdAt: 200, updatedAt: 200 };
+  const r3 = { id: 'e3', createdAt: 100, updatedAt: 100 };
+
+  assert.deepEqual(
+    mergeOrderedRecords({
+      existing: [r1, r2, r3],
+      incoming: [r1, r3],
+      preferIncomingOrder: true,
+      preserveTail: false,
+    }).map((r) => r.id),
+    ['e1', 'e3']
+  );
+
+  assert.deepEqual(
+    mergeOrderedRecords({
+      existing: [r1, r2],
+      incoming: [],
+      preferIncomingOrder: true,
+      preserveTail: false,
+    }),
+    []
+  );
+
+  // 2. When preserveTail is true, deleted posts inside the refreshed head window are pruned,
+  //    while genuine paginated older tail items remain intact.
+  const author = makeProfile('u1');
+  const headNewer = { post: makeCommunityPost('p4', { createdAt: 4000, updatedAt: 4000 }), author };
+  const headDeleted = { post: makeCommunityPost('p3_deleted', { createdAt: 3000, updatedAt: 3000 }), author };
+  const headKept = { post: makeCommunityPost('p2', { createdAt: 2000, updatedAt: 2000 }), author };
+  const tailOlder = { post: makeCommunityPost('p1_tail', { createdAt: 1000, updatedAt: 1000 }), author };
+
+  const prunedHead = mergeCommunityPostItems({
+    existing: [headNewer, headDeleted, headKept, tailOlder],
+    incoming: [headNewer, headKept],
+    preferIncomingOrder: false,
+    preserveTail: true,
+  });
+  assert.deepEqual(
+    prunedHead.map((i) => i.post.id),
+    ['p4', 'p2', 'p1_tail']
+  );
+
+  // Empty incoming clears stale existing list even with preserveTail: true
+  assert.deepEqual(
+    mergeCommunityPostItems({
+      existing: [headNewer, headKept],
+      incoming: [],
+      preferIncomingOrder: false,
+      preserveTail: true,
+    }),
+    []
+  );
+});
+
+test('mergeAnchoredFeedStream prunes deleted posts when pruneMissing is true and retains explicit preserveMissingIds', () => {
+  const existing = [
+    { id: 'p1', likes: 1 },
+    { id: 'p2_deleted', likes: 2 },
+    { id: 'p3_anchor', likes: 3 },
+    { id: 'p4_tail', likes: 4 },
+  ];
+  const incoming = [
+    { id: 'p_fresh', likes: 0 },
+    { id: 'p1', likes: 1 },
+    { id: 'p3_anchor', likes: 5 },
+  ];
+
+  const merged = mergeAnchoredFeedStream({
+    existing,
+    incoming,
+    anchorId: 'p3_anchor',
+    isScrolledMidFeed: true,
+    pruneMissing: true,
+    preserveMissingIds: new Set(['p4_tail']),
+  });
+
+  assert.deepEqual(
+    merged.items.map((item) => item.id),
+    ['p1', 'p3_anchor', 'p_fresh', 'p4_tail']
+  );
+  assert.equal(merged.items[1].likes, 5);
+});

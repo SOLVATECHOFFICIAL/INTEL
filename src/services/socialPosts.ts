@@ -70,8 +70,11 @@ import {
 } from '../utils/authValidation';
 import {
   buildPostViewDocId,
+  canRecordPostViewWithinRateLimit,
   hasRecordedPostViewLocally,
+  isLikelyAutomatedBrowser,
   markPostViewLocally,
+  recordPostViewTimestamp,
   resolveActiveViewActor,
 } from '../utils/postViews';
 import { extractTimestampMs } from '../utils/contextualSearch';
@@ -2758,6 +2761,19 @@ export async function recordDeduplicatedPostView(input: {
   if (input.isBackgroundRefresh || !isValidFirestoreId(input.postId)) {
     return null;
   }
+  if (
+    typeof document !== 'undefined' &&
+    document.visibilityState === 'hidden'
+  ) {
+    return null;
+  }
+  if (isLikelyAutomatedBrowser()) {
+    return null;
+  }
+  const attemptMs = Date.now();
+  if (!canRecordPostViewWithinRateLimit(attemptMs)) {
+    return null;
+  }
 
   const targetCollection =
     input.kind === 'ordinary'
@@ -2813,6 +2829,7 @@ export async function recordDeduplicatedPostView(input: {
     batch.set(doc(db, COLLECTION_NAMES.postViews, viewId), viewPayload);
     batch.update(postRef, { viewsCount: nextViews });
 
+    recordPostViewTimestamp(Date.now());
     await batch.commit();
     markPostViewLocally(targetCollection, input.postId, actor.dedupKey);
     notifyPostViewCountUpdated(input.kind, input.postId, nextViews);

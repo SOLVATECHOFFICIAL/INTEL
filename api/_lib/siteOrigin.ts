@@ -2,7 +2,15 @@ const FALLBACK_ORIGIN = 'https://lasuedintel.com.ng';
 
 export function normalizeOriginCandidate(raw?: string | null): string | null {
   if (!raw || typeof raw !== 'string') return null;
-  const trimmed = raw.trim().replace(/\/+$/, '');
+  let cleaned = raw.trim();
+  while (
+    cleaned.length >= 2 &&
+    ((cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+      (cleaned.startsWith("'") && cleaned.endsWith("'")))
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  const trimmed = cleaned.replace(/\/+$/, '');
   if (!trimmed) return null;
   const withProtocol =
     /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;

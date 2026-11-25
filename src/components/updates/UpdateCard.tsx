@@ -64,6 +64,8 @@ import {
   restoreCommentEntriesOrdered,
 } from '../../utils/optimisticInteractions';
 import {
+  POST_VIEW_MIN_DWELL_MS,
+  POST_VIEW_MIN_INTERSECTION_RATIO,
   formatCompactViewCount,
   hasRecordedPostViewLocally,
   resolveActiveViewActor,
@@ -278,8 +280,14 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
     const target = articleRef.current;
     if (!target || typeof IntersectionObserver === 'undefined') return;
 
-    const triggerImmediateView = () => {
+    const triggerQualifiedView = () => {
       if (recordedViewKeyRef.current === viewKey) return;
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return;
+      }
       recordedViewKeyRef.current = viewKey;
       const alreadyRecorded = hasRecordedPostViewLocally(
         'updates',
@@ -311,20 +319,76 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       });
     };
 
+    let dwellTimerId: number | null = null;
+    let isQualifyingVisible = false;
+
+    const clearDwellTimer = () => {
+      if (dwellTimerId !== null) {
+        window.clearTimeout(dwellTimerId);
+        dwellTimerId = null;
+      }
+    };
+
+    const scheduleDwellIfEligible = () => {
+      if (dwellTimerId !== null) return;
+      if (!isQualifyingVisible || recordedViewKeyRef.current === viewKey) return;
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return;
+      }
+      dwellTimerId = window.setTimeout(() => {
+        dwellTimerId = null;
+        if (
+          !isQualifyingVisible ||
+          recordedViewKeyRef.current === viewKey ||
+          (typeof document !== 'undefined' &&
+            document.visibilityState === 'hidden')
+        ) {
+          return;
+        }
+        observer.disconnect();
+        if (typeof document !== 'undefined') {
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+        }
+        triggerQualifiedView();
+      }, POST_VIEW_MIN_DWELL_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        clearDwellTimer();
+      } else {
+        scheduleDwellIfEligible();
+      }
+    };
+
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.05) {
-          observer.disconnect();
-          triggerImmediateView();
+        isQualifyingVisible =
+          entry.isIntersecting &&
+          entry.intersectionRatio >= POST_VIEW_MIN_INTERSECTION_RATIO;
+        if (isQualifyingVisible) {
+          scheduleDwellIfEligible();
+        } else {
+          clearDwellTimer();
         }
       },
-      { threshold: [0.05] }
+      { threshold: [POST_VIEW_MIN_INTERSECTION_RATIO] }
     );
 
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
     observer.observe(target);
     return () => {
+      clearDwellTimer();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
       observer.disconnect();
     };
   }, [update.id, viewerUid, rawViewsCount]);

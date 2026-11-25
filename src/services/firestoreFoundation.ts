@@ -594,7 +594,9 @@ export async function updateMemberAccountProfileAndUsername(
     throw new DomainValidationError('Invalid user UID.');
   }
 
-  const validationErrors = validateProfileSettingsForm(input);
+  const validationErrors = validateProfileSettingsForm(input, {
+    currentUsername,
+  });
   const firstError = Object.values(validationErrors)[0];
   if (firstError) {
     throw new DomainValidationError(firstError);

@@ -648,6 +648,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           anchorId,
           isScrolledMidFeed,
           fallbackPrependUnseen: true,
+          pruneMissing: true,
         });
         setAnchoredOrderState({
           key: tabKey,
@@ -1014,7 +1015,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         cached.updateItems ?? [],
         cached.anonymousItems ?? []
       );
-      if (Date.now() - cached.cachedAt > 15_000) {
+      if (Date.now() - cached.cachedAt > 2_000) {
         void syncHomeFeedFromNetwork('background', () => !active).catch(
           () => undefined
         );

@@ -210,7 +210,7 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
           setLoading(false);
         }, 0);
       }
-      if (Date.now() - cached.cachedAt > 15_000) {
+      if (Date.now() - cached.cachedAt > 2_000) {
         void syncOpportunitiesFromNetwork('background', () => !active).catch(
           () => undefined
         );

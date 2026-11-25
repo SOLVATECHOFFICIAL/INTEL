@@ -11,16 +11,39 @@ export interface SanitizedPushClientPayload {
   isAnonymous: boolean;
 }
 
+export function unquoteEnvValue(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let value = raw.trim();
+  while (
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+export function normalizeVapidKey(raw: unknown): string {
+  return unquoteEnvValue(raw)
+    .replace(/\s+/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
 export function isValidFirestoreId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
 }
 
 export function isValidVapidPublicKey(key: unknown): key is string {
-  return typeof key === 'string' && /^[A-Za-z0-9_-]{60,180}$/.test(key.trim());
+  const normalized = normalizeVapidKey(key);
+  return /^[A-Za-z0-9_-]{60,180}$/.test(normalized);
 }
 
 export function isValidVapidPrivateKey(key: unknown): key is string {
-  return typeof key === 'string' && /^[A-Za-z0-9_-]{32,128}$/.test(key.trim());
+  const normalized = normalizeVapidKey(key);
+  return /^[A-Za-z0-9_-]{32,128}$/.test(normalized);
 }
 
 export function isValidHttpsPushEndpoint(endpoint: unknown): endpoint is string {
@@ -36,7 +59,7 @@ export function isValidHttpsPushEndpoint(endpoint: unknown): endpoint is string 
 }
 
 export function normalizeVapidSubject(rawSubject?: string | null): string {
-  const trimmed = typeof rawSubject === 'string' ? rawSubject.trim() : '';
+  const trimmed = unquoteEnvValue(rawSubject);
   if (!trimmed) return 'mailto:lasuedintel@gmail.com';
   if (/^(mailto:|https:\/\/)/i.test(trimmed)) {
     return trimmed;

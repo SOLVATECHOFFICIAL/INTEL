@@ -544,7 +544,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         });
       }
 
-      if (Date.now() - existingSnapshot.cachedAt > 15_000) {
+      if (Date.now() - existingSnapshot.cachedAt > 2_000) {
         void syncProfileFromNetwork('background', () => !active);
       }
 

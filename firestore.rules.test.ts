@@ -251,7 +251,7 @@ test('Prompt 7 ordinary feed rules enforce role/badge sync, two separate post fo
 test('isActiveAccount and currentRoleString guard missing fields safely without weakening suspension checks', () => {
   assert.match(
     rulesText,
-    /function isActiveAccount\(uid\) \{\s*return !exists\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\) \|\|\s*!\('accountStatus' in get\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\)\.data\) \|\|\s*get\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\)\.data\.accountStatus == 'active';/
+    /function isActiveAccount\(uid\) \{\s*return !exists\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\) \|\|\s*!\('accountStatus' in get\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\)\.data\) \|\|\s*get\(\/databases\/\$\(database\)\/documents\/users\/\$\(uid\)\)\.data\.accountStatus != 'suspended';/
   );
   assert.match(
     rulesText,
@@ -1021,5 +1021,32 @@ test('Self-profile saves support field-level users updates, privateUserData what
   );
   assert.match(usernamesBlock, /!\('createdAt' in existing\(\)\) \|\| incoming\(\)\.createdAt == existing\(\)\.createdAt/);
   assert.match(usernamesBlock, /affectedKeys\(\)\.hasOnly\(\['isPrimary', 'redirectToUsername', 'updatedAt'\]\)/);
+});
+
+test('Self-profile field patch preserves unchanged usernames/Supreme Admin handles, privateUserData supports combined owner saves, and postViews enforces atomic increments', () => {
+  const fieldPatchBlock = rulesText.slice(
+    rulesText.indexOf('function isValidUserProfileFieldPatch(data, prev)'),
+    rulesText.indexOf('function isValidPrivateUser(data, userId)')
+  );
+  assert.match(fieldPatchBlock, /\(\('username' in prev && data\.username == prev\.username\) \|\| isDesignatedSupremeAdminEmail\(\) \|\| !isReservedUsername\(data\.username\)\)/);
+  assert.match(fieldPatchBlock, /'hasPublicActivity'/);
+
+  const privateBlock = rulesText.slice(
+    rulesText.indexOf('match /privateUserData/{userId}'),
+    rulesText.indexOf('match /anonymousHistory/{postId}')
+  );
+  assert.match(
+    privateBlock,
+    /affectedKeys\(\)\.hasOnly\(\[\s*'whatsappNumber',\s*'phoneNumber',\s*'ownedUsernames',\s*'authEmail',\s*'notificationPrefs',\s*'interestCategories',\s*'ownedAnonymousPostIds',\s*'ownedAnonymousCommentIds',\s*'showSupremeAdminBadge',\s*'updatedAt'\s*\]\)/
+  );
+
+  const postViewsBlock = rulesText.slice(
+    rulesText.indexOf('match /postViews/{viewId}'),
+    rulesText.indexOf('match /marketplaceUpdates/{updateId}')
+  );
+  assert.match(postViewsBlock, /!exists\(\/databases\/\$\(database\)\/documents\/postViews\/\$\(viewId\)\)/);
+  assert.match(postViewsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/posts\/\$\(incoming\(\)\.targetId\)\)\.data\.viewsCount/);
+  assert.match(postViewsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/anonymousPosts\/\$\(incoming\(\)\.targetId\)\)\.data\.viewsCount/);
+  assert.match(postViewsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/updates\/\$\(incoming\(\)\.targetId\)\)\.data\.viewsCount/);
 });
 

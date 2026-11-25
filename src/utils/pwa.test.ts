@@ -481,7 +481,44 @@ test('resolveWebPushUiStatus keeps notification settings visible until permissio
       isSubscribedForUser: true,
       isOptedOut: true,
     }),
-    'enabled'
+    'opted_out'
+  );
+
+  assert.equal(
+    resolveWebPushUiStatus({
+      isSignedIn: true,
+      isSuspended: false,
+      capability: {
+        ...supportedCap,
+        reason: 'ios_install_required',
+        requiresIosInstall: true,
+        supported: false,
+      },
+      permission: 'default',
+      vapidConfigured: false,
+      enabling: false,
+      isSubscribedForUser: false,
+      isOptedOut: true,
+    }),
+    'opted_out'
+  );
+
+  assert.equal(
+    resolveWebPushUiStatus({
+      isSignedIn: true,
+      isSuspended: false,
+      capability: {
+        ...supportedCap,
+        reason: 'unsupported',
+        supported: false,
+      },
+      permission: 'default',
+      vapidConfigured: true,
+      enabling: false,
+      isSubscribedForUser: true,
+      isOptedOut: true,
+    }),
+    'opted_out'
   );
 });
 

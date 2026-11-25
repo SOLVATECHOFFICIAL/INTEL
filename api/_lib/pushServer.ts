@@ -8,14 +8,17 @@ import {
   isValidHttpsPushEndpoint,
   isValidVapidPrivateKey,
   isValidVapidPublicKey,
+  normalizeVapidKey,
   normalizeVapidSubject,
   sanitizePushPayloadForClient,
   timingSafeSecretMatch,
+  unquoteEnvValue,
 } from './pushSanitizer';
 import { resolveServerPublicOrigin } from './siteOrigin';
 
 export interface VercelLikeRequest {
   method?: string;
+  url?: string;
   headers: Record<string, string | string[] | undefined>;
   body?: unknown;
   [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>;
@@ -131,13 +134,28 @@ export async function readJsonBody(
   return {};
 }
 
-function parseServiceAccountJson(raw: string | undefined): ServiceAccount | null {
-  if (!raw || !raw.trim()) return null;
-  const trimmed = raw.trim();
-  const candidates = [trimmed];
-  if (!trimmed.startsWith('{')) {
+export function parseServiceAccountJson(
+  raw: string | undefined
+): ServiceAccount | null {
+  const cleaned = unquoteEnvValue(raw);
+  if (!cleaned) return null;
+
+  const candidates: string[] = [cleaned];
+  if (cleaned.includes('\\"')) {
+    candidates.push(cleaned.replace(/\\"/g, '"'));
+  }
+  if (!cleaned.startsWith('{')) {
     try {
-      candidates.push(Buffer.from(trimmed, 'base64').toString('utf8'));
+      const normalizedB64 = cleaned
+        .replace(/\s+/g, '')
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+      const paddedB64 =
+        normalizedB64 + '='.repeat((4 - (normalizedB64.length % 4)) % 4);
+      const decoded = Buffer.from(paddedB64, 'base64').toString('utf8').trim();
+      if (decoded) {
+        candidates.push(unquoteEnvValue(decoded));
+      }
     } catch {
       // Ignore base64 fallback error
     }
@@ -145,17 +163,31 @@ function parseServiceAccountJson(raw: string | undefined): ServiceAccount | null
 
   for (const candidate of candidates) {
     try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      let parsed: unknown = JSON.parse(candidate);
+      if (typeof parsed === 'string') {
+        parsed = JSON.parse(parsed);
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        continue;
+      }
+      const record = parsed as Record<string, unknown>;
+      const projectId =
+        typeof record.project_id === 'string' ? record.project_id.trim() : '';
+      const clientEmail =
+        typeof record.client_email === 'string' ? record.client_email.trim() : '';
+      const rawKey =
+        typeof record.private_key === 'string' ? record.private_key : '';
+      const privateKey = rawKey.replace(/\\n/g, '\n').trim();
       if (
-        parsed &&
-        typeof parsed.project_id === 'string' &&
-        typeof parsed.client_email === 'string' &&
-        typeof parsed.private_key === 'string'
+        projectId &&
+        clientEmail &&
+        (privateKey.includes('BEGIN PRIVATE KEY') ||
+          privateKey.includes('BEGIN RSA PRIVATE KEY'))
       ) {
         return {
-          projectId: parsed.project_id,
-          clientEmail: parsed.client_email,
-          privateKey: parsed.private_key.replace(/\\n/g, '\n'),
+          projectId,
+          clientEmail,
+          privateKey,
         };
       }
     } catch {
@@ -163,6 +195,13 @@ function parseServiceAccountJson(raw: string | undefined): ServiceAccount | null
     }
   }
   return null;
+}
+
+export function resolveNormalizedFirestoreDatabaseId(
+  raw: string | undefined = process.env.FIREBASE_FIRESTORE_DATABASE_ID
+): string {
+  const unquoted = unquoteEnvValue(raw);
+  return unquoted || DEFAULT_FIRESTORE_DB_ID;
 }
 
 export function getServerPushConfigStatus(
@@ -175,27 +214,96 @@ export function getServerPushConfigStatus(
   vapidSubject: string;
   allowedOrigin: string;
 } {
-  const publicKey =
-    process.env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ||
-    process.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ||
-    '';
-  const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim() || '';
+  const rawPublicKey =
+    normalizeVapidKey(process.env.WEB_PUSH_VAPID_PUBLIC_KEY) ||
+    normalizeVapidKey(process.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
+  const rawPrivateKey = normalizeVapidKey(process.env.WEB_PUSH_VAPID_PRIVATE_KEY);
   const subject = normalizeVapidSubject(process.env.WEB_PUSH_VAPID_SUBJECT);
   const serviceAccount = parseServiceAccountJson(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON
   );
   const allowedOrigin = resolveServerPublicOrigin(reqHeaders);
 
-  const vapidConfigured =
-    isValidVapidPublicKey(publicKey) && isValidVapidPrivateKey(privateKey);
+  const publicValid = isValidVapidPublicKey(rawPublicKey);
+  const privateValid = isValidVapidPrivateKey(rawPrivateKey);
+  const vapidConfigured = publicValid && privateValid;
 
   return {
     vapidConfigured,
     firebaseAdminConfigured: Boolean(serviceAccount),
-    vapidPublicKey: isValidVapidPublicKey(publicKey) ? publicKey : null,
-    vapidPrivateKey: isValidVapidPrivateKey(privateKey) ? privateKey : null,
+    vapidPublicKey: publicValid ? rawPublicKey : null,
+    vapidPrivateKey: privateValid ? rawPrivateKey : null,
     vapidSubject: subject,
     allowedOrigin,
+  };
+}
+
+export function getServerPushConfigDiagnostics(
+  reqHeaders?: Record<string, string | string[] | undefined>
+): {
+  vapidPublicKeyValid: boolean;
+  vapidPrivateKeyValid: boolean;
+  vapidKeysMatchClientEnv: boolean;
+  firebaseServiceAccountValid: boolean;
+  firestoreDatabaseId: string;
+  webhookSecretConfigured: boolean;
+  vapidSubjectValid: boolean;
+  allowedOrigin: string;
+  issues: string[];
+} {
+  const serverPub = normalizeVapidKey(process.env.WEB_PUSH_VAPID_PUBLIC_KEY);
+  const clientPub = normalizeVapidKey(process.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
+  const privKey = normalizeVapidKey(process.env.WEB_PUSH_VAPID_PRIVATE_KEY);
+  const serviceAccountRaw = unquoteEnvValue(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  const serviceAccount = parseServiceAccountJson(serviceAccountRaw);
+  const dbId = resolveNormalizedFirestoreDatabaseId();
+  const webhookSecret = unquoteEnvValue(process.env.PUSH_WEBHOOK_SECRET);
+  const subject = normalizeVapidSubject(process.env.WEB_PUSH_VAPID_SUBJECT);
+  const allowedOrigin = resolveServerPublicOrigin(reqHeaders);
+
+  const effectivePub = serverPub || clientPub;
+  const vapidPublicKeyValid = isValidVapidPublicKey(effectivePub);
+  const vapidPrivateKeyValid = isValidVapidPrivateKey(privKey);
+  const vapidKeysMatchClientEnv =
+    !serverPub || !clientPub || serverPub === clientPub;
+  const firebaseServiceAccountValid = Boolean(serviceAccount);
+  const vapidSubjectValid = /^(mailto:|https:\/\/)/i.test(subject);
+
+  const issues: string[] = [];
+  if (!vapidPublicKeyValid) {
+    issues.push(
+      'Missing or malformed WEB_PUSH_VAPID_PUBLIC_KEY / VITE_WEB_PUSH_VAPID_PUBLIC_KEY.'
+    );
+  }
+  if (!vapidPrivateKeyValid) {
+    issues.push('Missing or malformed WEB_PUSH_VAPID_PRIVATE_KEY.');
+  }
+  if (!vapidKeysMatchClientEnv) {
+    issues.push(
+      'WEB_PUSH_VAPID_PUBLIC_KEY and VITE_WEB_PUSH_VAPID_PUBLIC_KEY do not match.'
+    );
+  }
+  if (!firebaseServiceAccountValid) {
+    issues.push(
+      serviceAccountRaw
+        ? 'FIREBASE_SERVICE_ACCOUNT_JSON is set but failed JSON/PEM/base64 validation.'
+        : 'Missing FIREBASE_SERVICE_ACCOUNT_JSON.'
+    );
+  }
+  if (!webhookSecret) {
+    issues.push('Optional PUSH_WEBHOOK_SECRET is not set.');
+  }
+
+  return {
+    vapidPublicKeyValid,
+    vapidPrivateKeyValid,
+    vapidKeysMatchClientEnv,
+    firebaseServiceAccountValid,
+    firestoreDatabaseId: dbId,
+    webhookSecretConfigured: Boolean(webhookSecret),
+    vapidSubjectValid,
+    allowedOrigin,
+    issues,
   };
 }
 
@@ -214,8 +322,7 @@ export function getAdminClients(): {
         ? getApp()
         : initializeApp({ credential: cert(serviceAccount) });
 
-    const databaseId =
-      process.env.FIREBASE_FIRESTORE_DATABASE_ID?.trim() || DEFAULT_FIRESTORE_DB_ID;
+    const databaseId = resolveNormalizedFirestoreDatabaseId();
 
     const db =
       databaseId === '(default)'
@@ -251,8 +358,10 @@ export async function verifyPushApiCaller(
   adminAuth: ReturnType<typeof getAuth>,
   db: Firestore
 ): Promise<VerifiedCaller | null> {
-  const configuredSecret = process.env.PUSH_WEBHOOK_SECRET?.trim() || '';
-  const providedSecret = getHeaderValue(req, 'x-push-webhook-secret');
+  const configuredSecret = unquoteEnvValue(process.env.PUSH_WEBHOOK_SECRET);
+  const providedSecret = unquoteEnvValue(
+    getHeaderValue(req, 'x-push-webhook-secret')
+  );
   if (configuredSecret && providedSecret) {
     if (timingSafeSecretMatch(providedSecret, configuredSecret)) {
       return { kind: 'webhook' };

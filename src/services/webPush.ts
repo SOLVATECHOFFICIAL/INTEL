@@ -61,23 +61,23 @@ function extractSubscriptionKeys(sub: PushSubscription): {
 }
 
 export async function fetchConfiguredVapidPublicKey(): Promise<string | null> {
+  if (cachedServerVapidKey !== undefined) {
+    return cachedServerVapidKey;
+  }
+
+  let buildEnvKey: string | null = null;
   try {
-    const buildEnvKey = import.meta?.env?.VITE_WEB_PUSH_VAPID_PUBLIC_KEY;
-    if (typeof buildEnvKey === 'string' && isValidVapidPublicKey(buildEnvKey)) {
-      cachedServerVapidKey = buildEnvKey.trim();
-      return cachedServerVapidKey;
+    const rawBuildKey = import.meta?.env?.VITE_WEB_PUSH_VAPID_PUBLIC_KEY;
+    if (typeof rawBuildKey === 'string' && isValidVapidPublicKey(rawBuildKey)) {
+      buildEnvKey = rawBuildKey.trim();
     }
   } catch {
     // Ignore import.meta fallback errors
   }
 
-  if (cachedServerVapidKey !== undefined) {
-    return cachedServerVapidKey;
-  }
-
   if (typeof fetch !== 'function') {
-    cachedServerVapidKey = null;
-    return null;
+    cachedServerVapidKey = buildEnvKey;
+    return cachedServerVapidKey;
   }
 
   try {
@@ -96,9 +96,14 @@ export async function fetchConfiguredVapidPublicKey(): Promise<string | null> {
       configured?: boolean;
       vapidPublicKey?: string | null;
     };
-    if (data.configured && isValidVapidPublicKey(data.vapidPublicKey)) {
-      cachedServerVapidKey = data.vapidPublicKey!.trim();
-      return cachedServerVapidKey;
+    if (data.configured) {
+      const serverKey = isValidVapidPublicKey(data.vapidPublicKey)
+        ? data.vapidPublicKey!.trim()
+        : buildEnvKey;
+      if (serverKey) {
+        cachedServerVapidKey = serverKey;
+        return cachedServerVapidKey;
+      }
     }
     cachedServerVapidKey = null;
     return null;
@@ -294,6 +299,7 @@ export async function verifyStoredPushSubscriptionForUser(
   uid: string
 ): Promise<boolean> {
   if (!isValidFirestoreId(uid)) return false;
+  if (readDevicePushOptOut(uid)) return false;
   if (
     typeof window !== 'undefined' &&
     'Notification' in window &&

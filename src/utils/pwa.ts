@@ -546,11 +546,11 @@ export function resolveWebPushUiStatus(
   if (input.enabling) {
     return 'enabling';
   }
-  if (input.isSubscribedForUser && input.permission === 'granted') {
-    return 'enabled';
-  }
   if (input.isOptedOut) {
     return 'opted_out';
+  }
+  if (input.isSubscribedForUser && input.permission === 'granted') {
+    return 'enabled';
   }
   if (input.permission === 'default') {
     return 'ready_to_enable';

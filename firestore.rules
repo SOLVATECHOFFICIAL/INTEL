@@ -34,7 +34,7 @@ service cloud.firestore {
     function isActiveAccount(uid) {
       return !exists(/databases/$(database)/documents/users/$(uid)) ||
         !('accountStatus' in get(/databases/$(database)/documents/users/$(uid)).data) ||
-        get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active';
+        get(/databases/$(database)/documents/users/$(uid)).data.accountStatus != 'suspended';
     }
 
     function isActiveSignedInUser() {
@@ -359,7 +359,8 @@ service cloud.firestore {
           'fullName', 'username', 'bio', 'department', 'faculty',
           'level', 'accountCategory', 'photoUrl', 'coverUrl',
           'photoImageId', 'coverImageId', 'publicEmail',
-          'publicWhatsapp', 'showWhatsappPublicly', 'updatedAt'
+          'publicWhatsapp', 'showWhatsappPublicly',
+          'hasPublicActivity', 'updatedAt'
         ]) &&
         (!changed.hasAny(['fullName']) || (data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100)) &&
         (!changed.hasAny(['username']) || (
@@ -367,7 +368,7 @@ service cloud.firestore {
           data.username.size() >= 3 &&
           data.username.size() <= 32 &&
           data.username.matches('^[a-z0-9_]+$') &&
-          !isReservedUsername(data.username) &&
+          (('username' in prev && data.username == prev.username) || isDesignatedSupremeAdminEmail() || !isReservedUsername(data.username)) &&
           existsAfter(/databases/$(database)/documents/usernames/$(data.username)) &&
           getAfter(/databases/$(database)/documents/usernames/$(data.username)).data.ownerUID == request.auth.uid
         )) &&
@@ -382,7 +383,8 @@ service cloud.firestore {
         (!changed.hasAny(['coverImageId']) || isOptionalValidImageId(data, 'coverImageId')) &&
         (!changed.hasAny(['publicEmail']) || isOptionalShortString(data, 'publicEmail', 160)) &&
         (!changed.hasAny(['publicWhatsapp']) || isOptionalShortString(data, 'publicWhatsapp', 24)) &&
-        (!changed.hasAny(['showWhatsappPublicly']) || data.showWhatsappPublicly is bool);
+        (!changed.hasAny(['showWhatsappPublicly']) || data.showWhatsappPublicly is bool) &&
+        (!changed.hasAny(['hasPublicActivity']) || (data.hasPublicActivity is bool && (!isUndergroundSupremeAdminEmail() || data.hasPublicActivity == false)));
     }
 
     function isValidPrivateUser(data, userId) {
@@ -553,7 +555,7 @@ service cloud.firestore {
         data.keys().hasOnly(['username', 'ownerUID', 'isPrimary', 'redirectToUsername', 'createdAt', 'updatedAt']) &&
         data.username == username &&
         data.username is string && data.username.size() >= 3 && data.username.size() <= 32 && data.username.matches('^[a-z0-9_]+$') &&
-        !isReservedUsername(data.username) &&
+        (!isReservedUsername(data.username) || isDesignatedSupremeAdminEmail()) &&
         isValidId(data.ownerUID) &&
         (!('isPrimary' in data) || data.isPrimary is bool) &&
         (!('redirectToUsername' in data) || (data.redirectToUsername is string && data.redirectToUsername.size() <= 32)) &&
@@ -1346,7 +1348,8 @@ service cloud.firestore {
           // [MEMBER/ADMIN RULE] Safe field-level self-profile edit (supports legacy/partial user docs without allowing role, badge, status, or counter mutation)
           (isActiveSignedInUser() &&
             isOwnerOf(userId) &&
-            isValidUserProfileFieldPatch(incoming(), existing())
+            isValidUserProfileFieldPatch(incoming(), existing()) &&
+            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false)
           ) ||
           // [MEMBER RULE] Self-profile edits & avatar/cover image updates (enforces reserved username check only when username changes)
           (isActiveSignedInUser() &&
@@ -1434,6 +1437,38 @@ service cloud.firestore {
               incoming().ownedUsernames is list &&
               incoming().ownedUsernames.size() <= 20 &&
               (incoming().ownedUsernames.size() == 0 || (incoming().ownedUsernames[0] is string && incoming().ownedUsernames[0].size() <= 32))
+            ))
+          ) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly([
+              'whatsappNumber', 'phoneNumber', 'ownedUsernames', 'authEmail',
+              'notificationPrefs', 'interestCategories',
+              'ownedAnonymousPostIds', 'ownedAnonymousCommentIds',
+              'showSupremeAdminBadge', 'updatedAt'
+            ]) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['authEmail']) || (incoming().authEmail is string && incoming().authEmail.size() >= 3 && incoming().authEmail.size() <= 160)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['phoneNumber']) || isOptionalShortString(incoming(), 'phoneNumber', 24)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['whatsappNumber']) || isOptionalShortString(incoming(), 'whatsappNumber', 24)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['notificationPrefs']) || incoming().notificationPrefs is map) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['showSupremeAdminBadge']) || incoming().showSupremeAdminBadge is bool) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['interestCategories']) || (
+              incoming().interestCategories is list &&
+              incoming().interestCategories.size() <= 20 &&
+              (incoming().interestCategories.size() == 0 || (incoming().interestCategories[0] is string && incoming().interestCategories[0].size() <= 64))
+            )) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['ownedUsernames']) || (
+              incoming().ownedUsernames is list &&
+              incoming().ownedUsernames.size() <= 20 &&
+              (incoming().ownedUsernames.size() == 0 || (incoming().ownedUsernames[0] is string && incoming().ownedUsernames[0].size() <= 32))
+            )) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['ownedAnonymousPostIds']) || (
+              incoming().ownedAnonymousPostIds is list &&
+              incoming().ownedAnonymousPostIds.size() <= 100 &&
+              (incoming().ownedAnonymousPostIds.size() == 0 || (incoming().ownedAnonymousPostIds[0] is string && incoming().ownedAnonymousPostIds[0].size() <= 128))
+            )) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['ownedAnonymousCommentIds']) || (
+              incoming().ownedAnonymousCommentIds is list &&
+              incoming().ownedAnonymousCommentIds.size() <= 200 &&
+              (incoming().ownedAnonymousCommentIds.size() == 0 || (incoming().ownedAnonymousCommentIds[0] is string && incoming().ownedAnonymousCommentIds[0].size() <= 128))
             ))
           )
         );
@@ -1571,7 +1606,7 @@ service cloud.firestore {
       allow list: if false;
       allow create: if isSignedIn() &&
         username is string && username.size() >= 3 && username.size() <= 32 && username.matches('^[a-z0-9_]+$') &&
-        !isReservedUsername(username) &&
+        (!isReservedUsername(username) || isDesignatedSupremeAdminEmail()) &&
         isValidUsernameReservation(incoming(), username) &&
         incoming().ownerUID == request.auth.uid &&
         incoming().createdAt == request.time;
@@ -1583,8 +1618,11 @@ service cloud.firestore {
         (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) &&
         (!('isPrimary' in incoming()) || incoming().isPrimary is bool) &&
         (!('redirectToUsername' in incoming()) || (incoming().redirectToUsername is string && incoming().redirectToUsername.size() <= 32)) &&
-        incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['isPrimary', 'redirectToUsername', 'updatedAt']);
+        incoming().updatedAt == request.time && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['isPrimary', 'redirectToUsername', 'updatedAt']) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'isPrimary', 'redirectToUsername', 'updatedAt']) &&
+            incoming().username == username)
+        );
       allow delete: if isSignedIn() && (existing().ownerUID == request.auth.uid || isSupremeAdmin());
     }
 
@@ -2653,6 +2691,7 @@ service cloud.firestore {
     match /postViews/{viewId} {
       allow get, list: if false;
       allow create: if isValidId(viewId) &&
+        !exists(/databases/$(database)/documents/postViews/$(viewId)) &&
         incoming().id == viewId &&
         incoming().targetCollection in ['posts', 'anonymousPosts', 'updates'] &&
         isValidId(incoming().targetId) &&
@@ -2660,15 +2699,33 @@ service cloud.firestore {
           (incoming().targetCollection == 'posts' &&
             exists(/databases/$(database)/documents/posts/$(incoming().targetId)) &&
             (!('status' in get(/databases/$(database)/documents/posts/$(incoming().targetId)).data) ||
-              get(/databases/$(database)/documents/posts/$(incoming().targetId)).data.status == 'published')) ||
+              get(/databases/$(database)/documents/posts/$(incoming().targetId)).data.status == 'published') &&
+            existsAfter(/databases/$(database)/documents/posts/$(incoming().targetId)) &&
+            getAfter(/databases/$(database)/documents/posts/$(incoming().targetId)).data.viewsCount ==
+              ((('viewsCount' in get(/databases/$(database)/documents/posts/$(incoming().targetId)).data &&
+                get(/databases/$(database)/documents/posts/$(incoming().targetId)).data.viewsCount is int)
+                ? get(/databases/$(database)/documents/posts/$(incoming().targetId)).data.viewsCount
+                : 0) + 1)) ||
           (incoming().targetCollection == 'anonymousPosts' &&
             exists(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)) &&
             (!('status' in get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data) ||
-              get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published')) ||
+              get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published') &&
+            existsAfter(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)) &&
+            getAfter(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.viewsCount ==
+              ((('viewsCount' in get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data &&
+                get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.viewsCount is int)
+                ? get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.viewsCount
+                : 0) + 1)) ||
           (incoming().targetCollection == 'updates' &&
             exists(/databases/$(database)/documents/updates/$(incoming().targetId)) &&
             (!('status' in get(/databases/$(database)/documents/updates/$(incoming().targetId)).data) ||
-              get(/databases/$(database)/documents/updates/$(incoming().targetId)).data.status == 'published'))
+              get(/databases/$(database)/documents/updates/$(incoming().targetId)).data.status == 'published') &&
+            existsAfter(/databases/$(database)/documents/updates/$(incoming().targetId)) &&
+            getAfter(/databases/$(database)/documents/updates/$(incoming().targetId)).data.viewsCount ==
+              ((('viewsCount' in get(/databases/$(database)/documents/updates/$(incoming().targetId)).data &&
+                get(/databases/$(database)/documents/updates/$(incoming().targetId)).data.viewsCount is int)
+                ? get(/databases/$(database)/documents/updates/$(incoming().targetId)).data.viewsCount
+                : 0) + 1))
         ) && (
           (isActiveSignedInUser() &&
             incoming().keys().hasAll(['id', 'targetCollection', 'targetId', 'createdAt']) &&

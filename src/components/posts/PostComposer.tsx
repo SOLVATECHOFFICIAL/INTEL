@@ -357,9 +357,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     try {
       const nextAttachments: ComposerImageAttachment[] = [];
       const failedNames: string[] = [];
-      for (const file of uniqueFiles) {
-        try {
-          const compressed = await compressImageFile(file, 'post');
+      const results = await Promise.allSettled(
+        uniqueFiles.map((file) => compressImageFile(file, 'post'))
+      );
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          const compressed = result.value;
           const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
           nextAttachments.push({
             clientId: imageId,
@@ -368,13 +371,14 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             previewUrl: compressed.dataUrl,
             compressed,
           });
-        } catch (err) {
+        } else {
+          const file = uniqueFiles[index];
           failedNames.push(
             file.name ||
-              formatFirestoreOrAppError(err, 'selected photo')
+              formatFirestoreOrAppError(result.reason, 'selected photo')
           );
         }
-      }
+      });
 
       if (nextAttachments.length > 0) {
         setAttachments((prev) => {

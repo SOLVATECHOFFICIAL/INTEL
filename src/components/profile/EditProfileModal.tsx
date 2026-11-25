@@ -146,7 +146,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       coverUrl: sanitizeStoredUrl(profile?.coverUrl ?? ''),
     };
 
-    const validationErrors = validateProfileSettingsForm(payload);
+    const validationErrors = validateProfileSettingsForm(payload, {
+      currentUsername,
+    });
     const firstValidationError = Object.values(validationErrors)[0];
     if (firstValidationError) {
       setErrors(validationErrors);

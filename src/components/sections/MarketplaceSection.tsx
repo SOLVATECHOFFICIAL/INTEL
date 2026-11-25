@@ -341,7 +341,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 existing: prev,
                 incoming: pubItems,
                 preferIncomingOrder: false,
-                preserveTail: true,
+                preserveTail: false,
               })
         );
         setMyListings((prev) =>
@@ -351,7 +351,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 existing: prev,
                 incoming: myItems,
                 preferIncomingOrder: false,
-                preserveTail: true,
+                preserveTail: false,
               })
         );
         setPendingListings((prev) =>
@@ -361,7 +361,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 existing: prev,
                 incoming: pendingItems,
                 preferIncomingOrder: false,
-                preserveTail: true,
+                preserveTail: false,
               })
         );
         setErrorMessage(null);
@@ -425,7 +425,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         }
       }
       if (
-        Date.now() - cached.cachedAt > 15_000 ||
+        Date.now() - cached.cachedAt > 2_000 ||
         (canModerateApprovals && cached.pendingListings.length === 0)
       ) {
         void syncMarketplaceFromNetwork('background', () => !active);
@@ -772,20 +772,17 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
     setCompressingPhotos(true);
     setErrorMessage(null);
     try {
-      const newItems: Array<{
-        clientId: string;
-        previewUrl: string;
-        compressed: CompressedImageResult;
-      }> = [];
-      for (const file of uniqueFiles) {
-        if (formAttachments.length + newItems.length >= 4) break;
-        const compressed = await compressImageFile(file, 'marketplace');
-        newItems.push({
-          clientId: `photo-${Date.now()}-${Math.random()}`,
-          previewUrl: compressed.dataUrl,
-          compressed,
-        });
-      }
+      const slotsAvailable = Math.max(0, 4 - formAttachments.length);
+      const toProcess = uniqueFiles.slice(0, slotsAvailable);
+      const compressedList = await Promise.all(
+        toProcess.map((file) => compressImageFile(file, 'marketplace'))
+      );
+      const now = Date.now();
+      const newItems = compressedList.map((compressed, idx) => ({
+        clientId: `photo-${now}-${idx}-${Math.random()}`,
+        previewUrl: compressed.dataUrl,
+        compressed,
+      }));
       setFormAttachments((prev) => [...prev, ...newItems]);
       if (duplicateCount > 0) {
         setErrorMessage(

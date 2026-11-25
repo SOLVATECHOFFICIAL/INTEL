@@ -124,16 +124,19 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
     async (
       options: { force?: boolean; mode?: 'initial' | 'background' } = {}
     ) => {
-      const mode = options.mode ?? 'initial';
+      let mode = options.mode ?? 'initial';
       const expectedViewerKey = viewerKey;
+      if (!options.force && mode === 'initial' && initialSnap && updates.length > 0) {
+        if (Date.now() - initialSnap.cachedAt <= 2_000) {
+          return;
+        }
+        mode = 'background';
+      }
       if (
         mode === 'background' &&
         typeof navigator !== 'undefined' &&
         navigator.onLine === false
       ) {
-        return;
-      }
-      if (!options.force && mode === 'initial' && initialSnap && updates.length > 0) {
         return;
       }
       if (mode === 'initial') {
@@ -197,12 +200,51 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
           if (mode === 'initial' || prev.length === 0) {
             return mergedItems;
           }
+          const incomingIds = new Set(mergedItems.map((item) => item.id));
+          let lastMatchedIdx = -1;
+          for (let i = 0; i < prev.length; i += 1) {
+            if (incomingIds.has(prev[i].id)) {
+              lastMatchedIdx = i;
+            }
+          }
+          const preserveMissingIds = new Set<string>();
+          if (mergedItems.length > 0 && lastMatchedIdx >= 0) {
+            let minIncomingTs = 0;
+            for (const item of mergedItems) {
+              const raw = item.createdAt ?? item.updatedAt;
+              const ts =
+                typeof raw === 'number'
+                  ? raw
+                  : typeof (raw as { toMillis?: () => number })?.toMillis === 'function'
+                    ? (raw as { toMillis: () => number }).toMillis()
+                    : 0;
+              if (ts > 0) {
+                minIncomingTs = minIncomingTs === 0 ? ts : Math.min(minIncomingTs, ts);
+              }
+            }
+            for (let i = lastMatchedIdx + 1; i < prev.length; i += 1) {
+              const item = prev[i];
+              if (incomingIds.has(item.id)) continue;
+              const raw = item.createdAt ?? item.updatedAt;
+              const ts =
+                typeof raw === 'number'
+                  ? raw
+                  : typeof (raw as { toMillis?: () => number })?.toMillis === 'function'
+                    ? (raw as { toMillis: () => number }).toMillis()
+                    : 0;
+              if (minIncomingTs === 0 || ts <= minIncomingTs) {
+                preserveMissingIds.add(item.id);
+              }
+            }
+          }
           const merged = mergeAnchoredFeedStream({
             existing: prev,
             incoming: mergedItems,
             anchorId,
             isScrolledMidFeed,
             fallbackPrependUnseen: true,
+            pruneMissing: true,
+            preserveMissingIds,
             resolveUpdatedItem: (existingItem, nextItem) =>
               pickFresherRecordPreservingRef(existingItem, nextItem),
           });

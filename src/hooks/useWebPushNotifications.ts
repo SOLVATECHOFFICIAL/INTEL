@@ -107,6 +107,16 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       }
     });
 
+    const optedOut =
+      optedOutOverride?.uid === user.uid
+        ? optedOutOverride.optedOut
+        : readDevicePushOptOut(user.uid);
+    if (optedOut) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (
       typeof window !== 'undefined' &&
       'Notification' in window &&
@@ -122,7 +132,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     return () => {
       cancelled = true;
     };
-  }, [capability.canShowEnableButton, user, isSuspended, permission]);
+  }, [capability.canShowEnableButton, user, isSuspended, permission, optedOutOverride]);
 
   const enableNotifications = useCallback(async (): Promise<boolean> => {
     if (!user || isSuspended || !capability.canShowEnableButton) {
@@ -201,19 +211,20 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     setErrorMessage(null);
   }, []);
 
-  const isSubscribedForUser = Boolean(
-    user &&
-      !isSuspended &&
-      capability.canShowEnableButton &&
-      permission === 'granted' &&
-      verifiedForUid === user.uid
-  );
-
   const isOptedOut = Boolean(
     user &&
       (optedOutOverride?.uid === user.uid
         ? optedOutOverride.optedOut
         : readDevicePushOptOut(user.uid))
+  );
+
+  const isSubscribedForUser = Boolean(
+    user &&
+      !isSuspended &&
+      !isOptedOut &&
+      capability.canShowEnableButton &&
+      permission === 'granted' &&
+      verifiedForUid === user.uid
   );
 
   const status = resolveWebPushUiStatus({

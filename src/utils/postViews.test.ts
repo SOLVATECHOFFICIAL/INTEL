@@ -1,13 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  POST_VIEW_MIN_DWELL_MS,
+  POST_VIEW_MIN_INTERSECTION_RATIO,
+  POST_VIEW_RATE_LIMIT_MAX_EVENTS,
+  POST_VIEW_RATE_LIMIT_WINDOW_MS,
   buildLocalPostViewKey,
   buildPostViewDocId,
+  canRecordPostViewWithinRateLimit,
   clearPostViewSessionCache,
   formatCompactViewCount,
   getOrCreateGuestVisitorId,
   hasRecordedPostViewLocally,
+  isLikelyAutomatedBrowser,
   markPostViewLocally,
+  recordPostViewTimestamp,
+  resetPostViewRateLimiter,
   resolveActiveViewActor,
 } from './postViews';
 
@@ -71,4 +79,30 @@ test('getOrCreateGuestVisitorId and resolveActiveViewActor distinguish signed-in
   assert.equal(userActor.actorType, 'user');
   assert.equal(userActor.actorId, 'uid_member_1');
   assert.equal(userActor.dedupKey, 'uid_member_1');
+});
+
+test('postViews anti-abuse constants and sliding-window rate limiter block burst view inflation and reset cleanly after window', () => {
+  assert.equal(POST_VIEW_MIN_INTERSECTION_RATIO, 0.4);
+  assert.equal(POST_VIEW_MIN_DWELL_MS, 1200);
+  assert.equal(POST_VIEW_RATE_LIMIT_MAX_EVENTS, 15);
+  assert.equal(POST_VIEW_RATE_LIMIT_WINDOW_MS, 60_000);
+  assert.equal(typeof isLikelyAutomatedBrowser(), 'boolean');
+
+  resetPostViewRateLimiter();
+  const t0 = 1_000_000;
+  for (let i = 0; i < POST_VIEW_RATE_LIMIT_MAX_EVENTS; i += 1) {
+    assert.equal(canRecordPostViewWithinRateLimit(t0 + i * 100), true);
+    recordPostViewTimestamp(t0 + i * 100);
+  }
+
+  // 16th event within 60s window is blocked
+  assert.equal(canRecordPostViewWithinRateLimit(t0 + 2_000), false);
+
+  // Sliding window opens again once the earliest timestamps expire past 60s
+  assert.equal(
+    canRecordPostViewWithinRateLimit(t0 + POST_VIEW_RATE_LIMIT_WINDOW_MS + 1),
+    true
+  );
+
+  resetPostViewRateLimiter();
 });

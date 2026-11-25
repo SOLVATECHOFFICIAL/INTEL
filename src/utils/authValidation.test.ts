@@ -848,3 +848,37 @@ test('Legacy profiles without explicit accountStatus remain usable for granted b
   );
 });
 
+test('validateUsernameCandidate and validateProfileSettingsForm allow keeping unchanged usernames and empty hidden WhatsApp', () => {
+  assert.notEqual(validateUsernameCandidate('admin'), null);
+  assert.equal(
+    validateUsernameCandidate('admin', { currentUsername: 'admin' }),
+    null
+  );
+  assert.equal(
+    validateUsernameCandidate('ADMIN', { currentUsername: 'admin' }),
+    null
+  );
+  assert.notEqual(
+    validateUsernameCandidate('owner', { currentUsername: 'admin' }),
+    null
+  );
+
+  assert.deepEqual(
+    validateProfileSettingsForm(
+      {
+        fullName: 'LASUED Intel Official',
+        username: 'lasued_intel',
+        bio: 'Campus official feed',
+        department: 'Administration',
+        faculty: 'Central',
+        level: 'Graduate / Alumni',
+        accountCategory: 'Campus Organization / Club',
+        publicWhatsapp: '',
+        showWhatsappPublicly: false,
+      },
+      { currentUsername: 'lasued_intel' }
+    ),
+    {}
+  );
+});
+

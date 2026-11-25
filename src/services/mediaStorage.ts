@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -813,22 +814,6 @@ export async function saveProfileMediaImage(input: {
     createdAtValue: serverTimestamp(),
   });
 
-  let previousDocExists = false;
-  if (
-    input.previousImageId &&
-    isValidFirestoreId(input.previousImageId) &&
-    input.previousImageId !== newImageId
-  ) {
-    try {
-      const prevSnap = await getDoc(
-        doc(db, COLLECTION_NAMES.mediaImages, input.previousImageId)
-      );
-      previousDocExists = prevSnap.exists();
-    } catch {
-      previousDocExists = false;
-    }
-  }
-
   input.onProgress?.({ percent: 65, label: 'Saving image...' });
 
   const userUpdate: UpdateData<PublicUserProfile> = {
@@ -849,19 +834,21 @@ export async function saveProfileMediaImage(input: {
       (batch) => {
         batch.set(doc(db, COLLECTION_NAMES.mediaImages, newImageId), mediaPayload);
         batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
-        if (previousDocExists && input.previousImageId) {
-          batch.delete(
-            doc(db, COLLECTION_NAMES.mediaImages, input.previousImageId)
-          );
-        }
       }
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, writePath);
   }
 
-  if (input.previousImageId) {
+  if (
+    input.previousImageId &&
+    isValidFirestoreId(input.previousImageId) &&
+    input.previousImageId !== newImageId
+  ) {
     evictMediaImageCache(input.previousImageId);
+    void deleteDoc(doc(db, COLLECTION_NAMES.mediaImages, input.previousImageId)).catch(
+      () => undefined
+    );
   }
   primeMediaImageCache(newImageId, input.compressed.dataUrl);
   notifyProfileUpdated({
@@ -890,18 +877,6 @@ export async function removeProfileMediaImage(input: {
     throw new Error('Sign in with a valid account before removing photographs.');
   }
 
-  let existingDocFound = false;
-  if (input.currentImageId && isValidFirestoreId(input.currentImageId)) {
-    try {
-      const snap = await getDoc(
-        doc(db, COLLECTION_NAMES.mediaImages, input.currentImageId)
-      );
-      existingDocFound = snap.exists();
-    } catch {
-      existingDocFound = false;
-    }
-  }
-
   const userUpdate: UpdateData<PublicUserProfile> = {
     updatedAt: serverTimestamp(),
   };
@@ -920,19 +895,17 @@ export async function removeProfileMediaImage(input: {
       () => writeBatch(db),
       (batch) => {
         batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
-        if (existingDocFound && input.currentImageId) {
-          batch.delete(
-            doc(db, COLLECTION_NAMES.mediaImages, input.currentImageId)
-          );
-        }
       }
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 
-  if (input.currentImageId) {
+  if (input.currentImageId && isValidFirestoreId(input.currentImageId)) {
     evictMediaImageCache(input.currentImageId);
+    void deleteDoc(doc(db, COLLECTION_NAMES.mediaImages, input.currentImageId)).catch(
+      () => undefined
+    );
   }
   notifyProfileUpdated({
     uid: input.uid,

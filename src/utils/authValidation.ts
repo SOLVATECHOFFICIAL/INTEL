@@ -159,12 +159,18 @@ export function normalizeUsername(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function validateUsernameCandidate(value: string): string | null {
+export function validateUsernameCandidate(
+  value: string,
+  options?: { currentUsername?: string }
+): string | null {
   const normalized = normalizeUsername(value);
   if (!isValidUsername(normalized)) {
     return 'Username must be 3–32 characters using only lowercase letters, numbers, or underscores.';
   }
-  if (isReservedUsername(normalized)) {
+  const current = options?.currentUsername
+    ? normalizeUsername(options.currentUsername)
+    : '';
+  if (isReservedUsername(normalized) && normalized !== current) {
     return 'This username is reserved by LASUED Intel. Please choose another.';
   }
   return null;
@@ -248,7 +254,8 @@ export function validateRegistrationForm(
 }
 
 export function validateProfileSettingsForm(
-  input: ProfileSettingsFormInput
+  input: ProfileSettingsFormInput,
+  options?: { currentUsername?: string }
 ): ProfileSettingsValidationErrors {
   const errors: ProfileSettingsValidationErrors = {};
 
@@ -260,7 +267,9 @@ export function validateProfileSettingsForm(
     errors.fullName = `Full name must be between ${BLUEPRINT_LIMITS.fullNameMin} and ${BLUEPRINT_LIMITS.fullNameMax} characters.`;
   }
 
-  const usernameError = validateUsernameCandidate(input.username);
+  const usernameError = validateUsernameCandidate(input.username, {
+    currentUsername: options?.currentUsername,
+  });
   if (usernameError) {
     errors.username = usernameError;
   }
@@ -290,18 +299,21 @@ export function validateProfileSettingsForm(
   }
 
   const whatsapp = input.publicWhatsapp.trim();
-  if (!PHONE_PATTERN.test(whatsapp)) {
+  if (whatsapp.length > 0 && !PHONE_PATTERN.test(whatsapp)) {
+    errors.publicWhatsapp =
+      'Enter a valid public WhatsApp number (7–24 characters).';
+  } else if (whatsapp.length === 0 && input.showWhatsappPublicly !== false) {
     errors.publicWhatsapp =
       'Enter a valid public WhatsApp number (7–24 characters).';
   }
 
-  const photoUrl = input.photoUrl.trim();
+  const photoUrl = (input.photoUrl ?? '').trim();
   if (photoUrl && !isSafeMediaUrlInput(photoUrl)) {
     errors.photoUrl =
       'Profile picture must be an external http(s) URL (max 512 chars), not a data/blob URI.';
   }
 
-  const coverUrl = input.coverUrl.trim();
+  const coverUrl = (input.coverUrl ?? '').trim();
   if (coverUrl && !isSafeMediaUrlInput(coverUrl)) {
     errors.coverUrl =
       'Cover photo must be an external http(s) URL (max 512 chars), not a data/blob URI.';

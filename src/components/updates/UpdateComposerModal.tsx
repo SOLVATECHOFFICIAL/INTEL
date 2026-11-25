@@ -314,9 +314,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
     try {
       const nextItems: ComposerImageAttachment[] = [];
       const failedCount = { value: 0 };
-      for (const file of uniqueFiles) {
-        try {
-          const compressed = await compressImageFile(file, 'post');
+      const results = await Promise.allSettled(
+        uniqueFiles.map((file) => compressImageFile(file, 'post'))
+      );
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const compressed = result.value;
           const imageId = generateFirestoreDocId(COLLECTION_NAMES.mediaImages);
           nextItems.push({
             clientId: imageId,
@@ -325,7 +328,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
             compressed,
             previewUrl: compressed.dataUrl,
           });
-        } catch {
+        } else {
           failedCount.value += 1;
         }
       }

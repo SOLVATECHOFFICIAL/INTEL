@@ -1466,7 +1466,9 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
       coverUrl: sanitizeStoredUrl(initialValues.coverUrl),
     };
 
-    const validationErrors = validateProfileSettingsForm(payload);
+    const validationErrors = validateProfileSettingsForm(payload, {
+      currentUsername,
+    });
     const firstValidationError = Object.values(validationErrors)[0];
     if (firstValidationError) {
       setProfileErrors(validationErrors);

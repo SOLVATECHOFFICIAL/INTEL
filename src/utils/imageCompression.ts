@@ -154,15 +154,20 @@ export function computeTargetDimensions(
   };
 }
 
+let cachedWebpSupport: boolean | null = null;
+
 function detectWebpEncodingSupport(): boolean {
+  if (cachedWebpSupport !== null) return cachedWebpSupport;
   if (typeof document === 'undefined') return false;
   try {
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 4;
     const dataUrl = canvas.toDataURL('image/webp', 0.8);
-    return dataUrl.startsWith('data:image/webp');
+    cachedWebpSupport = dataUrl.startsWith('data:image/webp');
+    return cachedWebpSupport;
   } catch {
+    cachedWebpSupport = false;
     return false;
   }
 }
@@ -367,17 +372,55 @@ export async function compressImageFile(
       throw new Error('Canvas 2D graphics context is unavailable on this device.');
     }
 
-    const scaleSteps = [1, 0.78, 0.6, 0.45, 0.32, 0.22, 0.15, 0.1];
-    const qualitySteps = [0.78, 0.66, 0.54, 0.42, 0.32, 0.24, 0.18, 0.12];
+    const scaleSteps = [1, 0.72, 0.5, 0.34, 0.22, 0.14];
+    const minQuality = 0.24;
+    const maxQuality = 0.8;
 
-    let bestAttempt: {
+    const fitsBudget = (encoded: { byteSize: number; base64Data: string }) =>
+      encoded.byteSize <= targetByteCeiling &&
+      encoded.byteSize <= BLUEPRINT_LIMITS.mediaMaxBytes &&
+      encoded.base64Data.length <= BLUEPRINT_LIMITS.mediaBase64MaxChars;
+
+    type BestAttempt = {
       base64Data: string;
       dataUrl: string;
       byteSize: number;
       mimeType: SupportedImageMimeType;
       width: number;
       height: number;
-    } | null = null;
+    };
+    let bestAttempt: BestAttempt | null = null;
+
+    const pickSmallerAttempt = (
+      currentBest: BestAttempt | null,
+      encoded: ReturnType<typeof encodeCanvasSync>,
+      width: number,
+      height: number
+    ): BestAttempt => {
+      if (!currentBest || encoded.byteSize < currentBest.byteSize) {
+        return {
+          ...encoded,
+          width,
+          height,
+        };
+      }
+      return currentBest;
+    };
+
+    const toCompressedResult = (
+      encoded: ReturnType<typeof encodeCanvasSync>,
+      width: number,
+      height: number
+    ): CompressedImageResult => ({
+      base64Data: encoded.base64Data,
+      dataUrl: encoded.dataUrl,
+      mimeType: encoded.mimeType,
+      width,
+      height,
+      byteSize: encoded.byteSize,
+      originalBytes: file.size,
+      fingerprint,
+    });
 
     for (let sIdx = 0; sIdx < scaleSteps.length; sIdx += 1) {
       if (sIdx > 0 && typeof window !== 'undefined') {
@@ -389,40 +432,42 @@ export async function compressImageFile(
       canvas.width = targetW;
       canvas.height = targetH;
 
-      // High-quality resampling + opaque backdrop for transparent PNGs/SVGs
+      // Fast resampling + opaque backdrop for transparent PNGs/SVGs
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      ctx.imageSmoothingQuality = 'medium';
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, targetW, targetH);
       decoded.drawToCanvas(ctx, targetW, targetH);
 
-      for (const quality of qualitySteps) {
-        const encoded = encodeCanvasSync(canvas, preferredMime, quality);
-        if (!bestAttempt || encoded.byteSize < bestAttempt.byteSize) {
-          bestAttempt = {
-            ...encoded,
-            width: targetW,
-            height: targetH,
-          };
-        }
+      const highEncoded = encodeCanvasSync(canvas, preferredMime, maxQuality);
+      bestAttempt = pickSmallerAttempt(bestAttempt, highEncoded, targetW, targetH);
+      if (fitsBudget(highEncoded)) {
+        return toCompressedResult(highEncoded, targetW, targetH);
+      }
 
-        if (
-          encoded.byteSize <= targetByteCeiling &&
-          encoded.byteSize <= BLUEPRINT_LIMITS.mediaMaxBytes &&
-          encoded.base64Data.length <= BLUEPRINT_LIMITS.mediaBase64MaxChars
-        ) {
-          return {
-            base64Data: encoded.base64Data,
-            dataUrl: encoded.dataUrl,
-            mimeType: encoded.mimeType,
-            width: targetW,
-            height: targetH,
-            byteSize: encoded.byteSize,
-            originalBytes: file.size,
-            fingerprint,
-          };
+      const lowEncoded = encodeCanvasSync(canvas, preferredMime, minQuality);
+      bestAttempt = pickSmallerAttempt(bestAttempt, lowEncoded, targetW, targetH);
+      if (!fitsBudget(lowEncoded)) {
+        continue;
+      }
+
+      // Binary search for highest quality that satisfies target byte ceiling
+      let bestPassing = lowEncoded;
+      let lo = minQuality;
+      let hi = maxQuality;
+      for (let step = 0; step < 3; step += 1) {
+        const mid = Number(((lo + hi) / 2).toFixed(2));
+        if (mid <= lo || mid >= hi) break;
+        const candidate = encodeCanvasSync(canvas, preferredMime, mid);
+        bestAttempt = pickSmallerAttempt(bestAttempt, candidate, targetW, targetH);
+        if (fitsBudget(candidate)) {
+          bestPassing = candidate;
+          lo = mid;
+        } else {
+          hi = mid;
         }
       }
+      return toCompressedResult(bestPassing, targetW, targetH);
     }
 
     if (

@@ -248,6 +248,8 @@ export function notifyCommunityPostDeleted(
   });
 
   updateCachedPostUiSnapshot('ordinary', postId, () => null);
+  void purgePersistentContentByPrefix('feed:posts:v1:');
+  void purgePersistentContentByPrefix('profile:pub:v1:');
   searchCacheHandlers?.invalidate();
   emitMutation({
     type: 'community_post_deleted',
@@ -543,6 +545,8 @@ export function notifyAnonymousPostDeleted(
   });
 
   updateCachedPostUiSnapshot('anonymous', postId, () => null);
+  void deletePersistentContent('anon:posts:v1');
+  void purgePersistentContentByPrefix('feed:posts:v1:');
   searchCacheHandlers?.invalidate();
   emitMutation({
     type: 'anonymous_post_deleted',
@@ -783,6 +787,7 @@ export function notifyAdminUpdateDeleted(
     cachedAt: Date.now(),
   }));
   void deletePersistentContent('updates:public:v1');
+  void purgePersistentContentByPrefix('feed:posts:v1:');
   searchCacheHandlers?.invalidate();
   emitMutation({
     type: 'admin_update_deleted',

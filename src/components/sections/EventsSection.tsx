@@ -239,7 +239,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
         }, 0);
       }
       prefetchEventMedia(cached.events);
-      if (Date.now() - cached.cachedAt > 15_000) {
+      if (Date.now() - cached.cachedAt > 2_000) {
         void syncEventsFromNetwork('background', () => !active).catch(
           () => undefined
         );

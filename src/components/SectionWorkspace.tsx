@@ -361,7 +361,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
         }, 0);
       }
       prefetchAnonMedia(cached.anonymousPosts);
-      if (Date.now() - cached.cachedAt > 15_000) {
+      if (Date.now() - cached.cachedAt > 2_000) {
         void syncAnonymousFeed('background', () => !active).catch(
           () => undefined
         );

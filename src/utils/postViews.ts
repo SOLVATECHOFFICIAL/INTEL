@@ -4,9 +4,45 @@ const GUEST_VISITOR_ID_STORAGE_KEY = 'lasued_guest_visitor_id_v1';
 const GUEST_VISITOR_ID_PATTERN = /^guest_[a-zA-Z0-9_-]{8,58}$/;
 const VIEW_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+export const POST_VIEW_MIN_INTERSECTION_RATIO = 0.4;
+export const POST_VIEW_MIN_DWELL_MS = 1200;
+export const POST_VIEW_RATE_LIMIT_MAX_EVENTS = 15;
+export const POST_VIEW_RATE_LIMIT_WINDOW_MS = 60_000;
+
 export type PostViewTargetCollection = 'posts' | 'anonymousPosts' | 'updates';
 
 let inMemoryGuestVisitorId: string | null = null;
+const recentViewTimestampsMs: number[] = [];
+
+export function isLikelyAutomatedBrowser(): boolean {
+  return (
+    typeof navigator !== 'undefined' &&
+    Boolean((navigator as { webdriver?: boolean }).webdriver)
+  );
+}
+
+function pruneExpiredViewTimestamps(nowMs: number): void {
+  const cutoff = nowMs - POST_VIEW_RATE_LIMIT_WINDOW_MS;
+  while (recentViewTimestampsMs.length > 0 && recentViewTimestampsMs[0] <= cutoff) {
+    recentViewTimestampsMs.shift();
+  }
+}
+
+export function canRecordPostViewWithinRateLimit(
+  nowMs: number = Date.now()
+): boolean {
+  pruneExpiredViewTimestamps(nowMs);
+  return recentViewTimestampsMs.length < POST_VIEW_RATE_LIMIT_MAX_EVENTS;
+}
+
+export function recordPostViewTimestamp(nowMs: number = Date.now()): void {
+  pruneExpiredViewTimestamps(nowMs);
+  recentViewTimestampsMs.push(nowMs);
+}
+
+export function resetPostViewRateLimiter(): void {
+  recentViewTimestampsMs.length = 0;
+}
 
 function generateGuestVisitorId(): string {
   try {

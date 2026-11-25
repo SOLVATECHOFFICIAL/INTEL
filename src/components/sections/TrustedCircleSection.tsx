@@ -219,7 +219,7 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         ramHit.officialContacts
       );
       let timer: number | null = null;
-      if (Date.now() - ramHit.cachedAt > 15_000) {
+      if (Date.now() - ramHit.cachedAt > 2_000) {
         timer = window.setTimeout(() => {
           if (!active) return;
           void syncTrustedCircleFromNetwork('background', () => !active).catch(

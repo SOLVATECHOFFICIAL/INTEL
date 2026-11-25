@@ -7,7 +7,12 @@ import { VitePWA } from 'vite-plugin-pwa';
 import {
   isValidVapidPrivateKey,
   isValidVapidPublicKey,
+  normalizeVapidKey,
 } from './api/_lib/pushSanitizer.ts';
+import {
+  getServerPushConfigDiagnostics,
+  parseServiceAccountJson,
+} from './api/_lib/pushServer.ts';
 import {
   buildRobotsTxt,
   buildSitemapXml,
@@ -34,20 +39,58 @@ function copyRootLogoPlugin(): Plugin {
 }
 
 function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
-  const resolveLocalPushConfig = () => {
+  const syncEnvForCheck = () => {
+    for (const key of [
+      'WEB_PUSH_VAPID_PUBLIC_KEY',
+      'VITE_WEB_PUSH_VAPID_PUBLIC_KEY',
+      'WEB_PUSH_VAPID_PRIVATE_KEY',
+      'WEB_PUSH_VAPID_SUBJECT',
+      'FIREBASE_SERVICE_ACCOUNT_JSON',
+      'FIREBASE_FIRESTORE_DATABASE_ID',
+      'PUSH_WEBHOOK_SECRET',
+      'VITE_PUBLIC_BASE_URL',
+    ]) {
+      if (typeof env[key] === 'string' && !process.env[key]) {
+        process.env[key] = env[key];
+      }
+    }
+  };
+
+  const resolveLocalPushConfig = (
+    reqUrl?: string,
+    reqHeaders?: Record<string, string | string[] | undefined>
+  ) => {
+    syncEnvForCheck();
     const publicKey =
-      env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ||
-      env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ||
-      '';
-    const privateKey = env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim() || '';
-    const serviceAccountRaw = env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || '';
+      normalizeVapidKey(env.WEB_PUSH_VAPID_PUBLIC_KEY ?? process.env.WEB_PUSH_VAPID_PUBLIC_KEY) ||
+      normalizeVapidKey(env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY ?? process.env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY);
+    const privateKey = normalizeVapidKey(
+      env.WEB_PUSH_VAPID_PRIVATE_KEY ?? process.env.WEB_PUSH_VAPID_PRIVATE_KEY
+    );
+    const serviceAccount = parseServiceAccountJson(
+      env.FIREBASE_SERVICE_ACCOUNT_JSON ?? process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    );
     const configured =
       isValidVapidPublicKey(publicKey) &&
       isValidVapidPrivateKey(privateKey) &&
-      serviceAccountRaw.length > 0;
+      Boolean(serviceAccount);
+
+    let wantsDiagnostics = false;
+    if (typeof reqUrl === 'string' && reqUrl.includes('?')) {
+      try {
+        wantsDiagnostics =
+          new URL(reqUrl, 'https://localhost').searchParams.get('diagnostics') === '1';
+      } catch {
+        wantsDiagnostics = false;
+      }
+    }
+
     return {
       configured,
       vapidPublicKey: configured ? publicKey : null,
+      ...(wantsDiagnostics
+        ? { diagnostics: getServerPushConfigDiagnostics(reqHeaders) }
+        : {}),
     };
   };
 
@@ -86,7 +129,7 @@ function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
-        res.end(JSON.stringify(resolveLocalPushConfig()));
+        res.end(JSON.stringify(resolveLocalPushConfig(req.url, req.headers)));
         return;
       }
       next();

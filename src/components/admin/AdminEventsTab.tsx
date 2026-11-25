@@ -242,11 +242,9 @@ export const AdminEventsTab: React.FC<AdminEventsTabProps> = ({
     const toProcess = uniqueFiles.slice(0, remainingSlots);
     setCompressingImages(true);
     try {
-      const compressed: CompressedImageResult[] = [];
-      for (const file of toProcess) {
-        const res = await compressImageFile(file, 'post');
-        compressed.push(res);
-      }
+      const compressed = await Promise.all(
+        toProcess.map((file) => compressImageFile(file, 'post'))
+      );
       setNewImages((prev) => [...prev, ...compressed]);
       if (duplicateCount > 0) {
         onError(

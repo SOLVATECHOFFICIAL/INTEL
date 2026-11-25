@@ -264,11 +264,39 @@ export function mergeCommunityPostItems<T extends PostWithAuthorLike>(input: {
   }
 
   const incomingById = new Map<string, T>();
+  let minIncomingCreatedAt = 0;
   for (const item of incoming) {
     if (!incomingById.has(item.post.id)) {
       incomingById.set(item.post.id, item);
+      const ts =
+        extractTimestampMs(item.post.createdAt) ??
+        getRecordTimestampMs(item.post);
+      if (ts > 0) {
+        minIncomingCreatedAt =
+          minIncomingCreatedAt === 0 ? ts : Math.min(minIncomingCreatedAt, ts);
+      }
     }
   }
+
+  let lastMatchedExistingIndex = -1;
+  for (let i = 0; i < existing.length; i += 1) {
+    if (incomingById.has(existing[i].post.id)) {
+      lastMatchedExistingIndex = i;
+    }
+  }
+
+  const shouldKeepMissingTailItem = (prev: T, prevIndex: number): boolean => {
+    if (!preserveTail) return false;
+    if (incoming.length === 0) return false;
+    if (prevIndex < lastMatchedExistingIndex) return false;
+    if (minIncomingCreatedAt > 0) {
+      const prevCreatedAt =
+        extractTimestampMs(prev.post.createdAt) ??
+        getRecordTimestampMs(prev.post);
+      if (prevCreatedAt > minIncomingCreatedAt) return false;
+    }
+    return true;
+  };
 
   const resolveMergedEntry = (prev: T, next: T): T => {
     const fresherPost = pickFresherRecordPreservingRef(prev.post, next.post);
@@ -294,8 +322,10 @@ export function mergeCommunityPostItems<T extends PostWithAuthorLike>(input: {
       result.push(prev ? resolveMergedEntry(prev, next) : next);
     }
     if (preserveTail) {
-      for (const prev of existing) {
+      for (let i = 0; i < existing.length; i += 1) {
+        const prev = existing[i];
         if (emitted.has(prev.post.id)) continue;
+        if (!shouldKeepMissingTailItem(prev, i)) continue;
         emitted.add(prev.post.id);
         result.push(prev);
       }
@@ -304,16 +334,19 @@ export function mergeCommunityPostItems<T extends PostWithAuthorLike>(input: {
   }
 
   // Head-delta preservation mode: prepend truly new incoming posts at top,
-  // update existing items in place without reordering items the user is viewing.
+  // update existing items in place without reordering items the user is viewing,
+  // and prune items removed from the refreshed window.
   for (const next of incoming) {
     if (existingById.has(next.post.id) || emitted.has(next.post.id)) continue;
     emitted.add(next.post.id);
     result.push(next);
   }
-  for (const prev of existing) {
+  for (let i = 0; i < existing.length; i += 1) {
+    const prev = existing[i];
     if (emitted.has(prev.post.id)) continue;
-    emitted.add(prev.post.id);
     const next = incomingById.get(prev.post.id);
+    if (!next && !shouldKeepMissingTailItem(prev, i)) continue;
+    emitted.add(prev.post.id);
     result.push(next ? resolveMergedEntry(prev, next) : prev);
   }
   return result;
@@ -358,11 +391,37 @@ export function mergeOrderedRecords<
   }
 
   const incomingById = new Map<string, T>();
+  let minIncomingCreatedAt = 0;
   for (const item of incoming) {
     if (!incomingById.has(item.id)) {
       incomingById.set(item.id, item);
+      const ts =
+        extractTimestampMs(item.createdAt) ?? getRecordTimestampMs(item);
+      if (ts > 0) {
+        minIncomingCreatedAt =
+          minIncomingCreatedAt === 0 ? ts : Math.min(minIncomingCreatedAt, ts);
+      }
     }
   }
+
+  let lastMatchedExistingIndex = -1;
+  for (let i = 0; i < existing.length; i += 1) {
+    if (incomingById.has(existing[i].id)) {
+      lastMatchedExistingIndex = i;
+    }
+  }
+
+  const shouldKeepMissingTailItem = (prev: T, prevIndex: number): boolean => {
+    if (!preserveTail) return false;
+    if (incoming.length === 0) return false;
+    if (prevIndex < lastMatchedExistingIndex) return false;
+    if (minIncomingCreatedAt > 0) {
+      const prevCreatedAt =
+        extractTimestampMs(prev.createdAt) ?? getRecordTimestampMs(prev);
+      if (prevCreatedAt > minIncomingCreatedAt) return false;
+    }
+    return true;
+  };
 
   const result: T[] = [];
   const emitted = new Set<string>();
@@ -375,8 +434,10 @@ export function mergeOrderedRecords<
       result.push(prev ? pickFresherRecordPreservingRef(prev, next) : next);
     }
     if (preserveTail) {
-      for (const prev of existing) {
+      for (let i = 0; i < existing.length; i += 1) {
+        const prev = existing[i];
         if (emitted.has(prev.id)) continue;
+        if (!shouldKeepMissingTailItem(prev, i)) continue;
         emitted.add(prev.id);
         result.push(prev);
       }
@@ -389,10 +450,12 @@ export function mergeOrderedRecords<
     emitted.add(next.id);
     result.push(next);
   }
-  for (const prev of existing) {
+  for (let i = 0; i < existing.length; i += 1) {
+    const prev = existing[i];
     if (emitted.has(prev.id)) continue;
-    emitted.add(prev.id);
     const next = incomingById.get(prev.id);
+    if (!next && !shouldKeepMissingTailItem(prev, i)) continue;
+    emitted.add(prev.id);
     result.push(next ? pickFresherRecordPreservingRef(prev, next) : prev);
   }
   return result;
@@ -460,6 +523,8 @@ export function mergeAnchoredFeedStream<T extends { id: string }>(input: {
   anchorId?: string | null;
   isScrolledMidFeed?: boolean;
   fallbackPrependUnseen?: boolean;
+  pruneMissing?: boolean;
+  preserveMissingIds?: ReadonlySet<string>;
   resolveUpdatedItem?: (prev: T, next: T) => T;
 }): AnchoredFeedMergeResult<T> {
   const {
@@ -468,6 +533,8 @@ export function mergeAnchoredFeedStream<T extends { id: string }>(input: {
     anchorId,
     isScrolledMidFeed = false,
     fallbackPrependUnseen = false,
+    pruneMissing = false,
+    preserveMissingIds,
     resolveUpdatedItem,
   } = input;
 
@@ -492,6 +559,12 @@ export function mergeAnchoredFeedStream<T extends { id: string }>(input: {
     return resolveUpdatedItem ? resolveUpdatedItem(prev, next) : next;
   };
 
+  const shouldKeepExisting = (prev: T): boolean => {
+    if (!pruneMissing) return true;
+    if (incomingById.has(prev.id)) return true;
+    return Boolean(preserveMissingIds?.has(prev.id));
+  };
+
   const dedupedExisting: T[] = [];
   const existingIds = new Set<string>();
   for (const item of existing) {
@@ -511,12 +584,10 @@ export function mergeAnchoredFeedStream<T extends { id: string }>(input: {
 
   if (anchorIndex === -1) {
     if (fallbackPrependUnseen) {
-      const merged = [
-        ...unseenIncoming,
-        ...dedupedExisting.map((prev) =>
-          mergePair(prev, incomingById.get(prev.id))
-        ),
-      ];
+      const keptExisting = dedupedExisting
+        .filter(shouldKeepExisting)
+        .map((prev) => mergePair(prev, incomingById.get(prev.id)));
+      const merged = [...unseenIncoming, ...keptExisting];
       return {
         items: merged,
         insertedCount: unseenIncoming.length,
@@ -539,19 +610,21 @@ export function mergeAnchoredFeedStream<T extends { id: string }>(input: {
   const prefix: T[] = [];
   for (let i = 0; i <= anchorIndex; i += 1) {
     const prev = dedupedExisting[i];
+    if (!shouldKeepExisting(prev)) continue;
     prefix.push(mergePair(prev, incomingById.get(prev.id)));
   }
 
   const tail: T[] = [];
   for (let i = anchorIndex + 1; i < dedupedExisting.length; i += 1) {
     const prev = dedupedExisting[i];
+    if (!shouldKeepExisting(prev)) continue;
     tail.push(mergePair(prev, incomingById.get(prev.id)));
   }
 
   return {
     items: [...prefix, ...unseenIncoming, ...tail],
     insertedCount: unseenIncoming.length,
-    insertionIndex: anchorIndex + 1,
+    insertionIndex: prefix.length,
   };
 }
 
