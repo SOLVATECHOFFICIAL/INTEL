@@ -1,0 +1,34 @@
+{
+  "id": "/",
+  "name": "LASUED Intel",
+  "short_name": "LASUED Intel",
+  "description": "LASUED Intel — Your Campus. Your Information. Your Community. A modern student information and community platform.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "theme_color": "#0B1A2E",
+  "background_color": "#FFFFFF",
+  "categories": ["education", "social", "news"],
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

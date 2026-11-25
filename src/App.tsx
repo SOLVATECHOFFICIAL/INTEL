@@ -12,7 +12,7 @@ import { SectionWorkspace } from './components/SectionWorkspace';
 import { useFirebase } from './context/firebaseContext';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { verifyStoredPushSubscriptionForUser } from './services/webPush';
-import { getPublicSiteBaseUrl } from './config/site';
+import { getCanonicalProductionOrigin } from './config/site';
 import { resolveNotificationDestination } from './utils/notifications';
 import { parseNotificationTargetUrl } from './utils/pwa';
 import {
@@ -206,7 +206,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const metadata = resolvePageSeoMetadata(navDest, getPublicSiteBaseUrl());
+    const metadata = resolvePageSeoMetadata(navDest, getCanonicalProductionOrigin());
     applyDocumentSeoMetadata(metadata);
   }, [navDest]);
 

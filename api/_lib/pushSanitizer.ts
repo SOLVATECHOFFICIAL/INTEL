@@ -49,7 +49,7 @@ export function normalizeVapidSubject(rawSubject?: string | null): string {
 
 export function sanitizeInternalTargetPath(
   rawPath: unknown,
-  allowedOrigin = 'https://lasued-intel.vercel.app'
+  allowedOrigin = 'https://lasuedintel.com.ng'
 ): string {
   if (typeof rawPath !== 'string') {
     return '/?view=notifications';

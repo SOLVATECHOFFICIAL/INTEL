@@ -124,7 +124,12 @@ test('username uniqueness, reserved names, follow determinism, and atomic counte
 });
 
 test('mediaImages rules enforce 4-image post cap, strict Base64 size bounds, and anonymous ownerUID exclusion', () => {
-  assert.match(rulesText, /data\[key\]\.size\(\) <= 4/);
+  const mediaListFn = rulesText.slice(
+    rulesText.indexOf('function isValidMediaItemsList('),
+    rulesText.indexOf('function isValidPhotoOnlyMediaItemValues(')
+  );
+  assert.match(mediaListFn, /let n = items\.size\(\);\s*return items is list &&\s*n <= 4/);
+  assert.match(rulesText, /isValidMediaItemsArray\(data, key\)/);
   assert.match(rulesText, /data\.base64Data\.size\(\) <= 340000/);
   assert.match(rulesText, /data\.byteSize <= 250000/);
   assert.match(rulesText, /data\.targetCollection == 'anonymousPosts' && !\('ownerUID' in data\)/);
@@ -524,12 +529,12 @@ test('Official updates rules enforce strict two-admin publishing, underground of
     rulesText.indexOf('function isValidAdminUpdate('),
     rulesText.indexOf('function isValidPostComment(')
   );
-  assert.match(fnBlock, /data\.format in \['photo', 'text'\]/);
-  assert.match(fnBlock, /data\.authorMode in \['public_admin', 'official_desk'\]/);
-  assert.match(fnBlock, /!\('ownerUID' in data\)/);
+  assert.match(fnBlock, /d\.format in \['photo', 'text'\]/);
+  assert.match(fnBlock, /d\.authorMode in \['public_admin', 'official_desk'\]/);
+  assert.match(fnBlock, /!\('ownerUID' in d\)/);
   assert.match(fnBlock, /LASUED Intel Official/);
-  assert.match(fnBlock, /isValidPhotoPostMediaItemsArray\(data\)/);
-  assert.match(fnBlock, /isValidTextPostBackgroundStyle\(data\.backgroundStyle\)/);
+  assert.match(fnBlock, /isValidPhotoPostMediaItemsArray\(d\)/);
+  assert.match(fnBlock, /isValidTextPostBackgroundStyle\(d\.backgroundStyle\)/);
 
   const updatesBlock = rulesText.slice(
     rulesText.indexOf('match /updates/{updateId}'),
@@ -648,7 +653,11 @@ test('Rebuilt rules enforce Supreme Admin self-sync, orphaned reaction cleanup, 
   assert.match(pollsBlock, /incoming\(\)\.ownerUID == existing\(\)\.ownerUID/);
   assert.match(pollsBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'question', 'options', 'status', 'expiresAt'\s*\]\)/);
   assert.match(pollsBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'question', 'description', 'options', 'status', 'expiresAt'/);
-  assert.match(rulesText, /isOptionalShortString\(data, 'description', 300\)/);
+  const pollFnBlock = rulesText.slice(
+    rulesText.indexOf('function isValidCampusPoll('),
+    rulesText.indexOf('function isValidPollVote(')
+  );
+  assert.match(pollFnBlock, /isOptionalShortString\(d, 'description', 300\)/);
   assert.equal(blueprint.entities.CampusPoll.properties.description.maxLength, 300);
 
   const settingsBlock = rulesText.slice(
@@ -667,7 +676,7 @@ test('Rebuilt rules enforce Supreme Admin self-sync, orphaned reaction cleanup, 
 
   // Full element validation bounds for isValidMediaArray [0..5] and isValidCampusPoll options [0..7]
   assert.match(rulesText, /data\[key\]\[5\] is string && data\[key\]\[5\]\.size\(\) <= 512/);
-  assert.match(rulesText, /data\.options\[7\] is string && data\.options\[7\]\.size\(\) >= 1 && data\.options\[7\]\.size\(\) <= 120/);
+  assert.match(pollFnBlock, /opts\[7\] is string && opts\[7\]\.size\(\) >= 1 && opts\[7\]\.size\(\) <= 120/);
 
   // Required composite indexes present in firestore.indexes.json
   const indexesJson = JSON.parse(
@@ -723,7 +732,7 @@ test('Granted verified and moderator roles exercise real permissions without ema
   assert.match(verifiedBlock, /isPermanentOwner == false/);
 
   const publishBlock = rulesText.slice(
-    rulesText.indexOf('function isValidPublishRoleAndBadge(uid)'),
+    rulesText.indexOf('function isValidPublishRoleUserData('),
     rulesText.indexOf('function canPublishFeed()')
   );
   assert.match(publishBlock, /isPermanentOwner == false/);

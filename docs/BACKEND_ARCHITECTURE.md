@@ -43,6 +43,6 @@
 - **`/api/push/broadcast`**: Verifies designated Supreme Admin status (`lasuedintel@gmail.com` or `awoyinfasolomon1@gmail.com` with `email_verified: true`) or `x-push-webhook-secret` before broadcasting campus events, opportunities, or announcements across subscribed devices.
 
 ## 5. Production Configuration Checklist
-1. **Firebase Authentication**: Confirm Email/Password and Google Sign-In are enabled and `https://lasued-intel.vercel.app` is listed under Authorized Domains in Firebase Console.
-2. **Firestore Rules & Indexes**: Deploy `firestore.rules` and `firestore.indexes.json` to project `mystical-tooling-2dtd0` (database `ai-studio-intel-5bda81a4-c388-4f50-b629-ca521ae04516`).
+1. **Firebase Authentication**: Confirm Email/Password sign-in is enabled and `lasuedintel.com.ng` (plus `www.lasuedintel.com.ng` and any Vercel preview/production domain) is listed under Authorized Domains in Firebase Console.
+2. **Firestore Rules & Indexes**: Deploy `firestore.rules` and `firestore.indexes.json` to project `lasued-intel` (database `(default)`).
 3. **Two Designated Supreme Admins**: Only `lasuedintel@gmail.com` (Public Supreme Admin) and `awoyinfasolomon1@gmail.com` (Underground Supreme Admin, hidden from directory with `badge: 'none'`) carry Supreme Admin authority.

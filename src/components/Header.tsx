@@ -3,7 +3,7 @@ import { Bell, Menu } from 'lucide-react';
 import { useFirebase } from '../context/firebaseContext';
 import { ActiveRoute, ProfileTab, SearchScopeId } from '../types/platform';
 import { formatUnreadBadgeCount } from '../utils/pwa';
-import { isFeedRoute } from '../utils/urlRouting';
+import { buildSearchForRoute, isFeedRoute } from '../utils/urlRouting';
 import { BrandLogo } from './BrandLogo';
 import { AvatarMedia } from './media/FirestoreImage';
 
@@ -49,6 +49,23 @@ export const Header: React.FC<HeaderProps> = ({
     return activeRoute === itemRoute;
   };
 
+  const handleNavAnchorClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    route: ActiveRoute
+  ) => {
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    event.preventDefault();
+    onNavigate(route);
+  };
+
   return (
     <header className="fixed top-0 right-0 left-0 z-40 w-full max-w-full border-b border-slate-200/90 bg-white/95 shadow-[0_2px_14px_-6px_rgba(11,26,46,0.08)] backdrop-blur-md">
       <div aria-hidden="true" className="h-[env(safe-area-inset-top)] w-full bg-[#0B1A2E]" />
@@ -56,14 +73,14 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center justify-between gap-2 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:gap-3 sm:px-5 md:h-16 md:gap-5">
         {/* Left: Brand Logo */}
         <div className="flex min-w-0 flex-1 items-center lg:flex-initial">
-          <button
-            type="button"
-            onClick={() => onNavigate('for-you')}
+          <a
+            href={buildSearchForRoute('for-you')}
+            onClick={(e) => handleNavAnchorClick(e, 'for-you')}
             aria-label="LASUED Intel home"
             className="inline-flex min-h-[44px] min-w-0 max-w-full items-center overflow-hidden rounded-lg focus-visible:outline-[#1E88E5]"
           >
             <BrandLogo size="sm" showWordmark />
-          </button>
+          </a>
         </div>
 
         {/* Center: Desktop Main Navigation (only when >=1024px alongside sidebar) */}
@@ -74,10 +91,10 @@ export const Header: React.FC<HeaderProps> = ({
           {DESKTOP_NAV_LINKS.map((item) => {
             const isActive = isNavItemActive(item.id);
             return (
-              <button
+              <a
                 key={item.id}
-                type="button"
-                onClick={() => onNavigate(item.id)}
+                href={buildSearchForRoute(item.id)}
+                onClick={(e) => handleNavAnchorClick(e, item.id)}
                 aria-current={isActive ? 'page' : undefined}
                 className={`relative py-2 text-sm font-medium whitespace-nowrap shrink-0 transition-colors duration-150 ${
                   isActive
@@ -92,7 +109,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="lasued-action-gradient absolute right-0 bottom-0 left-0 h-0.5 rounded-full"
                   />
                 )}
-              </button>
+              </a>
             );
           })}
         </nav>

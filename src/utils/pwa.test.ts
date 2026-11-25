@@ -92,7 +92,7 @@ test('detectDeviceEnvironment and evaluatePushCapabilities distinguish iOS Safar
 });
 
 test('parseNotificationTargetUrl parses safe deep links and blocks unsafe or foreign URLs', () => {
-  const origin = 'https://lasued-intel.vercel.app';
+  const origin = 'https://lasuedintel.com.ng';
 
   const postNav = parseNotificationTargetUrl(
     '/?view=anonymous&postId=anon_1&commentId=cmt_2',
@@ -104,7 +104,7 @@ test('parseNotificationTargetUrl parses safe deep links and blocks unsafe or for
   assert.equal(postNav.destination.commentId, 'cmt_2');
 
   const profileNav = parseNotificationTargetUrl(
-    'https://lasued-intel.vercel.app/?view=profile&username=adaobi',
+    'https://lasuedintel.com.ng/?view=profile&username=adaobi',
     origin
   );
   assert.ok(profileNav);
@@ -164,7 +164,7 @@ test('server push sanitizer enforces anonymous safety, path sanitization, prefer
     body: 'Someone   replied   to your thread',
     targetPath: 'https://evil.example/phish',
     unreadCount: 1200,
-    allowedOrigin: 'https://lasued-intel.vercel.app',
+    allowedOrigin: 'https://lasuedintel.com.ng',
   });
   assert.equal(anonPayload.isAnonymous, true);
   assert.equal(anonPayload.title, 'New reply in The Unfiltered');
@@ -173,11 +173,11 @@ test('server push sanitizer enforces anonymous safety, path sanitization, prefer
   assert.equal('actorUid' in anonPayload, false);
 
   assert.equal(
-    sanitizeInternalTargetPath('/?view=events&eventId=ev_99', 'https://lasued-intel.vercel.app'),
+    sanitizeInternalTargetPath('/?view=events&eventId=ev_99', 'https://lasuedintel.com.ng'),
     '/?view=events&eventId=ev_99'
   );
   assert.equal(
-    sanitizeInternalTargetPath('javascript:alert(1)', 'https://lasued-intel.vercel.app'),
+    sanitizeInternalTargetPath('javascript:alert(1)', 'https://lasuedintel.com.ng'),
     '/?view=notifications'
   );
 
@@ -200,7 +200,7 @@ test('server push sanitizer enforces anonymous safety, path sanitization, prefer
 
   assert.equal(normalizeVapidSubject('admin@lasued.edu.ng'), 'mailto:admin@lasued.edu.ng');
   assert.equal(normalizeVapidSubject(''), 'mailto:lasuedintel@gmail.com');
-  assert.equal(normalizeVapidSubject('https://lasued-intel.vercel.app'), 'https://lasued-intel.vercel.app');
+  assert.equal(normalizeVapidSubject('https://lasuedintel.com.ng'), 'https://lasuedintel.com.ng');
 
   assert.equal(timingSafeSecretMatch('secret-xyz', 'secret-xyz'), true);
   assert.equal(timingSafeSecretMatch('secret-xyz', 'secret-abc'), false);

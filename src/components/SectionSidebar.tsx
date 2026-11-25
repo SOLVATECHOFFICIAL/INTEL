@@ -16,7 +16,7 @@ import {
 } from '../utils/authValidation';
 import { getSectionsByGroup } from '../utils/sectionState';
 import { formatUnreadBadgeCount } from '../utils/pwa';
-import { getSearchScopeFromRoute } from '../utils/urlRouting';
+import { buildSearchForRoute, getSearchScopeFromRoute } from '../utils/urlRouting';
 import {
   ActiveRoute,
   MarketplaceTab,
@@ -54,6 +54,27 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
   const isFullAdmin = canAccessFullAdminDashboard(effectiveTier, isSuspended);
   const currentSearchScope = getSearchScopeFromRoute(activeRoute);
 
+  const handlePublicAnchorClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    route: ActiveRoute,
+    options?: {
+      searchScope?: SearchScopeId;
+      marketplaceTab?: MarketplaceTab;
+    }
+  ) => {
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    event.preventDefault();
+    onNavigate(route, options);
+  };
+
   return (
     <aside
       aria-label="Platform sections"
@@ -69,9 +90,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
               const isActive = activeRoute === section.id;
               return (
                 <li key={section.id}>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate(section.id)}
+                  <a
+                    href={buildSearchForRoute(section.id)}
+                    onClick={(e) => handlePublicAnchorClick(e, section.id)}
                     aria-current={isActive ? 'page' : undefined}
                     className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
@@ -86,7 +107,7 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                       }`}
                     />
                     <span className="truncate">{section.title}</span>
-                  </button>
+                  </a>
                 </li>
               );
             })}
@@ -106,9 +127,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                 );
               return (
                 <li key={section.id}>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate(section.id)}
+                  <a
+                    href={buildSearchForRoute(section.id)}
+                    onClick={(e) => handlePublicAnchorClick(e, section.id)}
                     aria-current={isActive ? 'page' : undefined}
                     className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
@@ -123,15 +144,19 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                       }`}
                     />
                     <span className="truncate">{section.title}</span>
-                  </button>
+                  </a>
                 </li>
               );
             })}
             <li>
-              <button
-                type="button"
-                onClick={() =>
-                  onNavigate('marketplace', { marketplaceTab: 'updates' })
+              <a
+                href={buildSearchForRoute('marketplace', {
+                  marketplaceTab: 'updates',
+                })}
+                onClick={(e) =>
+                  handlePublicAnchorClick(e, 'marketplace', {
+                    marketplaceTab: 'updates',
+                  })
                 }
                 aria-current={
                   activeRoute === 'marketplace' && marketplaceTab === 'updates'
@@ -153,7 +178,7 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   aria-hidden="true"
                 />
                 <span className="truncate">Marketplace Updates</span>
-              </button>
+              </a>
             </li>
           </ul>
         </div>
@@ -164,10 +189,14 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
           </p>
           <ul className="mt-2 space-y-1">
             <li>
-              <button
-                type="button"
-                onClick={() =>
-                  onNavigate('search', { searchScope: currentSearchScope })
+              <a
+                href={buildSearchForRoute('search', {
+                  searchScope: currentSearchScope,
+                })}
+                onClick={(e) =>
+                  handlePublicAnchorClick(e, 'search', {
+                    searchScope: currentSearchScope,
+                  })
                 }
                 aria-current={activeRoute === 'search' ? 'page' : undefined}
                 className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
@@ -178,7 +207,7 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
               >
                 <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                 <span>Search</span>
-              </button>
+              </a>
             </li>
             <li>
               <button

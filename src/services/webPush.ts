@@ -8,7 +8,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import {
   COLLECTION_NAMES,
   SUBCOLLECTION_NAMES,
@@ -418,15 +418,49 @@ export async function syncAppBadgeWithServiceWorker(
   }
 }
 
-export async function triggerBestEffortPushDispatch(_input: {
+async function getCurrentBearerToken(): Promise<string | null> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return null;
+  try {
+    const token = await currentUser.getIdToken();
+    return token && token.trim().length > 0 ? token.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function triggerBestEffortPushDispatch(input: {
   notificationId: string;
   recipientUid?: string;
 }): Promise<void> {
-  void _input;
-  // External Web Push delivery is disabled; notifications are handled entirely inside LASUED Intel.
+  if (typeof fetch !== 'function' || !isValidFirestoreId(input.notificationId)) {
+    return;
+  }
+  try {
+    const vapidKey = await fetchConfiguredVapidPublicKey();
+    if (!vapidKey) return;
+    const token = await getCurrentBearerToken();
+    if (!token) return;
+
+    await fetch('/api/push/dispatch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        notificationId: input.notificationId,
+        ...(input.recipientUid && isValidFirestoreId(input.recipientUid)
+          ? { recipientUid: input.recipientUid }
+          : {}),
+      }),
+    });
+  } catch {
+    // Non-blocking best-effort background push delivery
+  }
 }
 
-export async function triggerBestEffortPushBroadcast(_input: {
+export async function triggerBestEffortPushBroadcast(input: {
   eventType: NotificationEventType;
   title: string;
   body?: string;
@@ -434,6 +468,35 @@ export async function triggerBestEffortPushBroadcast(_input: {
   recipientUids?: string[];
   notificationIds?: string[];
 }): Promise<void> {
-  void _input;
-  // External Web Push broadcast is disabled; in-app notifications are fanned out directly in Firestore.
+  if (typeof fetch !== 'function' || !input.title.trim()) {
+    return;
+  }
+  try {
+    const vapidKey = await fetchConfiguredVapidPublicKey();
+    if (!vapidKey) return;
+    const token = await getCurrentBearerToken();
+    if (!token) return;
+
+    await fetch('/api/push/broadcast', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        eventType: input.eventType,
+        title: input.title,
+        ...(input.body ? { body: input.body } : {}),
+        ...(input.targetPath ? { targetPath: input.targetPath } : {}),
+        ...(Array.isArray(input.recipientUids)
+          ? { recipientUids: input.recipientUids }
+          : {}),
+        ...(Array.isArray(input.notificationIds)
+          ? { notificationIds: input.notificationIds }
+          : {}),
+      }),
+    });
+  } catch {
+    // Non-blocking best-effort background push broadcast
+  }
 }

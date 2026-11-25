@@ -1,6 +1,6 @@
 import { BRAND } from '../config/brand';
 import {
-  buildPublicAppUrl,
+  buildCanonicalPublicAppUrl,
   buildPublicImageUrl,
   normalizePublicOrigin,
 } from '../config/site';
@@ -88,10 +88,10 @@ export function resolveCanonicalUrl(
   dest: NormalizedRouteDestination,
   baseOrigin: string
 ): string {
-  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasued-intel.vercel.app';
+  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasuedintel.com.ng';
 
   if (dest.route === 'for-you' && !dest.postId) {
-    return buildPublicAppUrl('/', safeOrigin);
+    return buildCanonicalPublicAppUrl('/', safeOrigin);
   }
 
   const rawRelative = buildSearchForRoute(dest.route, {
@@ -133,7 +133,7 @@ export function resolveCanonicalUrl(
   const normalizedPathAndQuery =
     queryStart >= 0 ? `/${rawRelative.slice(queryStart)}` : '/';
 
-  return buildPublicAppUrl(normalizedPathAndQuery, safeOrigin);
+  return buildCanonicalPublicAppUrl(normalizedPathAndQuery, safeOrigin);
 }
 
 function resolveRouteCopy(dest: NormalizedRouteDestination): {
@@ -281,43 +281,122 @@ function resolveRouteCopy(dest: NormalizedRouteDestination): {
   }
 }
 
+function resolveBreadcrumbName(dest: NormalizedRouteDestination): string | null {
+  switch (dest.route) {
+    case 'latest':
+      return 'Latest Posts';
+    case 'updates':
+      return 'Official Updates';
+    case 'anonymous':
+      return 'The Unfiltered';
+    case 'marketplace':
+      return 'Campus Marketplace';
+    case 'trusted-circle':
+      return 'Trusted Circle';
+    case 'opportunities':
+      return 'Opportunities';
+    case 'upcoming-events':
+      return 'Upcoming Events';
+    case 'search':
+      return 'Search';
+    case 'profile':
+      return dest.username ? `@${dest.username}` : 'Member Profile';
+    default:
+      return null;
+  }
+}
+
 export function resolvePageSeoMetadata(
   dest: NormalizedRouteDestination,
   baseOrigin: string
 ): PageSeoMetadata {
-  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasued-intel.vercel.app';
+  const safeOrigin = normalizePublicOrigin(baseOrigin) ?? 'https://lasuedintel.com.ng';
+  const rootUrl = buildCanonicalPublicAppUrl('/', safeOrigin);
   const canonicalUrl = resolveCanonicalUrl(dest, safeOrigin);
-  const robots: RobotsDirective = isIndexableDestination(dest)
+  const indexable = isIndexableDestination(dest);
+  const robots: RobotsDirective = indexable
     ? 'index, follow'
     : 'noindex, nofollow';
   const copy = resolveRouteCopy(dest);
   const ogImage = buildPublicImageUrl('/og-share.png', safeOrigin);
+  const breadcrumbName = indexable ? resolveBreadcrumbName(dest) : null;
+
+  const graph: Record<string, unknown>[] = [
+    {
+      '@type': 'Organization',
+      '@id': `${rootUrl}#organization`,
+      name: BRAND.name,
+      url: rootUrl,
+      logo: {
+        '@type': 'ImageObject',
+        url: buildPublicImageUrl('/pwa-512x512.png', safeOrigin),
+      },
+      description:
+        'LASUED Intel — Your Campus. Your Information. Your Community. A student information and community platform.',
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${rootUrl}#website`,
+      name: BRAND.name,
+      url: rootUrl,
+      publisher: { '@id': `${rootUrl}#organization` },
+      description:
+        'LASUED Intel — Your Campus. Your Information. Your Community. A student information and community platform.',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: `${rootUrl}?view=search&scope=all&q={search_term_string}`,
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    {
+      '@type': 'WebPage',
+      '@id': `${canonicalUrl}#webpage`,
+      url: canonicalUrl,
+      name: copy.title,
+      description: copy.description,
+      isPartOf: { '@id': `${rootUrl}#website` },
+      about: { '@id': `${rootUrl}#organization` },
+      primaryImageOfPage: {
+        '@type': 'ImageObject',
+        url: ogImage,
+      },
+    },
+    {
+      '@type': 'WebApplication',
+      '@id': `${rootUrl}#webapp`,
+      name: BRAND.name,
+      url: canonicalUrl,
+      applicationCategory: 'EducationalApplication',
+      operatingSystem: 'Web, Android, iOS',
+      description: copy.description,
+      image: ogImage,
+      publisher: { '@id': `${rootUrl}#organization` },
+    },
+  ];
+
+  if (breadcrumbName) {
+    graph.push({
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        {
+          '@type': 'ListItem',
+          position: 1,
+          name: BRAND.name,
+          item: rootUrl,
+        },
+        {
+          '@type': 'ListItem',
+          position: 2,
+          name: breadcrumbName,
+          item: canonicalUrl,
+        },
+      ],
+    });
+  }
 
   const jsonLd: Record<string, unknown> = {
     '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'WebSite',
-        name: BRAND.name,
-        url: buildPublicAppUrl('/', safeOrigin),
-        description:
-          'LASUED Intel — Your Campus. Your Information. Your Community. A student information and community platform.',
-        potentialAction: {
-          '@type': 'SearchAction',
-          target: `${buildPublicAppUrl('/', safeOrigin)}?view=search&scope=all&q={search_term_string}`,
-          'query-input': 'required name=search_term_string',
-        },
-      },
-      {
-        '@type': 'WebApplication',
-        name: BRAND.name,
-        url: canonicalUrl,
-        applicationCategory: 'EducationalApplication',
-        operatingSystem: 'Web, Android, iOS',
-        description: copy.description,
-        image: ogImage,
-      },
-    ],
+    '@graph': graph,
   };
 
   return {

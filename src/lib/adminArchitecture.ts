@@ -1,12 +1,8 @@
 /**
  * Trusted Server-Side Administrative Architecture Contract
  *
- * IMPORTANT (Google-hosted Starter Tier Constraint):
- * This project (`mystical-tooling-2dtd0`) runs on Google AI Studio's free Starter Tier
- * without paid billing. Per Starter Tier IAM limits, server-side `firebase-admin` calls
- * requiring IAM roles (`setCustomUserClaims()`, server-side Firestore reads/writes,
- * or token revocation checks) are NOT available in the AI Studio server runtime until
- * the project is upgraded to a user-owned standard Google Cloud project with billing.
+ * IMPORTANT:
+ * Project `lasued-intel` enforces all RBAC, Designated Two-Admin protection, PII isolation,
  *
  * Therefore:
  * - No live `firebase-admin` IAM code or service account keys exist in this repository.

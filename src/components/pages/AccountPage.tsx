@@ -75,6 +75,7 @@ import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
 import { PWAInstallControl } from '../pwa/PWAInstallControl';
+import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 export type { AccountSettingsSection };
 
@@ -1121,6 +1122,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                   </div>
                   <div className="mt-3.5 flex flex-wrap items-center gap-3">
                     <PWAInstallControl variant="settings" />
+                    <WebPushNotificationButton variant="full" allowDisable showIosHint />
                   </div>
                 </div>
 

@@ -11,7 +11,7 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 
-const PROJECT_ID = 'mystical-tooling-2dtd0';
+const PROJECT_ID = 'lasued-intel';
 
 const UID = {
   supremePublic: 'uid_supreme_public',

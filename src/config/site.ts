@@ -1,4 +1,4 @@
-const DEFAULT_FALLBACK_PUBLIC_ORIGIN = 'https://lasued-intel.vercel.app';
+const DEFAULT_FALLBACK_PUBLIC_ORIGIN = 'https://lasuedintel.com.ng';
 
 export function normalizePublicOrigin(raw?: string | null): string | null {
   if (!raw || typeof raw !== 'string') return null;
@@ -26,6 +26,13 @@ export function getConfiguredPublicBaseUrl(): string | null {
   }
 }
 
+export function getCanonicalProductionOrigin(originOverride?: string): string {
+  const fromOverride = normalizePublicOrigin(originOverride);
+  if (fromOverride) return fromOverride;
+
+  return getConfiguredPublicBaseUrl() ?? DEFAULT_FALLBACK_PUBLIC_ORIGIN;
+}
+
 export function getPublicSiteBaseUrl(originOverride?: string): string {
   const fromOverride = normalizePublicOrigin(originOverride);
   if (fromOverride) return fromOverride;
@@ -51,11 +58,22 @@ export function buildPublicAppUrl(
   return `${base}${cleanRel}`;
 }
 
+export function buildCanonicalPublicAppUrl(
+  relativePathAndSearch = '/',
+  originOverride?: string
+): string {
+  const base = getCanonicalProductionOrigin(originOverride);
+  const cleanRel = relativePathAndSearch.startsWith('/')
+    ? relativePathAndSearch
+    : `/${relativePathAndSearch}`;
+  return `${base}${cleanRel}`;
+}
+
 export function buildPublicImageUrl(
   relativeAssetPath = '/og-share.png',
   originOverride?: string
 ): string {
-  return buildPublicAppUrl(relativeAssetPath, originOverride);
+  return buildCanonicalPublicAppUrl(relativeAssetPath, originOverride);
 }
 
 export function buildProfileShareUrl(
@@ -63,7 +81,7 @@ export function buildProfileShareUrl(
   originOverride?: string
 ): string {
   const cleanUsername = username.trim().toLowerCase();
-  return buildPublicAppUrl(
+  return buildCanonicalPublicAppUrl(
     `/?view=profile&username=${encodeURIComponent(cleanUsername)}`,
     originOverride
   );
@@ -73,7 +91,7 @@ export function buildMarketplaceListingShareUrl(
   listingId: string,
   originOverride?: string
 ): string {
-  return buildPublicAppUrl(
+  return buildCanonicalPublicAppUrl(
     `/?view=marketplace&listingId=${encodeURIComponent(listingId.trim())}`,
     originOverride
   );
@@ -85,7 +103,7 @@ export function buildPostShareUrl(
   originOverride?: string
 ): string {
   const view = kind === 'anonymous' ? 'anonymous' : 'for-you';
-  return buildPublicAppUrl(
+  return buildCanonicalPublicAppUrl(
     `/?view=${view}&postId=${encodeURIComponent(postId.trim())}`,
     originOverride
   );
@@ -95,7 +113,7 @@ export function buildUpdateShareUrl(
   updateId: string,
   originOverride?: string
 ): string {
-  return buildPublicAppUrl(
+  return buildCanonicalPublicAppUrl(
     `/?view=updates&postId=${encodeURIComponent(updateId.trim())}`,
     originOverride
   );
@@ -105,7 +123,7 @@ export function buildOpportunityShareUrl(
   opportunityId: string,
   originOverride?: string
 ): string {
-  return buildPublicAppUrl(
+  return buildCanonicalPublicAppUrl(
     `/?view=opportunities&opportunityId=${encodeURIComponent(opportunityId.trim())}`,
     originOverride
   );

@@ -61,6 +61,13 @@ function seoDevEndpointsPlugin(): Plugin {
         res.end(buildRobotsTxt(origin));
         return;
       }
+      if (pathname === '/api/push/config') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(JSON.stringify({ configured: false, vapidPublicKey: null }));
+        return;
+      }
       next();
     });
   };
@@ -90,6 +97,12 @@ export default defineConfig({
       injectRegister: false,
       manifestFilename: 'manifest.webmanifest',
       includeAssets: [
+        'favicon.ico',
+        'favicon.svg',
+        'favicon-16x16.png',
+        'favicon-32x32.png',
+        'favicon-48x48.png',
+        'site.webmanifest',
         'apple-touch-icon.png',
         'og-share.png',
         'pwa-192x192.png',

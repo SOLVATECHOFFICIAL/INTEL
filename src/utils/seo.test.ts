@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { getCanonicalProductionOrigin } from '../config/site';
 import { normalizeRouteDestination } from './navigationHistory';
 import {
   isIndexableDestination,
@@ -14,7 +17,7 @@ import {
 } from '../../api/_lib/siteOrigin';
 
 test('public routes are marked index, follow and build clean canonical URLs', () => {
-  const origin = 'https://lasued-intel.vercel.app';
+  const origin = 'https://lasuedintel.com.ng';
   const home = normalizeRouteDestination({ route: 'for-you' });
   const homeMeta = resolvePageSeoMetadata(home, origin);
   assert.equal(homeMeta.robots, 'index, follow');
@@ -26,11 +29,22 @@ test('public routes are marked index, follow and build clean canonical URLs', ()
   assert.equal(homeMeta.ogImageHeight, '630');
   assert.match(homeMeta.title, /LASUED Intel/);
 
+  const homeGraph = (homeMeta.jsonLd['@graph'] as { '@type': string }[]) ?? [];
+  assert.deepEqual(
+    homeGraph.map((item) => item['@type']),
+    ['Organization', 'WebSite', 'WebPage', 'WebApplication']
+  );
+
   const marketplace = normalizeRouteDestination({ route: 'marketplace' });
   const mktMeta = resolvePageSeoMetadata(marketplace, origin);
   assert.equal(mktMeta.robots, 'index, follow');
   assert.equal(mktMeta.canonicalUrl, `${origin}/?view=marketplace`);
   assert.match(mktMeta.title, /Marketplace/i);
+  const mktGraph = (mktMeta.jsonLd['@graph'] as { '@type': string }[]) ?? [];
+  assert.deepEqual(
+    mktGraph.map((item) => item['@type']),
+    ['Organization', 'WebSite', 'WebPage', 'WebApplication', 'BreadcrumbList']
+  );
 
   const anonymous = normalizeRouteDestination({ route: 'anonymous' });
   const anonMeta = resolvePageSeoMetadata(anonymous, origin);
@@ -45,8 +59,16 @@ test('public routes are marked index, follow and build clean canonical URLs', ()
   assert.match(updatesMeta.title, /Updates/i);
 });
 
+test('getCanonicalProductionOrigin defaults to https://lasuedintel.com.ng', () => {
+  assert.equal(getCanonicalProductionOrigin(), 'https://lasuedintel.com.ng');
+  assert.equal(
+    getCanonicalProductionOrigin('https://lasuedintel.com.ng/'),
+    'https://lasuedintel.com.ng'
+  );
+});
+
 test('protected, auth, admin, personal tabs, and active search queries are marked noindex, nofollow', () => {
-  const origin = 'https://lasued-intel-demo.vercel.app';
+  const origin = 'https://lasuedintel.com.ng';
   const nonIndexableRoutes = [
     normalizeRouteDestination({ route: 'admin' }),
     normalizeRouteDestination({ route: 'account' }),
@@ -82,11 +104,15 @@ test('protected, auth, admin, personal tabs, and active search queries are marke
     );
     const meta = resolvePageSeoMetadata(dest, origin);
     assert.equal(meta.robots, 'noindex, nofollow');
+    const graphTypes = (
+      (meta.jsonLd['@graph'] as { '@type': string }[]) ?? []
+    ).map((item) => item['@type']);
+    assert.equal(graphTypes.includes('BreadcrumbList'), false);
   }
 });
 
 test('public member profile route is indexable only on public tabs and normalizes username canonical', () => {
-  const origin = 'https://lasued-intel-demo.vercel.app';
+  const origin = 'https://lasuedintel.com.ng';
   const publicProfile = normalizeRouteDestination({
     route: 'profile',
     username: 'CampusRep',
@@ -106,7 +132,7 @@ test('public member profile route is indexable only on public tabs and normalize
 });
 
 test('canonical URL strips noisy commentId and default tab parameters', () => {
-  const origin = 'https://lasued-intel-demo.vercel.app';
+  const origin = 'https://lasuedintel.com.ng';
   const listing = normalizeRouteDestination({
     route: 'marketplace',
     marketplaceTab: 'browse',
@@ -120,7 +146,7 @@ test('canonical URL strips noisy commentId and default tab parameters', () => {
 });
 
 test('sitemap.xml and robots.txt use active origin and exclude private routes', () => {
-  const origin = 'https://lasued-intel-preview.vercel.app';
+  const origin = 'https://lasuedintel.com.ng';
   const xml = buildSitemapXml(origin);
   assert.ok(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
   for (const entry of PUBLIC_SITEMAP_ROUTES) {
@@ -142,6 +168,34 @@ test('sitemap.xml and robots.txt use active origin and exclude private routes', 
   assert.ok(robots.includes(`Sitemap: ${origin}/sitemap.xml`));
 });
 
+test('static SEO files and favicon assets exist in public/ and match production origin', () => {
+  const staticSitemap = fs.readFileSync(path.resolve('public/sitemap.xml'), 'utf8');
+  const staticRobots = fs.readFileSync(path.resolve('public/robots.txt'), 'utf8');
+  const staticManifest = JSON.parse(
+    fs.readFileSync(path.resolve('public/site.webmanifest'), 'utf8')
+  ) as { name: string; icons: { src: string; sizes: string }[] };
+
+  assert.equal(staticSitemap.trim(), buildSitemapXml('https://lasuedintel.com.ng').trim());
+  assert.equal(staticRobots.trim(), buildRobotsTxt('https://lasuedintel.com.ng').trim());
+  assert.equal(staticManifest.name, 'LASUED Intel');
+  assert.ok(staticManifest.icons.some((icon) => icon.src === '/pwa-192x192.png'));
+
+  for (const asset of [
+    'public/favicon.ico',
+    'public/favicon.svg',
+    'public/favicon-16x16.png',
+    'public/favicon-32x32.png',
+    'public/favicon-48x48.png',
+    'public/apple-touch-icon.png',
+    'public/og-share.png',
+    'public/pwa-192x192.png',
+    'public/pwa-512x512.png',
+    'public/pwa-maskable-512x512.png',
+  ]) {
+    assert.ok(fs.statSync(path.resolve(asset)).size > 0, `Empty or missing asset ${asset}`);
+  }
+});
+
 test('resolveServerPublicOrigin respects priority VITE_PUBLIC_BASE_URL > VERCEL_PROJECT_PRODUCTION_URL > VERCEL_URL > host', () => {
   const saved = {
     VITE_PUBLIC_BASE_URL: process.env.VITE_PUBLIC_BASE_URL,
@@ -151,7 +205,7 @@ test('resolveServerPublicOrigin respects priority VITE_PUBLIC_BASE_URL > VERCEL_
 
   try {
     process.env.VITE_PUBLIC_BASE_URL = 'https://custom.lasuedintel.example/';
-    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'lasued-intel.vercel.app';
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'lasuedintel.com.ng';
     process.env.VERCEL_URL = 'lasued-intel-git-main.vercel.app';
     assert.equal(
       resolveServerPublicOrigin({ host: 'ignored.local' }),
@@ -161,7 +215,7 @@ test('resolveServerPublicOrigin respects priority VITE_PUBLIC_BASE_URL > VERCEL_
     delete process.env.VITE_PUBLIC_BASE_URL;
     assert.equal(
       resolveServerPublicOrigin({ host: 'ignored.local' }),
-      'https://lasued-intel.vercel.app'
+      'https://lasuedintel.com.ng'
     );
 
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL;

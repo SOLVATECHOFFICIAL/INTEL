@@ -162,7 +162,12 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
   );
 
   let status: WebPushButtonStatus = 'hidden';
-  if (user && !isSuspended && capability.canShowEnableButton) {
+  if (
+    user &&
+    !isSuspended &&
+    capability.canShowEnableButton &&
+    vapidConfigured === true
+  ) {
     if (permission === 'denied') {
       status = 'denied';
     } else if (enabling) {

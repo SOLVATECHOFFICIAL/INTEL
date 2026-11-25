@@ -46,6 +46,12 @@ export interface FirestoreErrorInfo {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+const configuredFirestoreDbId =
+  firebaseConfig.firestoreDatabaseId &&
+  firebaseConfig.firestoreDatabaseId !== '(default)'
+    ? firebaseConfig.firestoreDatabaseId
+    : undefined;
+
 function createFirestoreClient() {
   try {
     return initializeFirestore(
@@ -56,7 +62,7 @@ function createFirestoreClient() {
           tabManager: persistentMultipleTabManager(),
         }),
       },
-      firebaseConfig.firestoreDatabaseId
+      configuredFirestoreDbId
     );
   } catch {
     try {
@@ -68,7 +74,7 @@ function createFirestoreClient() {
             tabManager: persistentSingleTabManager({ forceOwnership: false }),
           }),
         },
-        firebaseConfig.firestoreDatabaseId
+        configuredFirestoreDbId
       );
     } catch {
       try {
@@ -78,10 +84,12 @@ function createFirestoreClient() {
             experimentalForceLongPolling: true,
             localCache: memoryLocalCache(),
           },
-          firebaseConfig.firestoreDatabaseId
+          configuredFirestoreDbId
         );
       } catch {
-        return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+        return configuredFirestoreDbId
+          ? getFirestore(app, configuredFirestoreDbId)
+          : getFirestore(app);
       }
     }
   }

@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /*?*view=admin*
+Disallow: /*?*view=account*
+Disallow: /*?*view=notifications*
+Disallow: /*?*view=login*
+Disallow: /*?*view=register*
+Disallow: /*?*view=following*
+
+Sitemap: https://lasuedintel.com.ng/sitemap.xml

@@ -207,7 +207,7 @@ test('pushSanitizer defaults VAPID subject to lasuedintel@gmail.com, supports me
     body: '@adaobi check this update',
     targetPath: '/?view=for-you&postId=post1',
     unreadCount: 3,
-    allowedOrigin: 'https://lasued-intel.vercel.app',
+    allowedOrigin: 'https://lasuedintel.com.ng',
   });
   assert.equal(sanitized.targetPath, '/?view=for-you&postId=post1');
   assert.equal(sanitized.isAnonymous, false);

@@ -13,7 +13,7 @@
       "destination": "/api/robots"
     },
     {
-      "source": "/((?!api/|assets/|manifest\\.webmanifest|sw\\.js|workbox-.*|offline\\.html|lasued-intel\\.webp|og-share\\.png|pwa-.*|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml|favicon\\.ico).*)",
+      "source": "/((?!api/|assets/|manifest\\.webmanifest|site\\.webmanifest|sw\\.js|workbox-.*|offline\\.html|lasued-intel\\.webp|og-share\\.png|pwa-.*|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml|favicon\\.ico|favicon\\.svg|favicon-.*\\.png).*)",
       "destination": "/index.html"
     }
   ],
@@ -49,7 +49,7 @@
       ]
     },
     {
-      "source": "/manifest.webmanifest",
+      "source": "/(manifest|site)\\.webmanifest",
       "headers": [
         {
           "key": "Content-Type",
@@ -58,6 +58,19 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=3600"
+        }
+      ]
+    },
+    {
+      "source": "/favicon\\.svg",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "image/svg+xml; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
         }
       ]
     },
@@ -80,7 +93,7 @@
       ]
     },
     {
-      "source": "/(pwa-.*\\.png|apple-touch-icon\\.png|og-share\\.png|lasued-intel\\.webp)",
+      "source": "/(pwa-.*\\.png|favicon-.*\\.png|favicon\\.ico|apple-touch-icon\\.png|og-share\\.png|lasued-intel\\.webp)",
       "headers": [
         {
           "key": "Cache-Control",

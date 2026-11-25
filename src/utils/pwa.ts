@@ -289,7 +289,7 @@ export function parseNotificationTargetUrl(
     }
   } else {
     try {
-      const base = expectedOrigin || 'https://lasued-intel.vercel.app';
+      const base = expectedOrigin || 'https://lasuedintel.com.ng';
       const parsedUrl = new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, base);
       search = parsedUrl.search;
       pathname = parsedUrl.pathname || '/';

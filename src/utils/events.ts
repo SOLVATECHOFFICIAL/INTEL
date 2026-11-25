@@ -3,7 +3,7 @@ import {
   type CampusEvent,
   type EventCategory,
 } from '../types/database';
-import { buildPublicAppUrl } from '../config/site';
+import { buildCanonicalPublicAppUrl } from '../config/site';
 import { extractTimestampMs } from './contextualSearch';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -472,7 +472,7 @@ export function buildEventShareUrl(
   origin?: string
 ): string {
   const safeId = encodeURIComponent(eventId.trim());
-  return buildPublicAppUrl(
+  return buildCanonicalPublicAppUrl(
     `/?view=upcoming-events&eventId=${safeId}`,
     origin
   );

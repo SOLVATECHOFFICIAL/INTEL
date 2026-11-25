@@ -48,7 +48,7 @@ export interface PushDeliverySummary {
 
 const PUBLIC_SUPREME_ADMIN_EMAIL = 'lasuedintel@gmail.com';
 const UNDERGROUND_SUPREME_ADMIN_EMAIL = 'awoyinfasolomon1@gmail.com';
-const DEFAULT_FIRESTORE_DB_ID = 'ai-studio-intel-5bda81a4-c388-4f50-b629-ca521ae04516';
+const DEFAULT_FIRESTORE_DB_ID = '(default)';
 
 let cachedVapidSetupSignature: string | null = null;
 
@@ -216,7 +216,10 @@ export function getAdminClients(): {
   const databaseId =
     process.env.FIREBASE_FIRESTORE_DATABASE_ID?.trim() || DEFAULT_FIRESTORE_DB_ID;
 
-  const db = getFirestore(app, databaseId);
+  const db =
+    databaseId === '(default)'
+      ? getFirestore(app)
+      : getFirestore(app, databaseId);
   const auth = getAuth(app);
   return { db, auth };
 }

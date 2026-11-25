@@ -186,9 +186,9 @@ test('formatFirestoreOrAppError translates JSON-wrapped Connection failed errors
 test('hasValidFirebaseConfig validates real configs and rejects placeholders', () => {
   assert.equal(
     hasValidFirebaseConfig({
-      projectId: 'mystical-tooling-2dtd0',
+      projectId: 'lasued-intel',
       apiKey: 'AIzaSyDummyKey',
-      firestoreDatabaseId: 'ai-studio-intel-5bda81a4-c388-4f50-b629-ca521ae04516',
+      firestoreDatabaseId: '(default)',
     }),
     true
   );
@@ -196,15 +196,15 @@ test('hasValidFirebaseConfig validates real configs and rejects placeholders', (
     hasValidFirebaseConfig({
       projectId: 'remixed-project-id',
       apiKey: 'AIzaSyDummyKey',
-      firestoreDatabaseId: 'default',
+      firestoreDatabaseId: '(default)',
     }),
     false
   );
   assert.equal(
     hasValidFirebaseConfig({
-      projectId: 'mystical-tooling-2dtd0',
+      projectId: 'lasued-intel',
       apiKey: '',
-      firestoreDatabaseId: 'default',
+      firestoreDatabaseId: '(default)',
     }),
     false
   );
