@@ -122,6 +122,16 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setErrorMessage(null);
     setStatusMessage(null);
 
+    const sanitizeStoredUrl = (raw: string): string => {
+      const trimmed = raw.trim();
+      if (!trimmed || /^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) {
+        return '';
+      }
+      return /^https?:\/\//i.test(trimmed)
+        ? trimmed.slice(0, BLUEPRINT_LIMITS.urlMax)
+        : '';
+    };
+
     const payload: ProfileSettingsFormInput = {
       fullName,
       username,
@@ -132,13 +142,15 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       accountCategory,
       publicWhatsapp,
       showWhatsappPublicly: profile?.showWhatsappPublicly ?? true,
-      photoUrl: profile?.photoUrl ?? '',
-      coverUrl: profile?.coverUrl ?? '',
+      photoUrl: sanitizeStoredUrl(profile?.photoUrl ?? ''),
+      coverUrl: sanitizeStoredUrl(profile?.coverUrl ?? ''),
     };
 
     const validationErrors = validateProfileSettingsForm(payload);
-    if (Object.keys(validationErrors).length > 0) {
+    const firstValidationError = Object.values(validationErrors)[0];
+    if (firstValidationError) {
       setErrors(validationErrors);
+      setErrorMessage(firstValidationError);
       return;
     }
 

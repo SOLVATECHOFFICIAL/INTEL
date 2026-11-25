@@ -991,3 +991,35 @@ test('firestore.rules has balanced braces, parentheses, brackets, and valid post
   );
 });
 
+test('Self-profile saves support field-level users updates, privateUserData whatsapp/usernames sync, and legacy username reservations without exposing privilege escalation', () => {
+  assert.match(rulesText, /function isValidUserProfileFieldPatch\(data, prev\)/);
+
+  const fieldPatchBlock = rulesText.slice(
+    rulesText.indexOf('function isValidUserProfileFieldPatch(data, prev)'),
+    rulesText.indexOf('function isValidPrivateUser(data, userId)')
+  );
+  assert.match(fieldPatchBlock, /changed\.hasOnly\(\[/);
+  assert.doesNotMatch(fieldPatchBlock, /'badge'|'accountStatus'|'isVerified'|'isHiddenFromDirectory'|'followersCount'|'followingCount'|'memberId'|'uid'/);
+  assert.match(fieldPatchBlock, /!isReservedUsername\(data\.username\)/);
+  assert.match(fieldPatchBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/usernames\/\$\(data\.username\)\)\.data\.ownerUID == request\.auth\.uid/);
+
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  assert.match(usersBlock, /isValidUserProfileFieldPatch\(incoming\(\), existing\(\)\)/);
+
+  const privateBlock = rulesText.slice(
+    rulesText.indexOf('match /privateUserData/{userId}'),
+    rulesText.indexOf('match /anonymousHistory/{postId}')
+  );
+  assert.match(privateBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'whatsappNumber', 'phoneNumber', 'ownedUsernames', 'authEmail', 'updatedAt'\s*\]\)/);
+
+  const usernamesBlock = rulesText.slice(
+    rulesText.indexOf('match /usernames/{username}'),
+    rulesText.indexOf('match /posts/{postId}')
+  );
+  assert.match(usernamesBlock, /!\('createdAt' in existing\(\)\) \|\| incoming\(\)\.createdAt == existing\(\)\.createdAt/);
+  assert.match(usernamesBlock, /affectedKeys\(\)\.hasOnly\(\['isPrimary', 'redirectToUsername', 'updatedAt'\]\)/);
+});
+

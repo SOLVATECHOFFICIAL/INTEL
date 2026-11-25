@@ -514,6 +514,7 @@ export type WebPushButtonStatus =
   | 'ready_to_enable'
   | 'enabling'
   | 'enabled'
+  | 'opted_out'
   | 'denied';
 
 export interface ResolveWebPushUiStatusInput {
@@ -524,6 +525,7 @@ export interface ResolveWebPushUiStatusInput {
   vapidConfigured: boolean | null;
   enabling: boolean;
   isSubscribedForUser: boolean;
+  isOptedOut?: boolean;
 }
 
 export function resolveWebPushUiStatus(
@@ -546,6 +548,9 @@ export function resolveWebPushUiStatus(
   }
   if (input.isSubscribedForUser && input.permission === 'granted') {
     return 'enabled';
+  }
+  if (input.isOptedOut) {
+    return 'opted_out';
   }
   if (input.permission === 'default') {
     return 'ready_to_enable';

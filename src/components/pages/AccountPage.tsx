@@ -1122,7 +1122,14 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                   </div>
                   <div className="mt-3.5 flex flex-wrap items-center gap-3">
                     <PWAInstallControl variant="settings" />
-                    <WebPushNotificationButton variant="full" allowDisable showIosHint />
+                    <WebPushNotificationButton
+                      variant="full"
+                      allowDisable
+                      showIosHint
+                      allCategoriesDisabled={NOTIFICATION_PREFERENCE_OPTIONS.every(
+                        (opt) => notificationPrefs[opt.key] === false
+                      )}
+                    />
                   </div>
                 </div>
 
@@ -1435,6 +1442,16 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
     event.preventDefault();
     if (isSavingProfile || isSuspended) return;
 
+    const sanitizeStoredUrl = (raw: string): string => {
+      const trimmed = raw.trim();
+      if (!trimmed || /^data:/i.test(trimmed) || /^blob:/i.test(trimmed)) {
+        return '';
+      }
+      return /^https?:\/\//i.test(trimmed)
+        ? trimmed.slice(0, BLUEPRINT_LIMITS.urlMax)
+        : '';
+    };
+
     const payload: ProfileSettingsFormInput = {
       fullName: editFullName,
       username: editUsername,
@@ -1445,13 +1462,15 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
       accountCategory: editAccountCategory,
       publicWhatsapp: editWhatsapp,
       showWhatsappPublicly: initialValues.showWhatsappPublicly,
-      photoUrl: initialValues.photoUrl,
-      coverUrl: initialValues.coverUrl,
+      photoUrl: sanitizeStoredUrl(initialValues.photoUrl),
+      coverUrl: sanitizeStoredUrl(initialValues.coverUrl),
     };
 
     const validationErrors = validateProfileSettingsForm(payload);
-    if (Object.keys(validationErrors).length > 0) {
+    const firstValidationError = Object.values(validationErrors)[0];
+    if (firstValidationError) {
       setProfileErrors(validationErrors);
+      onError(firstValidationError);
       return;
     }
 

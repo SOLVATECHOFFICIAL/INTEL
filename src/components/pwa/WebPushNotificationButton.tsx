@@ -35,6 +35,7 @@ interface WebPushNotificationButtonProps {
   hideWhenEnabled?: boolean;
   dismissible?: boolean;
   onlyWhenPromptable?: boolean;
+  allCategoriesDisabled?: boolean;
 }
 
 export const WebPushNotificationButton: React.FC<
@@ -46,6 +47,7 @@ export const WebPushNotificationButton: React.FC<
   hideWhenEnabled = false,
   dismissible = false,
   onlyWhenPromptable = false,
+  allCategoriesDisabled = false,
 }) => {
   const {
     capability,
@@ -138,6 +140,50 @@ export const WebPushNotificationButton: React.FC<
     );
   }
 
+  if (status === 'opted_out' || (allCategoriesDisabled && status === 'server_unconfigured')) {
+    if (!allowDisable || variant === 'compact' || variant === 'banner') {
+      return null;
+    }
+    return (
+      <div
+        data-testid="web-push-opted-out-notice"
+        className="flex flex-col justify-between gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700 sm:flex-row sm:items-center"
+      >
+        <div className="flex items-start gap-2.5">
+          <BellOff
+            className="mt-0.5 h-4 w-4 shrink-0 text-slate-500"
+            aria-hidden="true"
+          />
+          <div>
+            <p className="font-semibold text-[#0B1A2E]">
+              {allCategoriesDisabled
+                ? 'Notification alerts turned off'
+                : 'Device notifications turned off'}
+            </p>
+            <p className="mt-0.5 leading-relaxed text-slate-600">
+              {allCategoriesDisabled
+                ? 'All notification categories above are turned off.'
+                : 'Push alerts are off on this device. Real-time in-app alerts follow your preferences above.'}
+            </p>
+          </div>
+        </div>
+        {!allCategoriesDisabled && (
+          <button
+            type="button"
+            onClick={() => {
+              clearError();
+              void enableNotifications();
+            }}
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-100"
+          >
+            <Bell className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+            <span>Turn back on</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (status === 'server_unconfigured') {
     if (variant === 'compact') {
       return null;
@@ -145,24 +191,39 @@ export const WebPushNotificationButton: React.FC<
     return (
       <div
         data-testid="web-push-unconfigured-notice"
-        className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 text-xs text-amber-950"
+        className="flex flex-col justify-between gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 text-xs text-amber-950 sm:flex-row sm:items-center"
       >
-        <CheckCircle2
-          className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
-          aria-hidden="true"
-        />
-        <div>
-          <p className="font-semibold">
-            {permission === 'granted'
-              ? 'Browser Notifications Allowed — Awaiting Server Push Keys'
-              : 'Device push alerts are awaiting server push keys'}
-          </p>
-          <p className="mt-0.5 leading-relaxed text-amber-900/90">
-            Real-time in-app alerts are active. Background Web Push notifications
-            when the app is closed will finish activating automatically once
-            VAPID keys and Firebase Admin credentials are configured.
-          </p>
+        <div className="flex items-start gap-2.5">
+          <CheckCircle2
+            className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+            aria-hidden="true"
+          />
+          <div>
+            <p className="font-semibold">
+              {permission === 'granted'
+                ? 'Browser Notifications Allowed — Awaiting Server Push Keys'
+                : 'Device push alerts are awaiting server push keys'}
+            </p>
+            <p className="mt-0.5 leading-relaxed text-amber-900/90">
+              Real-time in-app alerts are active. Background Web Push
+              notifications when the app is closed will finish activating
+              automatically once VAPID keys and Firebase Admin credentials are
+              configured.
+            </p>
+          </div>
         </div>
+
+        {(allowDisable || variant === 'banner') && (
+          <button
+            type="button"
+            onClick={() => void disableNotifications()}
+            data-testid="turn-off-device-notifications-button"
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 self-start rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-100/60 sm:self-center"
+          >
+            <BellOff className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Turn off on this device</span>
+          </button>
+        )}
       </div>
     );
   }

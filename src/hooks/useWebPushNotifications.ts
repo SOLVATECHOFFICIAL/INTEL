@@ -3,8 +3,10 @@ import { useFirebase } from '../context/firebaseContext';
 import {
   disableCurrentDevicePushSubscription,
   fetchConfiguredVapidPublicKey,
+  readDevicePushOptOut,
   subscribeDeviceToWebPush,
   verifyStoredPushSubscriptionForUser,
+  writeDevicePushOptOut,
 } from '../services/webPush';
 import {
   detectDeviceEnvironment,
@@ -42,9 +44,18 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       : 'unsupported'
   );
   const [verifiedForUid, setVerifiedForUid] = useState<string | null>(null);
+  const [optedOutForUid, setOptedOutForUid] = useState<string | null>(() =>
+    user && readDevicePushOptOut(user.uid) ? user.uid : null
+  );
   const [enabling, setEnabling] = useState(false);
   const [vapidConfigured, setVapidConfigured] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOptedOutForUid(
+      user && readDevicePushOptOut(user.uid) ? user.uid : null
+    );
+  }, [user]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -124,6 +135,8 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     }
     if (enabling) return false;
     setErrorMessage(null);
+    writeDevicePushOptOut(user.uid, false);
+    setOptedOutForUid(null);
 
     if (typeof window === 'undefined' || !('Notification' in window)) {
       setErrorMessage('Browser notifications are not supported on this device.');
@@ -183,7 +196,9 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
   const disableNotifications = useCallback(async (): Promise<void> => {
     if (!user) return;
     setErrorMessage(null);
-    await disableCurrentDevicePushSubscription(user.uid);
+    writeDevicePushOptOut(user.uid, true);
+    setOptedOutForUid(user.uid);
+    await disableCurrentDevicePushSubscription(user.uid, { markOptedOut: true });
     setVerifiedForUid(null);
   }, [user]);
 
@@ -199,6 +214,8 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       verifiedForUid === user.uid
   );
 
+  const isOptedOut = Boolean(user && optedOutForUid === user.uid);
+
   const status = resolveWebPushUiStatus({
     isSignedIn: Boolean(user),
     isSuspended,
@@ -207,6 +224,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     vapidConfigured,
     enabling,
     isSubscribedForUser,
+    isOptedOut,
   });
 
   return {

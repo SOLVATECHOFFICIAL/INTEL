@@ -618,7 +618,11 @@ export async function updateMemberAccountProfileAndUsername(
     .slice(0, BLUEPRINT_LIMITS.phoneMax);
   const cleanPhotoUrl = input.photoUrl.trim().slice(0, BLUEPRINT_LIMITS.urlMax);
   const cleanCoverUrl = input.coverUrl.trim().slice(0, BLUEPRINT_LIMITS.urlMax);
-  const cleanAuthEmail = authEmail.trim().slice(0, BLUEPRINT_LIMITS.emailMax);
+  const cleanAuthEmail = (
+    authEmail.trim() ||
+    auth.currentUser?.email?.trim() ||
+    ''
+  ).slice(0, BLUEPRINT_LIMITS.emailMax);
 
   const publicRef = doc(db, COLLECTION_NAMES.users, uid);
   const privateRef = doc(db, COLLECTION_NAMES.privateUserData, uid);
@@ -2297,6 +2301,8 @@ export async function updatePrivateUserInterests(
   const normalized = normalizeInterestList(interests);
   const ref = doc(db, COLLECTION_NAMES.privateUserData, uid);
   const path = `${COLLECTION_NAMES.privateUserData}/${uid}`;
+  const resolvedEmail =
+    fallbackEmail?.trim() || auth.currentUser?.email?.trim() || '';
   try {
     const existingSnap = await getDoc(ref);
     if (existingSnap.exists()) {
@@ -2306,11 +2312,11 @@ export async function updatePrivateUserInterests(
           updatedAt: serverTimestamp(),
         })
       );
-    } else if (fallbackEmail && fallbackEmail.trim().length >= 3) {
+    } else if (resolvedEmail.length >= 3) {
       await runWithFirestoreConnectionRetry(() =>
         setDoc(ref, {
           uid,
-          authEmail: fallbackEmail.trim().slice(0, 160),
+          authEmail: resolvedEmail.slice(0, 160),
           interestCategories: normalized,
           updatedAt: serverTimestamp(),
         })

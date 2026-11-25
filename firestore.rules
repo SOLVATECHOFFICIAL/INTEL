@@ -353,6 +353,38 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidUserProfileFieldPatch(data, prev) {
+      let changed = data.diff(prev).affectedKeys();
+      return changed.hasOnly([
+          'fullName', 'username', 'bio', 'department', 'faculty',
+          'level', 'accountCategory', 'photoUrl', 'coverUrl',
+          'photoImageId', 'coverImageId', 'publicEmail',
+          'publicWhatsapp', 'showWhatsappPublicly', 'updatedAt'
+        ]) &&
+        (!changed.hasAny(['fullName']) || (data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100)) &&
+        (!changed.hasAny(['username']) || (
+          data.username is string &&
+          data.username.size() >= 3 &&
+          data.username.size() <= 32 &&
+          data.username.matches('^[a-z0-9_]+$') &&
+          !isReservedUsername(data.username) &&
+          existsAfter(/databases/$(database)/documents/usernames/$(data.username)) &&
+          getAfter(/databases/$(database)/documents/usernames/$(data.username)).data.ownerUID == request.auth.uid
+        )) &&
+        (!changed.hasAny(['bio']) || isOptionalShortString(data, 'bio', 500)) &&
+        (!changed.hasAny(['department']) || isOptionalShortString(data, 'department', 120)) &&
+        (!changed.hasAny(['faculty']) || isOptionalShortString(data, 'faculty', 120)) &&
+        (!changed.hasAny(['level']) || isOptionalShortString(data, 'level', 32)) &&
+        (!changed.hasAny(['accountCategory']) || isOptionalShortString(data, 'accountCategory', 64)) &&
+        (!changed.hasAny(['photoUrl']) || isOptionalShortString(data, 'photoUrl', 512)) &&
+        (!changed.hasAny(['coverUrl']) || isOptionalShortString(data, 'coverUrl', 512)) &&
+        (!changed.hasAny(['photoImageId']) || isOptionalValidImageId(data, 'photoImageId')) &&
+        (!changed.hasAny(['coverImageId']) || isOptionalValidImageId(data, 'coverImageId')) &&
+        (!changed.hasAny(['publicEmail']) || isOptionalShortString(data, 'publicEmail', 160)) &&
+        (!changed.hasAny(['publicWhatsapp']) || isOptionalShortString(data, 'publicWhatsapp', 24)) &&
+        (!changed.hasAny(['showWhatsappPublicly']) || data.showWhatsappPublicly is bool);
+    }
+
     function isValidPrivateUser(data, userId) {
       return data.keys().hasAll(['uid', 'authEmail', 'updatedAt']) &&
         data.keys().hasOnly([
@@ -1303,13 +1335,18 @@ service cloud.firestore {
           // [MEMBER/ADMIN RULE] Narrow avatar/cover image upload or removal without failing on partial legacy profiles
           (isActiveSignedInUser() &&
             isOwnerOf(userId) &&
-            isOptionalShortString(incoming(), 'photoUrl', 512) &&
-            isOptionalShortString(incoming(), 'coverUrl', 512) &&
-            isOptionalValidImageId(incoming(), 'photoImageId') &&
-            isOptionalValidImageId(incoming(), 'coverImageId') &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['photoUrl']) || isOptionalShortString(incoming(), 'photoUrl', 512)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['coverUrl']) || isOptionalShortString(incoming(), 'coverUrl', 512)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['photoImageId']) || isOptionalValidImageId(incoming(), 'photoImageId')) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['coverImageId']) || isOptionalValidImageId(incoming(), 'coverImageId')) &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'photoUrl', 'coverUrl', 'photoImageId', 'coverImageId', 'updatedAt'
             ])
+          ) ||
+          // [MEMBER/ADMIN RULE] Safe field-level self-profile edit (supports legacy/partial user docs without allowing role, badge, status, or counter mutation)
+          (isActiveSignedInUser() &&
+            isOwnerOf(userId) &&
+            isValidUserProfileFieldPatch(incoming(), existing())
           ) ||
           // [MEMBER RULE] Self-profile edits & avatar/cover image updates (enforces reserved username check only when username changes)
           (isActiveSignedInUser() &&
@@ -1385,6 +1422,18 @@ service cloud.firestore {
               incoming().ownedAnonymousCommentIds is list &&
               incoming().ownedAnonymousCommentIds.size() <= 200 &&
               (incoming().ownedAnonymousCommentIds.size() == 0 || (incoming().ownedAnonymousCommentIds[0] is string && incoming().ownedAnonymousCommentIds[0].size() <= 128))
+            ))
+          ) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly([
+              'whatsappNumber', 'phoneNumber', 'ownedUsernames', 'authEmail', 'updatedAt'
+            ]) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['authEmail']) || (incoming().authEmail is string && incoming().authEmail.size() >= 3 && incoming().authEmail.size() <= 160)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['phoneNumber']) || isOptionalShortString(incoming(), 'phoneNumber', 24)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['whatsappNumber']) || isOptionalShortString(incoming(), 'whatsappNumber', 24)) &&
+            (!incoming().diff(existing()).affectedKeys().hasAny(['ownedUsernames']) || (
+              incoming().ownedUsernames is list &&
+              incoming().ownedUsernames.size() <= 20 &&
+              (incoming().ownedUsernames.size() == 0 || (incoming().ownedUsernames[0] is string && incoming().ownedUsernames[0].size() <= 32))
             ))
           )
         );
@@ -1529,9 +1578,11 @@ service cloud.firestore {
       allow update: if isActiveSignedInUser() &&
         username is string && username.size() >= 3 && username.size() <= 32 && username.matches('^[a-z0-9_]+$') &&
         existing().ownerUID == request.auth.uid &&
-        isValidUsernameReservation(incoming(), username) &&
         incoming().ownerUID == existing().ownerUID &&
-        incoming().createdAt == existing().createdAt &&
+        (!('username' in existing()) || incoming().username == existing().username) &&
+        (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) &&
+        (!('isPrimary' in incoming()) || incoming().isPrimary is bool) &&
+        (!('redirectToUsername' in incoming()) || (incoming().redirectToUsername is string && incoming().redirectToUsername.size() <= 32)) &&
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly(['isPrimary', 'redirectToUsername', 'updatedAt']);
       allow delete: if isSignedIn() && (existing().ownerUID == request.auth.uid || isSupremeAdmin());

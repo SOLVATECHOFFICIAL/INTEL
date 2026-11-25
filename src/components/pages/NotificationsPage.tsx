@@ -315,7 +315,14 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
 
       {!isSuspended && (
         <div className="mt-4 empty:hidden">
-          <WebPushNotificationButton variant="banner" hideWhenEnabled showIosHint />
+          <WebPushNotificationButton
+            variant="banner"
+            hideWhenEnabled
+            showIosHint
+            allCategoriesDisabled={Object.values(notificationPrefs).every(
+              (enabled) => enabled === false
+            )}
+          />
         </div>
       )}
 

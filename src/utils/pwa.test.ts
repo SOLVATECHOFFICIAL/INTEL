@@ -441,5 +441,47 @@ test('resolveWebPushUiStatus keeps notification settings visible until permissio
     }),
     'enabled'
   );
+
+  assert.equal(
+    resolveWebPushUiStatus({
+      isSignedIn: true,
+      isSuspended: false,
+      capability: supportedCap,
+      permission: 'granted',
+      vapidConfigured: false,
+      enabling: false,
+      isSubscribedForUser: false,
+      isOptedOut: true,
+    }),
+    'opted_out'
+  );
+
+  assert.equal(
+    resolveWebPushUiStatus({
+      isSignedIn: true,
+      isSuspended: false,
+      capability: supportedCap,
+      permission: 'granted',
+      vapidConfigured: true,
+      enabling: false,
+      isSubscribedForUser: false,
+      isOptedOut: true,
+    }),
+    'opted_out'
+  );
+
+  assert.equal(
+    resolveWebPushUiStatus({
+      isSignedIn: true,
+      isSuspended: false,
+      capability: supportedCap,
+      permission: 'granted',
+      vapidConfigured: true,
+      enabling: false,
+      isSubscribedForUser: true,
+      isOptedOut: true,
+    }),
+    'enabled'
+  );
 });
 

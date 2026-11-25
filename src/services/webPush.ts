@@ -27,6 +27,7 @@ import {
 
 let cachedServerVapidKey: string | null | undefined;
 const PUSH_ENDPOINT_MARKER_PREFIX = 'lasued_intel_push_synced_';
+const PUSH_OPT_OUT_KEY_PREFIX = 'lasued_intel_push_opt_out_';
 
 function arrayBufferToBase64Url(buffer: ArrayBuffer | null): string {
   if (!buffer) return '';
@@ -130,6 +131,36 @@ export function readSyncedPushMarker(uid: string): string | null {
     return window.localStorage.getItem(`${PUSH_ENDPOINT_MARKER_PREFIX}${uid}`);
   } catch {
     return null;
+  }
+}
+
+export function readDevicePushOptOut(uid?: string | null): boolean {
+  if (typeof window === 'undefined' || !uid || !isValidFirestoreId(uid)) {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(`${PUSH_OPT_OUT_KEY_PREFIX}${uid}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function writeDevicePushOptOut(
+  uid: string | null | undefined,
+  optedOut: boolean
+): void {
+  if (typeof window === 'undefined' || !uid || !isValidFirestoreId(uid)) {
+    return;
+  }
+  const key = `${PUSH_OPT_OUT_KEY_PREFIX}${uid}`;
+  try {
+    if (optedOut) {
+      window.localStorage.setItem(key, '1');
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage quota errors
   }
 }
 
@@ -387,17 +418,22 @@ export async function subscribeDeviceToWebPush(
     });
   }
 
+  writeDevicePushOptOut(uid, false);
   return await savePushSubscriptionForUser(uid, subscription);
 }
 
 export async function disableCurrentDevicePushSubscription(
-  uid?: string | null
+  uid?: string | null,
+  options?: { markOptedOut?: boolean }
 ): Promise<void> {
   const sub = await getActiveBrowserPushSubscription();
   const endpoint = sub ? extractSubscriptionKeys(sub).endpoint : null;
 
   if (uid && isValidFirestoreId(uid)) {
     writeSyncedPushMarker(uid, null);
+    if (options?.markOptedOut) {
+      writeDevicePushOptOut(uid, true);
+    }
     if (endpoint) {
       try {
         const subId = await computeDeterministicPushSubscriptionId(endpoint);
