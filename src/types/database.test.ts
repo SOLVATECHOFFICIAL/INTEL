@@ -191,6 +191,10 @@ test('role and badge hierarchy matches strict two-admin specification', () => {
     resolvePublicBadgesForProfile({ badge: 'none', isVerified: false }),
     []
   );
+  assert.deepEqual(
+    resolvePublicBadgesForProfile({ badge: 'none', isVerified: true }),
+    []
+  );
 
   // TikTok-style compact circular icon on feeds/comments vs full rectangular badge on opened views
   assert.equal(resolveBadgeRenderVariant('xs'), 'icon');

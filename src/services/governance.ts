@@ -306,6 +306,7 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
         uid: input.targetUid,
         role: input.nextRole,
         badge: nextBadge,
+        isVerified: false,
         isPermanentOwner: false,
         isHiddenFromDirectory: existingRole?.isHiddenFromDirectory ?? false,
         grantedBy: input.actorUid,
@@ -320,6 +321,7 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
 
       tx.update(userRef, {
         badge: nextBadge,
+        isVerified: false,
         updatedAt: serverTimestamp(),
       });
 

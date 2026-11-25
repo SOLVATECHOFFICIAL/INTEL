@@ -16,7 +16,7 @@ test('firestore.rules enforces default deny and verified email identity checks',
   assert.match(rulesText, /request\.auth\.token\.email_verified == true/);
 });
 
-test('all 26 blueprint collections have explicit rules in firestore.rules', () => {
+test('all 28 blueprint collections have explicit rules in firestore.rules', () => {
   const expectedCollections = [
     'users',
     'privateUserData',
@@ -29,6 +29,8 @@ test('all 26 blueprint collections have explicit rules in firestore.rules', () =
     'follows',
     'postReactions',
     'postViews',
+    'updates',
+    'adminUpdateMappings',
     'anonymousPosts',
     'anonymousComments',
     'anonymousIdentityMappings',
@@ -837,5 +839,84 @@ test('Guest and account deduplicated views across posts, anonymousPosts, and upd
     'updates',
   ]);
   assert.ok('visitorKey' in blueprint.entities.PostViewRecord.properties);
+});
+
+test('firestore.rules has balanced braces, parentheses, brackets, and valid postViews match syntax', () => {
+  const stack: string[] = [];
+  const pairs: Record<string, string> = { '(': ')', '{': '}', '[': ']' };
+  const closing = new Set([')', '}', ']']);
+  let inSingle = false;
+  let inDouble = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < rulesText.length; i++) {
+    const ch = rulesText[i];
+    const next = rulesText[i + 1];
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (inSingle) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+
+    if (ch in pairs) {
+      stack.push(pairs[ch]);
+    } else if (closing.has(ch)) {
+      const expected = stack.pop();
+      assert.equal(ch, expected, `Unexpected closing delimiter '${ch}' at index ${i}`);
+    }
+  }
+
+  assert.equal(inSingle, false, 'Unclosed single-quoted string in firestore.rules');
+  assert.equal(inDouble, false, 'Unclosed double-quoted string in firestore.rules');
+  assert.equal(inBlockComment, false, 'Unclosed block comment in firestore.rules');
+  assert.equal(stack.length, 0, `Unclosed delimiters remaining: ${stack.join(', ')}`);
+
+  assert.match(
+    rulesText,
+    /\(!isSignedIn\(\) &&\s*incoming\(\)\.keys\(\)\.hasAll\(\['id', 'targetCollection', 'targetId', 'visitorKey', 'createdAt'\]\)/
+  );
 });
 

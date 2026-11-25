@@ -651,8 +651,9 @@ export async function updateOfficialUpdateWithMedia(input: {
   }
 
   const imageOwnerUid =
-    input.update.authorMode === 'public_admin'
-      ? input.update.ownerUID ?? input.actorUid
+    input.update.authorMode === 'public_admin' &&
+    !isUndergroundSupremeAdminUser(currentUser)
+      ? input.actorUid
       : undefined;
 
   const path = `${COLLECTION_NAMES.updates}/${input.update.id}`;

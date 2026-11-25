@@ -867,7 +867,7 @@ export function resolvePublicBadgesForProfile(
   if (profile.badge === 'verified') {
     return ['verified'];
   }
-  return profile.isVerified ? ['verified'] : [];
+  return [];
 }
 
 export type BadgeRenderVariant = 'icon' | 'full';

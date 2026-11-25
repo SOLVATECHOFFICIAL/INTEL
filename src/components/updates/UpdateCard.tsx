@@ -37,6 +37,7 @@ import {
 } from '../../services/socialPosts';
 import {
   BLUEPRINT_LIMITS,
+  canModeratorDeleteByBadge,
   collectCommentTreeIds,
   resolveAdminUpdateFormat,
   type AdminUpdate,
@@ -1153,7 +1154,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                 const canDelete =
                   !viewerSuspended &&
                   Boolean(viewerUid) &&
-                  (canModify || isSupremeAdmin || isModerator);
+                  (canModify ||
+                    isSupremeAdmin ||
+                    (isModerator &&
+                      commentAuthor != null &&
+                      canModeratorDeleteByBadge(commentAuthor.badge)));
 
                 return (
                   <div
@@ -1340,7 +1345,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                               Boolean(viewerUid) &&
                               (canModifyReply ||
                                 isSupremeAdmin ||
-                                isModerator);
+                                (isModerator &&
+                                  replyAuthor != null &&
+                                  canModeratorDeleteByBadge(
+                                    replyAuthor.badge
+                                  )));
 
                             return (
                               <div

@@ -1042,6 +1042,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     const childReplyIds = treeIds.filter((replyId) => {
       const entry = entryById.get(replyId);
       if (!entry) return false;
+      if (entry.comment.parentCommentId === comment.id) return true;
       if (kind === 'ordinary') {
         return canModeratorDeleteOrdinaryComment(
           entry.comment as PostComment,

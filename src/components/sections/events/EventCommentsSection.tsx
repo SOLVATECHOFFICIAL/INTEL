@@ -542,6 +542,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     const removableReplies = treeIds.filter((replyId) => {
       const target = entryById.get(replyId);
       if (!target) return false;
+      if (target.comment.parentCommentId === comment.id) return true;
       return canDeleteCommentEntry(
         target.comment as PostComment,
         target.author
