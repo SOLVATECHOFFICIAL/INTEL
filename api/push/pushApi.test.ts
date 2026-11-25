@@ -2,23 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import * as webpush from 'web-push';
-import configHandler from './config';
-import dispatchHandler from './dispatch';
-import broadcastHandler from './broadcast';
+import fs from 'node:fs';
+import path from 'node:path';
+import configHandler from './config.js';
+import dispatchHandler from './dispatch.js';
+import broadcastHandler from './broadcast.js';
 import {
   isNotificationAllowedByRawPrefs,
   normalizeVapidKey,
   normalizeVapidSubject,
   sanitizePushPayloadForClient,
   unquoteEnvValue,
-} from '../_lib/pushSanitizer';
+} from '../_lib/pushSanitizer.js';
 import {
   parseServiceAccountJson,
   resolveNormalizedFirestoreDatabaseId,
   shouldPrunePushFailure,
   type VercelLikeRequest,
   type VercelLikeResponse,
-} from '../_lib/pushServer';
+} from '../_lib/pushServer.js';
 
 function createMockRes(): {
   res: VercelLikeResponse;
@@ -376,6 +378,37 @@ test('Vercel env helpers unquote values, parse escaped/base64 service accounts, 
     else process.env.WEB_PUSH_VAPID_PRIVATE_KEY = savedPriv;
     if (savedSa === undefined) delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     else process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
+  }
+});
+
+test('all /api/**/*.ts serverless files use explicit .js extensions on relative imports for Vercel ESM compatibility', () => {
+  const apiDir = path.resolve(process.cwd(), 'api');
+  const collectTsFiles = (dir: string): string[] => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const files: string[] = [];
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...collectTsFiles(fullPath));
+      } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+        files.push(fullPath);
+      }
+    }
+    return files;
+  };
+
+  const tsFiles = collectTsFiles(apiDir);
+  assert.ok(tsFiles.length >= 8);
+  const relativeImportRegex = /from\s+['"](\.[^'"]+)['"]/g;
+  for (const filePath of tsFiles) {
+    const content = fs.readFileSync(filePath, 'utf8');
+    let match: RegExpExecArray | null;
+    while ((match = relativeImportRegex.exec(content)) !== null) {
+      assert.ok(
+        match[1].endsWith('.js'),
+        `${path.relative(process.cwd(), filePath)} has extensionless relative import: ${match[1]}`
+      );
+    }
   }
 });
 

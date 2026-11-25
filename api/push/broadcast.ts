@@ -2,7 +2,7 @@ import {
   computeBroadcastDedupId,
   isValidFirestoreId,
   sanitizeInternalTargetPath,
-} from '../_lib/pushSanitizer';
+} from '../_lib/pushSanitizer.js';
 import {
   claimPushDedupLock,
   deliverWebPushToRecipient,
@@ -14,7 +14,7 @@ import {
   verifyPushApiCaller,
   type VercelLikeRequest,
   type VercelLikeResponse,
-} from '../_lib/pushServer';
+} from '../_lib/pushServer.js';
 
 const ALLOWED_BROADCAST_EVENTS = new Set([
   'new_event',

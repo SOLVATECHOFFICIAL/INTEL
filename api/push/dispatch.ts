@@ -1,4 +1,4 @@
-import { isValidFirestoreId } from '../_lib/pushSanitizer';
+import { isValidFirestoreId } from '../_lib/pushSanitizer.js';
 import {
   claimPushDedupLock,
   deliverWebPushToRecipient,
@@ -10,7 +10,7 @@ import {
   verifyPushApiCaller,
   type VercelLikeRequest,
   type VercelLikeResponse,
-} from '../_lib/pushServer';
+} from '../_lib/pushServer.js';
 
 export default async function handler(
   req: VercelLikeRequest,

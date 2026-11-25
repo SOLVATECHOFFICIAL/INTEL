@@ -13,8 +13,11 @@ import {
   sanitizePushPayloadForClient,
   timingSafeSecretMatch,
   unquoteEnvValue,
-} from './pushSanitizer';
-import { resolveServerPublicOrigin } from './siteOrigin';
+} from './pushSanitizer.js';
+import { resolveServerPublicOrigin } from './siteOrigin.js';
+
+const webpushClient =
+  (webpush as unknown as { default?: typeof webpush }).default ?? webpush;
 
 export interface VercelLikeRequest {
   method?: string;
@@ -64,7 +67,7 @@ export function sendJson(
   res.setHeader('Cache-Control', 'no-store');
   if (typeof res.status === 'function' && typeof res.json === 'function') {
     const target = res.status(statusCode);
-    if (typeof target.json === 'function') {
+    if (target && typeof target.json === 'function') {
       target.json(payload);
       return;
     }
@@ -343,7 +346,7 @@ export function ensureWebPushConfigured(): boolean {
 
   const signature = `${cfg.vapidSubject}|${cfg.vapidPublicKey}`;
   if (cachedVapidSetupSignature !== signature) {
-    webpush.setVapidDetails(
+    webpushClient.setVapidDetails(
       cfg.vapidSubject,
       cfg.vapidPublicKey,
       cfg.vapidPrivateKey
@@ -587,7 +590,7 @@ export async function deliverWebPushToRecipient(
   const results = await Promise.allSettled(
     validSubs.map(async (sub) => {
       try {
-        await webpush.sendNotification(
+        await webpushClient.sendNotification(
           {
             endpoint: sub.endpoint,
             keys: {
