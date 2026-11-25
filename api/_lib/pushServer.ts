@@ -9,6 +9,7 @@ import {
   type VercelLikeRequest,
 } from './pushConfig.js';
 import {
+  buildTestPushPayloads,
   isNotificationAllowedByRawPrefs,
   isValidFirestoreId,
   isValidHttpsPushEndpoint,
@@ -389,6 +390,141 @@ export async function deliverWebPushToRecipient(
 
   return {
     attempted: validSubs.length,
+    delivered,
+    pruned,
+    failed,
+  };
+}
+
+export async function deliverWebPushTestToRecipient(
+  db: Firestore,
+  input: {
+    recipientUid: string;
+    batchId: string;
+    count: number;
+    delaySeconds: number;
+    allowedOrigin: string;
+  }
+): Promise<PushDeliverySummary & { noSubscription?: boolean }> {
+  if (!isValidFirestoreId(input.recipientUid)) {
+    return { attempted: 0, delivered: 0, pruned: 0, failed: 0, noSubscription: true };
+  }
+
+  const subSnap = await db
+    .collection('privateUserData')
+    .doc(input.recipientUid)
+    .collection('pushSubscriptions')
+    .limit(25)
+    .get();
+
+  const rawSubs: StoredPushSub[] = subSnap.docs
+    .map((docSnap) => {
+      const data = docSnap.data() ?? {};
+      return {
+        id: docSnap.id,
+        endpoint: String(data.endpoint ?? ''),
+        p256dh: String(data.p256dh ?? ''),
+        auth: String(data.auth ?? ''),
+      };
+    })
+    .filter(
+      (sub) =>
+        isValidHttpsPushEndpoint(sub.endpoint) &&
+        sub.p256dh.length >= 20 &&
+        sub.auth.length >= 10
+    );
+
+  const seenEndpoints = new Set<string>();
+  const validSubs: StoredPushSub[] = [];
+  for (const sub of rawSubs) {
+    const normalizedEndpoint = sub.endpoint.trim();
+    if (!seenEndpoints.has(normalizedEndpoint)) {
+      seenEndpoints.add(normalizedEndpoint);
+      validSubs.push({ ...sub, endpoint: normalizedEndpoint });
+    }
+  }
+
+  if (validSubs.length === 0) {
+    return { attempted: 0, delivered: 0, pruned: 0, failed: 0, noSubscription: true };
+  }
+
+  if (input.delaySeconds > 0) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(6000, Math.max(0, input.delaySeconds * 1000)))
+    );
+  }
+
+  const payloads = buildTestPushPayloads({
+    batchId: input.batchId,
+    count: input.count,
+    allowedOrigin: input.allowedOrigin,
+  });
+
+  const wp = await loadWebPushClient();
+  let attempted = 0;
+  let delivered = 0;
+  let pruned = 0;
+  let failed = 0;
+  const prunedSubIds = new Set<string>();
+
+  for (let i = 0; i < payloads.length; i += 1) {
+    const activeSubs = validSubs.filter((sub) => !prunedSubIds.has(sub.id));
+    if (activeSubs.length === 0) break;
+
+    const serializedPayload = JSON.stringify(payloads[i]);
+    const results = await Promise.allSettled(
+      activeSubs.map(async (sub) => {
+        try {
+          await wp.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: {
+                p256dh: sub.p256dh,
+                auth: sub.auth,
+              },
+            },
+            serializedPayload,
+            {
+              TTL: 86_400,
+              urgency: 'high',
+            }
+          );
+          return { outcome: 'delivered' as const, subId: sub.id };
+        } catch (err) {
+          if (shouldPrunePushFailure(err)) {
+            prunedSubIds.add(sub.id);
+            await db
+              .collection('privateUserData')
+              .doc(input.recipientUid)
+              .collection('pushSubscriptions')
+              .doc(sub.id)
+              .delete()
+              .catch(() => undefined);
+            return { outcome: 'pruned' as const, subId: sub.id };
+          }
+          return { outcome: 'failed' as const, subId: sub.id };
+        }
+      })
+    );
+
+    attempted += activeSubs.length;
+    for (const resItem of results) {
+      if (resItem.status === 'fulfilled') {
+        if (resItem.value.outcome === 'delivered') delivered += 1;
+        else if (resItem.value.outcome === 'pruned') pruned += 1;
+        else failed += 1;
+      } else {
+        failed += 1;
+      }
+    }
+
+    if (i < payloads.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+
+  return {
+    attempted,
     delivered,
     pruned,
     failed,

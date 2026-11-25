@@ -75,6 +75,7 @@ import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
 import { PWAInstallControl } from '../pwa/PWAInstallControl';
+import { PushTestControls } from '../pwa/PushTestControls';
 import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 export type { AccountSettingsSection };
@@ -1131,6 +1132,11 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                       )}
                     />
                   </div>
+                  {!isSuspended && (
+                    <div className="mt-3 empty:hidden">
+                      <PushTestControls compact />
+                    </div>
+                  )}
                 </div>
 
                 <div className="rounded-xl border border-slate-200 p-4">

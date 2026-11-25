@@ -44,6 +44,7 @@ import { TikTokFollowButton } from '../TikTokFollowButton';
 import { EmailVerificationBanner } from '../auth/EmailVerificationBanner';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { PushTestControls } from '../pwa/PushTestControls';
 import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 interface NotificationsPageProps {
@@ -314,7 +315,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
       </div>
 
       {!isSuspended && (
-        <div className="mt-4 empty:hidden">
+        <div className="mt-4 space-y-2.5 empty:hidden">
           <WebPushNotificationButton
             variant="banner"
             hideWhenEnabled
@@ -323,6 +324,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
               (enabled) => enabled === false
             )}
           />
+          <PushTestControls compact />
         </div>
       )}
 

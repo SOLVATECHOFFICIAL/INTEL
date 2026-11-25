@@ -160,6 +160,7 @@ export function sanitizePushPayloadForClient(input: {
   targetPath?: unknown;
   unreadCount?: number;
   allowedOrigin?: string;
+  tag?: string | null;
 }): SanitizedPushClientPayload {
   const isAnonymous = input.eventType === 'anonymous_reply';
   const rawTitle =
@@ -186,13 +187,20 @@ export function sanitizePushPayloadForClient(input: {
       ? Math.max(0, Math.floor(input.unreadCount))
       : 0;
 
-  const tag = isAnonymous
-    ? notificationId
-      ? `anon_${notificationId.slice(0, 48)}`
-      : 'lasued_anonymous'
-    : notificationId
-      ? `notif_${notificationId.slice(0, 60)}`
-      : `lasued_${input.eventType.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)}`;
+  const customTag =
+    typeof input.tag === 'string'
+      ? input.tag.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80)
+      : '';
+
+  const tag = customTag
+    ? customTag
+    : isAnonymous
+      ? notificationId
+        ? `anon_${notificationId.slice(0, 48)}`
+        : 'lasued_anonymous'
+      : notificationId
+        ? `notif_${notificationId.slice(0, 60)}`
+        : `lasued_${input.eventType.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)}`;
 
   return {
     notificationId,
@@ -225,4 +233,77 @@ export function computeBroadcastDedupId(input: {
   const seed = `${input.eventType}|${input.targetPath}|${input.title}|${input.firstNotificationId || ''}`;
   const hash = crypto.createHash('sha256').update(seed, 'utf8').digest('hex').slice(0, 32);
   return `bcast_${hash}`;
+}
+
+export function clampTestPushOptions(input?: {
+  count?: unknown;
+  delaySeconds?: unknown;
+}): {
+  count: number;
+  delaySeconds: number;
+} {
+  const rawCount =
+    typeof input?.count === 'number' && Number.isFinite(input.count)
+      ? Math.floor(input.count)
+      : 1;
+  const count = Math.min(3, Math.max(1, rawCount));
+
+  const rawDelay =
+    typeof input?.delaySeconds === 'number' && Number.isFinite(input.delaySeconds)
+      ? Math.floor(input.delaySeconds)
+      : 0;
+  const delaySeconds = Math.min(6, Math.max(0, rawDelay));
+
+  return { count, delaySeconds };
+}
+
+export function buildTestPushPayloads(input: {
+  batchId: string;
+  count: number;
+  unreadCount?: number;
+  allowedOrigin?: string;
+}): SanitizedPushClientPayload[] {
+  const safeBatch = input.batchId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'test';
+  const safeCount = Math.min(3, Math.max(1, Math.floor(input.count)));
+
+  const templates: Array<{
+    eventType: string;
+    title: string;
+    body: string;
+    targetPath: string;
+  }> = [
+    {
+      eventType: 'official_update',
+      title: 'LASUED Intel Test Alert (1/' + safeCount + ')',
+      body:
+        safeCount === 1
+          ? 'Background push is working! Alerts arrive even when Chrome is closed.'
+          : 'First queued alert — background push wakes your device when data reconnects.',
+      targetPath: '/?view=notifications',
+    },
+    {
+      eventType: 'comment',
+      title: 'Campus Post Reply (2/' + safeCount + ')',
+      body: 'Adaobi replied: "Have you seen the updated LASUED lecture timetable?"',
+      targetPath: '/?view=for-you',
+    },
+    {
+      eventType: 'mention',
+      title: 'Campus Mention (3/' + safeCount + ')',
+      body: 'Chidi @mentioned you in The Unfiltered — notifications stack like WhatsApp.',
+      targetPath: '/?view=anonymous',
+    },
+  ];
+
+  return templates.slice(0, safeCount).map((tpl, idx) =>
+    sanitizePushPayloadForClient({
+      eventType: tpl.eventType,
+      title: tpl.title,
+      body: tpl.body,
+      targetPath: tpl.targetPath,
+      unreadCount: input.unreadCount ?? idx + 1,
+      allowedOrigin: input.allowedOrigin,
+      tag: `test_${safeBatch}_${idx + 1}`,
+    })
+  );
 }

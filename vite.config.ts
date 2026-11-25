@@ -132,6 +132,26 @@ function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
         res.end(JSON.stringify(resolveLocalPushConfig(req.url, req.headers)));
         return;
       }
+      if (pathname === '/api/push/test') {
+        const method = (req as { method?: string }).method ?? 'GET';
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        if (method !== 'POST') {
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: 'Method not allowed' }));
+          return;
+        }
+        const cfg = resolveLocalPushConfig(req.url, req.headers);
+        res.statusCode = 200;
+        res.end(
+          JSON.stringify({
+            ok: false,
+            configured: cfg.configured,
+            skipped: true,
+          })
+        );
+        return;
+      }
       next();
     });
   };
