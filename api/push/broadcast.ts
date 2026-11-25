@@ -154,10 +154,27 @@ export default async function handler(
       lastDoc = groupSnap.docs[groupSnap.docs.length - 1];
     }
   } catch {
-    // Fallback if collectionGroup query is unavailable: deliver directly for smaller explicit target batches
-    const fallbackTargets = (requestedUids ?? []).slice(0, 40);
-    for (const uid of fallbackTargets) {
-      subsByUid.set(uid, []);
+    // Fallback if collectionGroup query is unavailable: deliver directly per recipient
+    if (requestedUids && requestedUids.length > 0) {
+      for (const uid of requestedUids.slice(0, 500)) {
+        subsByUid.set(uid, []);
+      }
+    } else {
+      try {
+        const activeSnap = await clients.db
+          .collection('users')
+          .where('accountStatus', '==', 'active')
+          .select()
+          .limit(500)
+          .get();
+        for (const userDoc of activeSnap.docs) {
+          if (isValidFirestoreId(userDoc.id)) {
+            subsByUid.set(userDoc.id, []);
+          }
+        }
+      } catch {
+        // Unable to enumerate users in fallback mode
+      }
     }
   }
 

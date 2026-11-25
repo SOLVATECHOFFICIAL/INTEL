@@ -44,6 +44,7 @@ import { TikTokFollowButton } from '../TikTokFollowButton';
 import { EmailVerificationBanner } from '../auth/EmailVerificationBanner';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
+import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
 
 interface NotificationsPageProps {
   onNavigate: (
@@ -311,6 +312,12 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
           )}
         </div>
       </div>
+
+      {!isSuspended && (
+        <div className="mt-4 empty:hidden">
+          <WebPushNotificationButton variant="banner" hideWhenEnabled showIosHint />
+        </div>
+      )}
 
       {/* Read Status & Category Filters */}
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -19,6 +19,7 @@ import {
 import {
   computeDeterministicPushSubscriptionId,
   detectDeviceEnvironment,
+  doVapidApplicationServerKeysMatch,
   isValidHttpsPushEndpoint,
   isValidVapidPublicKey,
   urlBase64ToUint8Array,
@@ -132,6 +133,30 @@ export function readSyncedPushMarker(uid: string): string | null {
   }
 }
 
+async function waitForActiveServiceWorker(
+  timeoutMs = 3000
+): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+    return null;
+  }
+  const direct =
+    (await navigator.serviceWorker.getRegistration('/').catch(() => undefined)) ??
+    (await navigator.serviceWorker.getRegistration().catch(() => undefined));
+  if (direct) return direct;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function getActiveBrowserPushSubscription(): Promise<PushSubscription | null> {
   if (
     typeof navigator === 'undefined' ||
@@ -143,9 +168,7 @@ export async function getActiveBrowserPushSubscription(): Promise<PushSubscripti
   }
 
   try {
-    const registration =
-      (await navigator.serviceWorker.getRegistration('/')) ??
-      (await navigator.serviceWorker.ready);
+    const registration = await waitForActiveServiceWorker();
     if (!registration?.pushManager) return null;
     return await registration.pushManager.getSubscription();
   } catch {
@@ -240,8 +263,35 @@ export async function verifyStoredPushSubscriptionForUser(
   uid: string
 ): Promise<boolean> {
   if (!isValidFirestoreId(uid)) return false;
+  if (
+    typeof window !== 'undefined' &&
+    'Notification' in window &&
+    Notification.permission !== 'granted'
+  ) {
+    return false;
+  }
+
   const sub = await getActiveBrowserPushSubscription();
   if (!sub) return false;
+
+  const configuredVapidKey = await fetchConfiguredVapidPublicKey().catch(
+    () => null
+  );
+  const existingServerKey = sub.options?.applicationServerKey ?? null;
+  if (
+    configuredVapidKey &&
+    existingServerKey &&
+    !doVapidApplicationServerKeysMatch(existingServerKey, configuredVapidKey)
+  ) {
+    try {
+      await disableCurrentDevicePushSubscription(uid);
+      const rotated = await subscribeDeviceToWebPush(uid, configuredVapidKey);
+      return Boolean(rotated.endpoint);
+    } catch {
+      return false;
+    }
+  }
+
   const { endpoint } = extractSubscriptionKeys(sub);
   if (!isValidHttpsPushEndpoint(endpoint)) return false;
 
@@ -291,9 +341,7 @@ export async function subscribeDeviceToWebPush(
     );
   }
 
-  const registration =
-    (await navigator.serviceWorker.getRegistration('/')) ??
-    (await navigator.serviceWorker.ready);
+  const registration = await waitForActiveServiceWorker(4000);
 
   if (!registration?.pushManager) {
     throw new Error(
@@ -302,6 +350,35 @@ export async function subscribeDeviceToWebPush(
   }
 
   let subscription = await registration.pushManager.getSubscription();
+  if (subscription) {
+    const existingServerKey = subscription.options?.applicationServerKey ?? null;
+    if (
+      existingServerKey &&
+      !doVapidApplicationServerKeysMatch(existingServerKey, vapidKey)
+    ) {
+      const staleEndpoint = extractSubscriptionKeys(subscription).endpoint;
+      if (staleEndpoint) {
+        try {
+          const staleSubId =
+            await computeDeterministicPushSubscriptionId(staleEndpoint);
+          await deleteDoc(
+            doc(
+              db,
+              COLLECTION_NAMES.privateUserData,
+              uid,
+              SUBCOLLECTION_NAMES.pushSubscriptions,
+              staleSubId
+            )
+          );
+        } catch {
+          // Non-blocking cleanup before VAPID key rotation
+        }
+      }
+      await subscription.unsubscribe().catch(() => undefined);
+      subscription = null;
+    }
+  }
+
   if (!subscription) {
     const applicationServerKey = urlBase64ToUint8Array(vapidKey);
     subscription = await registration.pushManager.subscribe({

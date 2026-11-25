@@ -1,9 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import {
+  isValidVapidPrivateKey,
+  isValidVapidPublicKey,
+} from './api/_lib/pushSanitizer.ts';
 import {
   buildRobotsTxt,
   buildSitemapXml,
@@ -29,7 +33,24 @@ function copyRootLogoPlugin(): Plugin {
   };
 }
 
-function seoDevEndpointsPlugin(): Plugin {
+function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
+  const resolveLocalPushConfig = () => {
+    const publicKey =
+      env.WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ||
+      env.VITE_WEB_PUSH_VAPID_PUBLIC_KEY?.trim() ||
+      '';
+    const privateKey = env.WEB_PUSH_VAPID_PRIVATE_KEY?.trim() || '';
+    const serviceAccountRaw = env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || '';
+    const configured =
+      isValidVapidPublicKey(publicKey) &&
+      isValidVapidPrivateKey(privateKey) &&
+      serviceAccountRaw.length > 0;
+    return {
+      configured,
+      vapidPublicKey: configured ? publicKey : null,
+    };
+  };
+
   const attachMiddleware = (
     middlewares: {
       use: (
@@ -65,7 +86,7 @@ function seoDevEndpointsPlugin(): Plugin {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
-        res.end(JSON.stringify({ configured: false, vapidPublicKey: null }));
+        res.end(JSON.stringify(resolveLocalPushConfig()));
         return;
       }
       next();
@@ -83,12 +104,14 @@ function seoDevEndpointsPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  return {
   plugins: [
     react(),
     tailwindcss(),
     copyRootLogoPlugin(),
-    seoDevEndpointsPlugin(),
+    seoDevEndpointsPlugin(env),
     VitePWA({
       strategies: 'injectManifest',
       srcDir: 'src',
@@ -177,4 +200,5 @@ export default defineConfig({
     port: 3000,
     allowedHosts: true,
   },
+  };
 });

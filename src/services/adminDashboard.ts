@@ -109,7 +109,11 @@ import {
   notifyOpportunityMutated,
   notifyTrustedContactMutated,
 } from './cacheInvalidation';
-import { deletePostComment, deletePostCascading } from './socialPosts';
+import {
+  deletePostComment,
+  deletePostCascading,
+  notifyUsersOfImportantCampusPost,
+} from './socialPosts';
 import {
   triggerBestEffortPushBroadcast,
   triggerBestEffortPushDispatch,
@@ -1123,6 +1127,17 @@ export async function adminTogglePostFlagsWithAudit(input: {
       updatedAt: Date.now(),
     };
     notifyCommunityPostUpdated(updatedPost);
+
+    const becameOfficial = !input.post.isOfficial && nextOfficial;
+    const becamePinned = !input.post.isPinned && nextPinned;
+    if (becameOfficial || becamePinned) {
+      void notifyUsersOfImportantCampusPost({
+        post: updatedPost,
+        actorUid: input.actorUid,
+        reason: becameOfficial ? 'official' : 'pinned',
+      });
+    }
+
     return updatedPost;
   } catch (error) {
     handleFirestoreError(

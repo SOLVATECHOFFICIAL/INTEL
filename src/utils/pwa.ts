@@ -320,3 +320,243 @@ export function parseNotificationTargetUrl(
     normalizedUrl: `${pathname}${search}`,
   };
 }
+
+export function doVapidApplicationServerKeysMatch(
+  existingKeyBuffer: ArrayBuffer | Uint8Array | null | undefined,
+  expectedVapidPublicKey?: string | null
+): boolean {
+  if (
+    !existingKeyBuffer ||
+    typeof expectedVapidPublicKey !== 'string' ||
+    !isValidVapidPublicKey(expectedVapidPublicKey)
+  ) {
+    return false;
+  }
+  try {
+    const existingBytes =
+      existingKeyBuffer instanceof Uint8Array
+        ? existingKeyBuffer
+        : new Uint8Array(existingKeyBuffer);
+    const expectedBytes = urlBase64ToUint8Array(expectedVapidPublicKey);
+    if (existingBytes.byteLength === 0 || existingBytes.byteLength !== expectedBytes.byteLength) {
+      return false;
+    }
+    for (let i = 0; i < existingBytes.byteLength; i += 1) {
+      if (existingBytes[i] !== expectedBytes[i]) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface NormalizedSwPushPayload {
+  title: string;
+  body: string;
+  targetPath: string;
+  tag?: string;
+  notificationId: string | null;
+  eventType: string;
+  unreadCount?: number;
+  isAnonymous: boolean;
+  icon: string;
+  badge: string;
+}
+
+function resolveSwSafeTargetPath(
+  rawPath: unknown,
+  origin: string
+): string {
+  if (typeof rawPath !== 'string') {
+    return '/?view=notifications';
+  }
+  const trimmed = rawPath.trim();
+  if (!trimmed || /^(javascript|data|vbscript):/i.test(trimmed)) {
+    return '/?view=notifications';
+  }
+  try {
+    const parsed = new URL(trimmed, origin);
+    if (parsed.origin !== origin) {
+      return '/?view=notifications';
+    }
+    return `${parsed.pathname || '/'}${parsed.search}`;
+  } catch {
+    return '/?view=notifications';
+  }
+}
+
+export function normalizeIncomingPushPayload(
+  raw: unknown,
+  origin: string = 'https://lasuedintel.com.ng'
+): NormalizedSwPushPayload {
+  const root =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const fcmNotification =
+    root.notification &&
+    typeof root.notification === 'object' &&
+    !Array.isArray(root.notification)
+      ? (root.notification as Record<string, unknown>)
+      : {};
+  const fcmData =
+    root.data && typeof root.data === 'object' && !Array.isArray(root.data)
+      ? (root.data as Record<string, unknown>)
+      : {};
+  const fcmOptions =
+    root.fcmOptions &&
+    typeof root.fcmOptions === 'object' &&
+    !Array.isArray(root.fcmOptions)
+      ? (root.fcmOptions as Record<string, unknown>)
+      : {};
+
+  const eventType =
+    typeof root.eventType === 'string'
+      ? root.eventType
+      : typeof fcmData.eventType === 'string'
+        ? fcmData.eventType
+        : '';
+
+  const isAnonymous =
+    eventType === 'anonymous_reply' ||
+    root.isAnonymous === true ||
+    fcmData.isAnonymous === true ||
+    fcmData.isAnonymous === 'true';
+
+  const rawTitleCandidates = [
+    root.title,
+    fcmNotification.title,
+    fcmData.title,
+  ];
+  const chosenTitle = rawTitleCandidates.find(
+    (v): v is string => typeof v === 'string' && v.trim().length > 0
+  );
+  const title = isAnonymous
+    ? (chosenTitle?.trim().slice(0, 140) || 'New reply in The Unfiltered')
+    : (chosenTitle?.trim().slice(0, 140) || 'LASUED Intel');
+
+  const rawBodyCandidates = [
+    root.body,
+    fcmNotification.body,
+    fcmData.body,
+  ];
+  const chosenBody = rawBodyCandidates.find(
+    (v): v is string => typeof v === 'string' && v.trim().length > 0
+  );
+  const body =
+    chosenBody?.trim().slice(0, 260) ||
+    'Tap to view the latest update on LASUED Intel.';
+
+  const rawPath =
+    root.targetPath ??
+    fcmData.targetPath ??
+    fcmData.url ??
+    fcmData.link ??
+    fcmOptions.link ??
+    fcmNotification.click_action;
+
+  const targetPath = resolveSwSafeTargetPath(rawPath, origin);
+
+  const rawTag =
+    typeof root.tag === 'string'
+      ? root.tag
+      : typeof fcmNotification.tag === 'string'
+        ? fcmNotification.tag
+        : typeof fcmData.tag === 'string'
+          ? fcmData.tag
+          : undefined;
+  const tag =
+    rawTag && rawTag.trim().length > 0
+      ? rawTag.trim().slice(0, 80)
+      : undefined;
+
+  const rawNotifId =
+    typeof root.notificationId === 'string'
+      ? root.notificationId
+      : typeof fcmData.notificationId === 'string'
+        ? fcmData.notificationId
+        : null;
+  const notificationId =
+    rawNotifId && /^[a-zA-Z0-9_-]{1,128}$/.test(rawNotifId)
+      ? rawNotifId
+      : null;
+
+  const rawUnread = root.unreadCount ?? fcmData.unreadCount;
+  let unreadCount: number | undefined;
+  if (typeof rawUnread === 'number' && Number.isFinite(rawUnread)) {
+    unreadCount = Math.max(0, Math.floor(rawUnread));
+  } else if (typeof rawUnread === 'string' && /^\d+$/.test(rawUnread.trim())) {
+    unreadCount = Math.max(0, Math.floor(Number(rawUnread.trim())));
+  }
+
+  return {
+    title,
+    body,
+    targetPath,
+    ...(tag ? { tag } : {}),
+    notificationId,
+    eventType,
+    ...(unreadCount !== undefined ? { unreadCount } : {}),
+    isAnonymous,
+    icon: '/pwa-192x192.png',
+    badge: '/pwa-192x192.png',
+  };
+}
+
+export type WebPushButtonStatus =
+  | 'hidden'
+  | 'checking'
+  | 'ios_install_required'
+  | 'unsupported'
+  | 'server_unconfigured'
+  | 'ready_to_enable'
+  | 'enabling'
+  | 'enabled'
+  | 'denied';
+
+export interface ResolveWebPushUiStatusInput {
+  isSignedIn: boolean;
+  isSuspended: boolean;
+  capability: PushCapabilityAssessment;
+  permission: NotificationPermission | 'unsupported';
+  vapidConfigured: boolean | null;
+  enabling: boolean;
+  isSubscribedForUser: boolean;
+}
+
+export function resolveWebPushUiStatus(
+  input: ResolveWebPushUiStatusInput
+): WebPushButtonStatus {
+  if (!input.isSignedIn || input.isSuspended) {
+    return 'hidden';
+  }
+  if (input.capability.isStandaloneRequiredOnIos) {
+    return 'ios_install_required';
+  }
+  if (!input.capability.canShowEnableButton || input.permission === 'unsupported') {
+    return 'unsupported';
+  }
+  if (input.permission === 'denied') {
+    return 'denied';
+  }
+  if (input.enabling) {
+    return 'enabling';
+  }
+  if (input.isSubscribedForUser && input.permission === 'granted') {
+    return 'enabled';
+  }
+  if (input.permission === 'default') {
+    return 'ready_to_enable';
+  }
+  if (input.vapidConfigured === false) {
+    return 'server_unconfigured';
+  }
+  if (input.vapidConfigured === null) {
+    return 'checking';
+  }
+  return 'ready_to_enable';
+}
+
+

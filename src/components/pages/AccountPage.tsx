@@ -1110,7 +1110,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                           className="h-4 w-4 text-[#1E88E5]"
                           aria-hidden="true"
                         />
-                        App Install &amp; In-App Alerts
+                        Push Notifications &amp; App Install
                       </h3>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
                         All alerts are delivered inside LASUED Intel in real time

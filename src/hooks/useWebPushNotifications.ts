@@ -9,15 +9,13 @@ import {
 import {
   detectDeviceEnvironment,
   evaluatePushCapabilities,
+  resolveWebPushUiStatus,
   type PushCapabilityAssessment,
+  type WebPushButtonStatus,
 } from '../utils/pwa';
 
-export type WebPushButtonStatus =
-  | 'hidden'
-  | 'ready_to_enable'
-  | 'enabling'
-  | 'enabled'
-  | 'denied';
+export type { WebPushButtonStatus };
+export { resolveWebPushUiStatus };
 
 export interface UseWebPushNotificationsResult {
   capability: PushCapabilityAssessment;
@@ -56,10 +54,38 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
         setPermission(Notification.permission);
       }
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshCapability();
+      }
+    };
+
     const media = window.matchMedia?.('(display-mode: standalone)');
     media?.addEventListener?.('change', refreshCapability);
+    window.addEventListener('focus', refreshCapability);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    let permissionStatus: PermissionStatus | null = null;
+    let cancelled = false;
+    if (navigator.permissions?.query) {
+      void navigator.permissions
+        .query({ name: 'notifications' as PermissionName })
+        .then((result) => {
+          if (cancelled) return;
+          permissionStatus = result;
+          result.onchange = refreshCapability;
+        })
+        .catch(() => undefined);
+    }
+
     return () => {
+      cancelled = true;
       media?.removeEventListener?.('change', refreshCapability);
+      window.removeEventListener('focus', refreshCapability);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (permissionStatus) {
+        permissionStatus.onchange = null;
+      }
     };
   }, []);
 
@@ -90,7 +116,7 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     return () => {
       cancelled = true;
     };
-  }, [capability.canShowEnableButton, user, isSuspended]);
+  }, [capability.canShowEnableButton, user, isSuspended, permission]);
 
   const enableNotifications = useCallback(async (): Promise<boolean> => {
     if (!user || isSuspended || !capability.canShowEnableButton) {
@@ -125,7 +151,19 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
         return false;
       }
 
-      await subscribeDeviceToWebPush(user.uid);
+      const configuredKey = await fetchConfiguredVapidPublicKey().catch(
+        () => null
+      );
+      setVapidConfigured(Boolean(configuredKey));
+      if (!configuredKey) {
+        setVerifiedForUid(null);
+        setErrorMessage(
+          'Browser notifications are allowed. Background alerts when the app is closed will finish activating once server push keys are configured.'
+        );
+        return false;
+      }
+
+      await subscribeDeviceToWebPush(user.uid, configuredKey);
       setVerifiedForUid(user.uid);
       setVapidConfigured(true);
       return true;
@@ -161,23 +199,15 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
       verifiedForUid === user.uid
   );
 
-  let status: WebPushButtonStatus = 'hidden';
-  if (
-    user &&
-    !isSuspended &&
-    capability.canShowEnableButton &&
-    vapidConfigured === true
-  ) {
-    if (permission === 'denied') {
-      status = 'denied';
-    } else if (enabling) {
-      status = 'enabling';
-    } else if (isSubscribedForUser) {
-      status = 'enabled';
-    } else {
-      status = 'ready_to_enable';
-    }
-  }
+  const status = resolveWebPushUiStatus({
+    isSignedIn: Boolean(user),
+    isSuspended,
+    capability,
+    permission,
+    vapidConfigured,
+    enabling,
+    isSubscribedForUser,
+  });
 
   return {
     capability,
@@ -190,3 +220,4 @@ export function useWebPushNotifications(): UseWebPushNotificationsResult {
     clearError,
   };
 }
+

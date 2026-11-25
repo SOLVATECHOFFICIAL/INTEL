@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import * as webpush from 'web-push';
 import configHandler from './config';
 import dispatchHandler from './dispatch';
 import broadcastHandler from './broadcast';
@@ -8,7 +10,11 @@ import {
   normalizeVapidSubject,
   sanitizePushPayloadForClient,
 } from '../_lib/pushSanitizer';
-import type { VercelLikeRequest, VercelLikeResponse } from '../_lib/pushServer';
+import {
+  shouldPrunePushFailure,
+  type VercelLikeRequest,
+  type VercelLikeResponse,
+} from '../_lib/pushServer';
 
 function createMockRes(): {
   res: VercelLikeResponse;
@@ -212,3 +218,96 @@ test('pushSanitizer defaults VAPID subject to lasuedintel@gmail.com, supports me
   assert.equal(sanitized.targetPath, '/?view=for-you&postId=post1');
   assert.equal(sanitized.isAnonymous, false);
 });
+
+test('shouldPrunePushFailure prunes expired/mismatched subscriptions and preserves transient rate-limit/5xx failures', () => {
+  assert.equal(shouldPrunePushFailure({ statusCode: 404 }), true);
+  assert.equal(shouldPrunePushFailure({ statusCode: 410 }), true);
+  assert.equal(
+    shouldPrunePushFailure({ statusCode: 400, body: 'NotRegistered' }),
+    true
+  );
+  assert.equal(
+    shouldPrunePushFailure({ statusCode: 403, body: 'MismatchSenderId' }),
+    true
+  );
+  assert.equal(
+    shouldPrunePushFailure({ statusCode: 403, body: 'VapidPkHashMismatch' }),
+    true
+  );
+
+  assert.equal(shouldPrunePushFailure({ statusCode: 429 }), false);
+  assert.equal(shouldPrunePushFailure({ statusCode: 500 }), false);
+  assert.equal(shouldPrunePushFailure({ statusCode: 503 }), false);
+  assert.equal(
+    shouldPrunePushFailure({ statusCode: 403, body: 'Temporary forbidden' }),
+    false
+  );
+});
+
+test('/api/push/config exposes public key without secrets when configured, and dispatch/broadcast enforce auth', async () => {
+  const savedPub = process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+  const savedPriv = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+  const savedSa = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+  const vapidPair = webpush.generateVAPIDKeys();
+  const validPub = vapidPair.publicKey;
+  const validPriv = vapidPair.privateKey;
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const pemKey = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
+  const dummySa = JSON.stringify({
+    project_id: 'lasued-intel',
+    client_email: 'firebase-adminsdk@lasued-intel.iam.gserviceaccount.com',
+    private_key: pemKey,
+  });
+
+  try {
+    process.env.WEB_PUSH_VAPID_PUBLIC_KEY = validPub;
+    process.env.WEB_PUSH_VAPID_PRIVATE_KEY = validPriv;
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON = dummySa;
+
+    const cfgMock = createMockRes();
+    await configHandler(
+      { method: 'GET', headers: {} } as VercelLikeRequest,
+      cfgMock.res
+    );
+    assert.equal(cfgMock.getStatus(), 200);
+    assert.deepEqual(cfgMock.getBody(), {
+      configured: true,
+      vapidPublicKey: validPub,
+    });
+    assert.equal('vapidPrivateKey' in cfgMock.getBody(), false);
+
+    const unauthDispatch = createMockRes();
+    await dispatchHandler(
+      {
+        method: 'POST',
+        headers: {},
+        body: { notificationId: 'cmt_valid_123' },
+      } as VercelLikeRequest,
+      unauthDispatch.res
+    );
+    assert.equal(unauthDispatch.getStatus(), 401);
+
+    const unauthBroadcast = createMockRes();
+    await broadcastHandler(
+      {
+        method: 'POST',
+        headers: {},
+        body: {
+          eventType: 'announcement',
+          title: 'Campus Update',
+        },
+      } as VercelLikeRequest,
+      unauthBroadcast.res
+    );
+    assert.equal(unauthBroadcast.getStatus(), 401);
+  } finally {
+    if (savedPub === undefined) delete process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
+    else process.env.WEB_PUSH_VAPID_PUBLIC_KEY = savedPub;
+    if (savedPriv === undefined) delete process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
+    else process.env.WEB_PUSH_VAPID_PRIVATE_KEY = savedPriv;
+    if (savedSa === undefined) delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    else process.env.FIREBASE_SERVICE_ACCOUNT_JSON = savedSa;
+  }
+});
+

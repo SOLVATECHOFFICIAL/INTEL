@@ -17,7 +17,10 @@ import { clearViewerScopedMediaCache } from '../services/mediaStorage';
 import { notifyViewerSessionReset } from '../services/cacheInvalidation';
 import { clearSearchBundleCache } from '../services/searchDiscovery';
 import { subscribeToAuthChanges } from '../services/auth';
-import { syncAppBadgeWithServiceWorker } from '../services/webPush';
+import {
+  syncAppBadgeWithServiceWorker,
+  verifyStoredPushSubscriptionForUser,
+} from '../services/webPush';
 import {
   deleteUserNotification,
   ensureDesignatedSupremeAdminAccountState,
@@ -341,6 +344,13 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     void syncOwnAnonymousReplyNotifications(user.uid, existingIds);
     void syncOwnExpiredMarketplaceNotifications(user.uid, existingIds);
     void syncOwnAnonymousLikesReceivedCount(user.uid);
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      void verifyStoredPushSubscriptionForUser(user.uid);
+    }
   }, [authReady, user, profile, notificationsStatus, liveNotifications]);
 
   const refreshAccountState = useCallback(async () => {

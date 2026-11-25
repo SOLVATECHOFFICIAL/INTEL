@@ -157,7 +157,8 @@ function parseSafeSearchQueryParam(params: URLSearchParams): string | null {
 
 export function parseLocationSearch(search: string): ParsedRouteLocation {
   const params = new URLSearchParams(search);
-  const view = params.get('view');
+  const rawView = params.get('view');
+  const view = rawView === 'events' ? 'upcoming-events' : rawView;
   const route = isValidRoute(view) ? view : 'for-you';
   const rawUsername = params.get('username');
   const profileUsername = rawUsername

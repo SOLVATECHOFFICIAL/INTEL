@@ -122,6 +122,7 @@ import {
   notifyPostViewCountUpdated,
 } from './cacheInvalidation';
 import { subtractPostLikesSafe } from '../utils/cacheSync';
+import { triggerBestEffortPushBroadcast } from './webPush';
 
 export interface ComposerImageAttachment {
   clientId: string;
@@ -498,7 +499,120 @@ export async function createCommunityPostWithMedia(input: {
     });
   }
 
+  if (isOfficial) {
+    void notifyUsersOfImportantCampusPost({
+      post: createdPost,
+      actorUid: input.ownerUID,
+      reason: 'official',
+    });
+  }
+
   return createdPost;
+}
+
+export async function notifyUsersOfImportantCampusPost(input: {
+  post: Pick<CommunityPost, 'id' | 'title' | 'body' | 'mediaItems' | 'ownerUID'>;
+  actorUid: string;
+  reason?: 'official' | 'pinned';
+}): Promise<void> {
+  if (!isValidFirestoreId(input.post.id) || !isValidFirestoreId(input.actorUid)) {
+    return;
+  }
+
+  try {
+    const usersSnap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAMES.users),
+        where('isHiddenFromDirectory', '==', false),
+        limit(400)
+      )
+    );
+
+    const isUnderground = isUndergroundSupremeAdminUser(auth.currentUser);
+    const recipientUids = usersSnap.docs
+      .map((item) => item.data() as PublicUserProfile)
+      .filter(
+        (p) =>
+          p.accountStatus === 'active' &&
+          !p.isHiddenFromDirectory &&
+          isValidFirestoreId(p.uid) &&
+          (isUnderground || p.uid !== input.actorUid)
+      )
+      .map((p) => p.uid);
+
+    if (recipientUids.length === 0) return;
+
+    const prefix =
+      input.reason === 'pinned' ? 'Pinned Campus Post' : 'Important Campus Post';
+    const rawHeadline = input.post.title?.trim()
+      ? `${prefix}: ${input.post.title.trim()}`
+      : `${prefix}: ${summarizeNotificationExcerpt(input.post.body, 90)}`;
+    const headline = summarizeNotificationExcerpt(rawHeadline, 140);
+    const bodyExcerpt = summarizeNotificationExcerpt(input.post.body, 220);
+    const targetPath = `/?view=for-you&postId=${input.post.id}`;
+    const targetImageId = input.post.mediaItems?.[0]?.imageId;
+    const safePostIdPart = input.post.id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+
+    const CHUNK_SIZE = 380;
+    const createdNotificationIds: string[] = [];
+
+    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
+      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
+      const chunkEntries = chunk.map((uid) => ({
+        uid,
+        notifId: `imp_${safePostIdPart}_${uid.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48)}`,
+      }));
+
+      await commitWriteBatchWithRetry(
+        (batch) => {
+          for (const entry of chunkEntries) {
+            const notifDoc: Record<string, unknown> = {
+              id: entry.notifId,
+              recipientUid: entry.uid,
+              eventType: 'announcement',
+              title: headline,
+              targetPath,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            };
+            if (bodyExcerpt) {
+              notifDoc.body = bodyExcerpt;
+            }
+            if (targetImageId && isValidFirestoreId(targetImageId)) {
+              notifDoc.targetImageId = targetImageId;
+            }
+            if (!isUnderground) {
+              notifDoc.actorUid = input.actorUid;
+            }
+            batch.set(
+              doc(db, COLLECTION_NAMES.notifications, entry.notifId),
+              notifDoc
+            );
+          }
+        },
+        OperationType.CREATE,
+        COLLECTION_NAMES.notifications,
+        input.actorUid
+      );
+
+      for (const entry of chunkEntries) {
+        createdNotificationIds.push(entry.notifId);
+      }
+    }
+
+    if (createdNotificationIds.length > 0) {
+      void triggerBestEffortPushBroadcast({
+        eventType: 'announcement',
+        title: headline,
+        body: bodyExcerpt || undefined,
+        targetPath,
+        recipientUids,
+        notificationIds: createdNotificationIds,
+      });
+    }
+  } catch {
+    // Non-blocking fan-out: post creation/flagging remains intact
+  }
 }
 
 export async function createAnonymousPostWithMedia(input: {

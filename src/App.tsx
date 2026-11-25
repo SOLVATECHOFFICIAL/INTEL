@@ -7,6 +7,7 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 import { MobileSectionDrawer } from './components/MobileSectionDrawer';
 import { EmailVerificationBanner } from './components/auth/EmailVerificationBanner';
 import { PWAInstallControl } from './components/pwa/PWAInstallControl';
+import { WebPushNotificationButton } from './components/pwa/WebPushNotificationButton';
 import { SectionSidebar } from './components/SectionSidebar';
 import { SectionWorkspace } from './components/SectionWorkspace';
 import { useFirebase } from './context/firebaseContext';
@@ -697,6 +698,13 @@ export function App() {
       if (!data || typeof data !== 'object') return;
 
       if (data.type === 'LASUED_NAVIGATE_NOTIFICATION') {
+        if (
+          typeof data.notificationId === 'string' &&
+          user &&
+          !isSuspended
+        ) {
+          void markNotificationReadOptimistic(data.notificationId);
+        }
         const parsed = parseNotificationTargetUrl(
           typeof data.targetPath === 'string' ? data.targetPath : null,
           typeof window !== 'undefined' ? window.location.origin : undefined
@@ -724,7 +732,7 @@ export function App() {
         handleServiceWorkerMessage
       );
     };
-  }, [handleNavigate, user?.uid]);
+  }, [handleNavigate, isSuspended, markNotificationReadOptimistic, user]);
 
   useEffect(() => {
     if (!foregroundNotificationToast) return;
@@ -1193,6 +1201,17 @@ export function App() {
           )}
 
           {showSidebar && <PWAInstallControl variant="banner" />}
+
+          {showSidebar &&
+            activeRoute !== 'notifications' &&
+            activeRoute !== 'account' && (
+              <WebPushNotificationButton
+                variant="banner"
+                hideWhenEnabled
+                dismissible
+                onlyWhenPromptable
+              />
+            )}
 
           <Suspense
             fallback={

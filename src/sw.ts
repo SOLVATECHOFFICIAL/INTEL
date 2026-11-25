@@ -8,6 +8,7 @@ import {
 import { registerRoute } from 'workbox-routing';
 import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
 import { ExpirationPlugin } from 'workbox-expiration';
+import { normalizeIncomingPushPayload } from './utils/pwa';
 
 interface SwNotificationAction {
   action: string;
@@ -20,6 +21,7 @@ interface SwWindowClient {
   focused?: boolean;
   visibilityState?: string;
   focus: () => Promise<SwWindowClient>;
+  navigate?: (url: string) => Promise<SwWindowClient | null>;
   postMessage: (message: unknown) => void;
 }
 
@@ -36,6 +38,12 @@ interface SwRegistration {
       actions?: SwNotificationAction[];
     }
   ) => Promise<void>;
+  pushManager?: {
+    subscribe: (options: {
+      userVisibleOnly: boolean;
+      applicationServerKey?: BufferSource | null;
+    }) => Promise<PushSubscription>;
+  };
 }
 
 interface SwGlobalScope {
@@ -78,6 +86,11 @@ interface SwNotificationClickEvent extends SwExtendableEvent {
     close: () => void;
   };
   action?: string;
+}
+
+interface SwPushSubscriptionChangeEvent extends SwExtendableEvent {
+  oldSubscription?: PushSubscription | null;
+  newSubscription?: PushSubscription | null;
 }
 
 interface SwMessageEvent extends SwExtendableEvent {
@@ -246,66 +259,39 @@ async function applyAppBadgeSafely(count: unknown): Promise<void> {
 
 sw.addEventListener('push', (rawEvent: unknown) => {
   const event = rawEvent as SwPushEvent;
-  let payload: Record<string, unknown> = {};
+  let rawPayload: unknown = {};
 
   if (event.data) {
     try {
-      const parsed = event.data.json();
-      if (parsed && typeof parsed === 'object') {
-        payload = parsed as Record<string, unknown>;
-      }
+      rawPayload = event.data.json();
     } catch {
       try {
         const text = event.data.text();
         if (text) {
-          payload = { body: text };
+          rawPayload = { body: text };
         }
       } catch {
-        payload = {};
+        rawPayload = {};
       }
     }
   }
 
-  const eventType =
-    typeof payload.eventType === 'string' ? payload.eventType : '';
-  const isAnonymous =
-    eventType === 'anonymous_reply' || payload.isAnonymous === true;
-
-  const rawTitle =
-    typeof payload.title === 'string' && payload.title.trim()
-      ? payload.title.trim().slice(0, 140)
-      : 'LASUED Intel';
-  const title = isAnonymous
-    ? rawTitle || 'New reply in The Unfiltered'
-    : rawTitle;
-
-  const rawBody =
-    typeof payload.body === 'string' ? payload.body.trim().slice(0, 260) : '';
-  const body =
-    isAnonymous && rawBody
-      ? rawBody
-      : rawBody || 'Tap to view the latest update on LASUED Intel.';
-
-  const targetPath = resolveSafeInternalPath(payload.targetPath);
-  const tag =
-    typeof payload.tag === 'string' && payload.tag.trim()
-      ? payload.tag.trim().slice(0, 80)
-      : undefined;
+  const normalized = normalizeIncomingPushPayload(
+    rawPayload,
+    sw.location.origin
+  );
 
   const notificationPromise = Promise.all([
-    applyAppBadgeSafely(payload.unreadCount),
-    sw.registration.showNotification(title, {
-      body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
-      ...(tag ? { tag, renotify: true } : {}),
+    applyAppBadgeSafely(normalized.unreadCount),
+    sw.registration.showNotification(normalized.title, {
+      body: normalized.body,
+      icon: normalized.icon,
+      badge: normalized.badge,
+      ...(normalized.tag ? { tag: normalized.tag, renotify: true } : {}),
       data: {
-        targetPath,
-        notificationId:
-          typeof payload.notificationId === 'string'
-            ? payload.notificationId
-            : null,
-        eventType,
+        targetPath: normalized.targetPath,
+        notificationId: normalized.notificationId,
+        eventType: normalized.eventType,
       },
     }),
   ]);
@@ -320,6 +306,10 @@ sw.addEventListener('notificationclick', (rawEvent: unknown) => {
   const targetPath = resolveSafeInternalPath(
     event.notification.data?.targetPath
   );
+  const notificationId =
+    typeof event.notification.data?.notificationId === 'string'
+      ? event.notification.data.notificationId
+      : null;
   const targetUrl = new URL(targetPath, sw.location.origin).toString();
 
   const focusOrOpen = (async () => {
@@ -332,7 +322,13 @@ sw.addEventListener('notificationclick', (rawEvent: unknown) => {
       windowClients.find(
         (client) =>
           client.url.startsWith(sw.location.origin) &&
+          !client.url.includes('/offline.html') &&
           client.visibilityState === 'visible'
+      ) ??
+      windowClients.find(
+        (client) =>
+          client.url.startsWith(sw.location.origin) &&
+          !client.url.includes('/offline.html')
       ) ??
       windowClients.find((client) => client.url.startsWith(sw.location.origin));
 
@@ -340,11 +336,20 @@ sw.addEventListener('notificationclick', (rawEvent: unknown) => {
       try {
         await sameOriginClient.focus();
       } catch {
-        // Focus may be restricted on some OS versions; postMessage still routes
+        // Focus may be restricted on some OS versions; postMessage/navigate still routes
+      }
+      if (sameOriginClient.url.includes('/offline.html')) {
+        if (typeof sameOriginClient.navigate === 'function') {
+          await sameOriginClient.navigate(targetUrl).catch(() => undefined);
+          return;
+        }
+        await sw.clients.openWindow(targetUrl);
+        return;
       }
       sameOriginClient.postMessage({
         type: 'LASUED_NAVIGATE_NOTIFICATION',
         targetPath,
+        ...(notificationId ? { notificationId } : {}),
       });
       return;
     }
@@ -386,9 +391,23 @@ sw.addEventListener('message', (rawEvent: unknown) => {
 });
 
 sw.addEventListener('pushsubscriptionchange', (rawEvent: unknown) => {
-  const event = rawEvent as SwExtendableEvent;
+  const event = rawEvent as SwPushSubscriptionChangeEvent;
   event.waitUntil(
     (async () => {
+      if (!event.newSubscription && sw.registration.pushManager) {
+        const serverKey = event.oldSubscription?.options?.applicationServerKey;
+        if (serverKey) {
+          try {
+            await sw.registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: serverKey,
+            });
+          } catch {
+            // App client will attempt re-sync via verifyStoredPushSubscriptionForUser
+          }
+        }
+      }
+
       const windowClients = await sw.clients.matchAll({
         type: 'window',
         includeUncontrolled: true,
@@ -401,3 +420,4 @@ sw.addEventListener('pushsubscriptionchange', (rawEvent: unknown) => {
     })()
   );
 });
+

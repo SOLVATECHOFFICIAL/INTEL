@@ -208,20 +208,24 @@ export function getAdminClients(): {
   );
   if (!serviceAccount) return null;
 
-  const app =
-    getApps().length > 0
-      ? getApp()
-      : initializeApp({ credential: cert(serviceAccount) });
+  try {
+    const app =
+      getApps().length > 0
+        ? getApp()
+        : initializeApp({ credential: cert(serviceAccount) });
 
-  const databaseId =
-    process.env.FIREBASE_FIRESTORE_DATABASE_ID?.trim() || DEFAULT_FIRESTORE_DB_ID;
+    const databaseId =
+      process.env.FIREBASE_FIRESTORE_DATABASE_ID?.trim() || DEFAULT_FIRESTORE_DB_ID;
 
-  const db =
-    databaseId === '(default)'
-      ? getFirestore(app)
-      : getFirestore(app, databaseId);
-  const auth = getAuth(app);
-  return { db, auth };
+    const db =
+      databaseId === '(default)'
+        ? getFirestore(app)
+        : getFirestore(app, databaseId);
+    const auth = getAuth(app);
+    return { db, auth };
+  } catch {
+    return null;
+  }
 }
 
 export function ensureWebPushConfigured(): boolean {
@@ -412,12 +416,39 @@ export async function deliverWebPushToRecipient(
     });
   }
 
-  const validSubs = subscriptions.filter(
+  const rawSubs = subscriptions.filter(
     (sub) =>
       isValidHttpsPushEndpoint(sub.endpoint) &&
       sub.p256dh.length >= 20 &&
       sub.auth.length >= 10
   );
+
+  // Deduplicate by endpoint so multiple docs for the same device endpoint never double-notify
+  const seenEndpoints = new Set<string>();
+  const duplicateSubIds: string[] = [];
+  const validSubs: StoredPushSub[] = [];
+  for (const sub of rawSubs) {
+    const normalizedEndpoint = sub.endpoint.trim();
+    if (seenEndpoints.has(normalizedEndpoint)) {
+      duplicateSubIds.push(sub.id);
+      continue;
+    }
+    seenEndpoints.add(normalizedEndpoint);
+    validSubs.push({ ...sub, endpoint: normalizedEndpoint });
+  }
+
+  if (duplicateSubIds.length > 0) {
+    void Promise.allSettled(
+      duplicateSubIds.map((dupId) =>
+        db
+          .collection('privateUserData')
+          .doc(input.recipientUid)
+          .collection('pushSubscriptions')
+          .doc(dupId)
+          .delete()
+      )
+    );
+  }
 
   if (validSubs.length === 0) {
     return { attempted: 0, delivered: 0, pruned: 0, failed: 0 };
@@ -463,8 +494,7 @@ export async function deliverWebPushToRecipient(
         );
         return { outcome: 'delivered' as const, subId: sub.id };
       } catch (err) {
-        const statusCode = (err as { statusCode?: number })?.statusCode;
-        if (statusCode === 404 || statusCode === 410) {
+        if (shouldPrunePushFailure(err)) {
           await db
             .collection('privateUserData')
             .doc(input.recipientUid)
@@ -496,3 +526,31 @@ export async function deliverWebPushToRecipient(
     failed,
   };
 }
+
+export function shouldPrunePushFailure(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const record = err as { statusCode?: unknown; body?: unknown; message?: unknown };
+  const statusCode =
+    typeof record.statusCode === 'number' ? record.statusCode : null;
+
+  if (statusCode === 404 || statusCode === 410) {
+    return true;
+  }
+
+  if (statusCode === 400 || statusCode === 403) {
+    const detail = `${typeof record.body === 'string' ? record.body : ''} ${
+      typeof record.message === 'string' ? record.message : ''
+    }`.toLowerCase();
+    return (
+      detail.includes('notregistered') ||
+      detail.includes('unregistered') ||
+      detail.includes('invalidregistration') ||
+      detail.includes('mismatchsenderid') ||
+      detail.includes('vapidpkhashmismatch') ||
+      detail.includes('expired')
+    );
+  }
+
+  return false;
+}
+
