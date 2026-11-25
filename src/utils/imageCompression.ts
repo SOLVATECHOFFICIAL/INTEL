@@ -367,8 +367,8 @@ export async function compressImageFile(
       throw new Error('Canvas 2D graphics context is unavailable on this device.');
     }
 
-    const scaleSteps = [1, 0.78, 0.6, 0.45, 0.32, 0.22];
-    const qualitySteps = [0.78, 0.66, 0.54, 0.42, 0.32, 0.24];
+    const scaleSteps = [1, 0.78, 0.6, 0.45, 0.32, 0.22, 0.15, 0.1];
+    const qualitySteps = [0.78, 0.66, 0.54, 0.42, 0.32, 0.24, 0.18, 0.12];
 
     let bestAttempt: {
       base64Data: string;

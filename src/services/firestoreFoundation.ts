@@ -534,15 +534,14 @@ export async function ensureDesignatedSupremeAdminAccountState(
         missingFollowers ||
         missingFollowing
       ) {
-        const patch: Record<string, unknown> = {
+        await updateDoc(userRef, {
           badge: expectedPublicBadge,
           isHiddenFromDirectory: isUnderground,
           updatedAt: serverTimestamp(),
-        };
-        if (missingStatus) patch.accountStatus = 'active';
-        if (missingFollowers) patch.followersCount = 0;
-        if (missingFollowing) patch.followingCount = 0;
-        await updateDoc(userRef, patch);
+          ...(missingStatus ? { accountStatus: 'active' } : {}),
+          ...(missingFollowers ? { followersCount: 0 } : {}),
+          ...(missingFollowing ? { followingCount: 0 } : {}),
+        });
         notifyProfileUpdated({
           uid: user.uid,
           patch: {
@@ -1056,12 +1055,12 @@ export async function fetchLikedOrdinaryPostsByUid(
   const q = query(
     collection(db, COLLECTION_NAMES.postReactions),
     where('ownerUID', '==', targetUid),
-    where('targetCollection', '==', 'posts'),
-    limit(Math.max(maxItems, 60))
+    limit(300)
   );
   const reactionSnap = await getDocs(q);
   const reactionEntries = reactionSnap.docs
     .map((item) => item.data() as PostReaction)
+    .filter((item) => item.targetCollection === 'posts')
     .sort((a, b) => {
       const aMs = extractTimestampMs(a.createdAt) ?? 0;
       const bMs = extractTimestampMs(b.createdAt) ?? 0;

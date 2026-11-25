@@ -2650,8 +2650,7 @@ export async function recordDeduplicatedPostView(input: {
         : COLLECTION_NAMES.anonymousPosts;
   const hasSignedInViewer =
     Boolean(input.viewerUid) &&
-    isValidFirestoreId(input.viewerUid!) &&
-    auth.currentUser?.uid === input.viewerUid;
+    isValidFirestoreId(input.viewerUid!);
   const actor = resolveActiveViewActor(hasSignedInViewer ? input.viewerUid! : null);
 
   if (hasRecordedPostViewLocally(targetCollection, input.postId, actor.dedupKey)) {
