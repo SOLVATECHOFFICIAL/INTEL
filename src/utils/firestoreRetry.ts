@@ -19,7 +19,7 @@ const TRANSIENT_FIREBASE_CODES = new Set([
 ]);
 
 const TRANSIENT_MESSAGE_PATTERN =
-  /Connection failed|the client is offline|Request time out|Failed to get document|network|transport|ECONNRESET|ETIMEDOUT/i;
+  /Connection failed|the client is offline|Request time out|Failed to get document|Could not reach Cloud Firestore backend|The operation could not be completed|code=unavailable|network|transport|ECONNRESET|ETIMEDOUT/i;
 
 export function isFirestoreSdkError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) {

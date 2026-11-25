@@ -2,6 +2,7 @@ import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth, type User } from 'firebase/auth';
 import {
   doc,
+  enableNetwork,
   getDocFromServer,
   getFirestore,
   initializeFirestore,
@@ -57,7 +58,7 @@ function createFirestoreClient() {
     return initializeFirestore(
       app,
       {
-        experimentalForceLongPolling: true,
+        experimentalAutoDetectLongPolling: true,
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager(),
         }),
@@ -69,7 +70,7 @@ function createFirestoreClient() {
       return initializeFirestore(
         app,
         {
-          experimentalForceLongPolling: true,
+          experimentalAutoDetectLongPolling: true,
           localCache: persistentLocalCache({
             tabManager: persistentSingleTabManager({ forceOwnership: false }),
           }),
@@ -81,7 +82,7 @@ function createFirestoreClient() {
         return initializeFirestore(
           app,
           {
-            experimentalForceLongPolling: true,
+            experimentalAutoDetectLongPolling: true,
             localCache: memoryLocalCache(),
           },
           configuredFirestoreDbId
@@ -180,10 +181,26 @@ export async function testConnection(): Promise<ConnectionCheckResult> {
     };
   }
 
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return {
+      connected: false,
+      offlineError: 'Your device appears to be offline right now.',
+    };
+  }
+
+  let attempt = 0;
   try {
     await runWithFirestoreConnectionRetry(
-      () => getDocFromServer(doc(db, COLLECTION_NAMES.platformSettings, 'global')),
-      { maxAttempts: 2, baseDelayMs: 500 }
+      async () => {
+        attempt += 1;
+        if (attempt > 1) {
+          await enableNetwork(db).catch(() => undefined);
+        }
+        return getDocFromServer(
+          doc(db, COLLECTION_NAMES.platformSettings, 'global')
+        );
+      },
+      { maxAttempts: 3, baseDelayMs: 600 }
     );
     return { connected: true };
   } catch (error) {
@@ -195,4 +212,15 @@ export async function testConnection(): Promise<ConnectionCheckResult> {
     }
     return { connected: true };
   }
+}
+
+export async function reconnectFirestoreNetwork(): Promise<ConnectionCheckResult> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return {
+      connected: false,
+      offlineError: 'Your device appears to be offline right now.',
+    };
+  }
+  await enableNetwork(db).catch(() => undefined);
+  return testConnection();
 }

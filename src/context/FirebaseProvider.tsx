@@ -11,6 +11,7 @@ import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
 import {
   auth,
   ensureVerifiedEmailTokenClaim,
+  reconnectFirestoreNetwork,
   testConnection,
 } from '../lib/firebase';
 import { clearViewerScopedMediaCache } from '../services/mediaStorage';
@@ -169,11 +170,42 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
 
   useEffect(() => {
     let active = true;
-    void testConnection().then((result) => {
+    let connectedState: boolean | null = null;
+    const applyConnectionResult = (connected: boolean) => {
+      connectedState = connected;
       if (active) {
-        setFirestoreConnected(result.connected);
+        setFirestoreConnected(connected);
       }
+    };
+
+    void testConnection().then((result) => {
+      applyConnectionResult(result.connected);
     });
+
+    const handleOnline = () => {
+      void reconnectFirestoreNetwork().then((result) => {
+        applyConnectionResult(result.connected);
+      });
+    };
+    const handleOffline = () => {
+      applyConnectionResult(false);
+    };
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        connectedState === false &&
+        typeof navigator !== 'undefined' &&
+        navigator.onLine !== false
+      ) {
+        void reconnectFirestoreNetwork().then((result) => {
+          applyConnectionResult(result.connected);
+        });
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const prevUidRef = { current: null as string | null };
     const unsubscribeAuth = subscribeToAuthChanges((nextUser) => {
@@ -237,6 +269,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     return () => {
       active = false;
       unsubscribeAuth();
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -260,10 +295,16 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       })
       .catch(() => undefined);
 
-    const unsubscribeRole = subscribeUserRoleRecord(user.uid, (record) => {
-      setRoleRecord(record);
-      setRoleSyncedUid(user.uid);
-    });
+    const unsubscribeRole = subscribeUserRoleRecord(
+      user.uid,
+      (record) => {
+        setRoleRecord(record);
+        setRoleSyncedUid(user.uid);
+      },
+      () => {
+        setRoleSyncedUid(user.uid);
+      }
+    );
 
     const unsubscribeProfile = subscribePublicMemberProfile(
       user.uid,
@@ -276,6 +317,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
             nextProfile.username.toLowerCase()
           );
         }
+      },
+      () => {
+        setProfileSyncedUid(user.uid);
       }
     );
 

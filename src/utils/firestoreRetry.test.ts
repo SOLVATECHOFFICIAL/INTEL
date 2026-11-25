@@ -49,6 +49,14 @@ test('isTransientFirestoreConnectionError identifies network failures and exclud
     false
   );
   assert.equal(
+    isTransientFirestoreConnectionError(
+      new Error(
+        'Could not reach Cloud Firestore backend. Connection failed 1 times. Most recent error: FirebaseError: [code=unavailable]: The operation could not be completed'
+      )
+    ),
+    true
+  );
+  assert.equal(
     isTransientFirestoreConnectionError(new Error('This post is no longer available.')),
     false
   );
@@ -167,7 +175,7 @@ test('computeNextReactionTransactionState computes authoritative like/unlike tra
   );
 });
 
-test('formatFirestoreOrAppError translates JSON-wrapped Connection failed errors for users', () => {
+test('formatFirestoreOrAppError translates JSON-wrapped Connection failed and unavailable errors for users', () => {
   const wrapped = new Error(
     JSON.stringify({
       error: 'Connection failed.',
@@ -181,6 +189,12 @@ test('formatFirestoreOrAppError translates JSON-wrapped Connection failed errors
   );
   assert.match(message, /Network connection interrupted/i);
   assert.doesNotMatch(message, /anonymousPosts/);
+
+  const unavailableMessage = formatFirestoreOrAppError(
+    new Error('FirebaseError: [code=unavailable]: The operation could not be completed'),
+    'Unable to reach campus servers.'
+  );
+  assert.match(unavailableMessage, /Network connection interrupted/i);
 });
 
 test('hasValidFirebaseConfig validates real configs and rejects placeholders', () => {

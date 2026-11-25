@@ -638,7 +638,7 @@ export function isFirebaseErrorCode(error: unknown, expectedCode: string): boole
 }
 
 const FIRESTORE_CONNECTION_FAILURE_PATTERN =
-  /Connection failed|the client is offline|Request time out|Failed to get document/i;
+  /Connection failed|the client is offline|Request time out|Failed to get document|Could not reach Cloud Firestore backend|The operation could not be completed|code=unavailable/i;
 
 export function formatFirestoreOrAppError(
   error: unknown,

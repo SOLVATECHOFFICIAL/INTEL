@@ -28,7 +28,10 @@ import {
   OperationType,
   refreshAuthSessionToken,
 } from '../lib/firebase';
-import { runWithPermissionRetry } from '../utils/firestoreRetry';
+import {
+  isTransientFirestoreConnectionError,
+  runWithPermissionRetry,
+} from '../utils/firestoreRetry';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -231,7 +234,8 @@ export async function fetchUserRoleRecord(
 
 export function subscribeUserRoleRecord(
   uid: string,
-  onRole: (record: UserRoleRecord | null) => void
+  onRole: (record: UserRoleRecord | null) => void,
+  onError?: (error: unknown) => void
 ): Unsubscribe {
   const path = `${COLLECTION_NAMES.userRoles}/${uid}`;
   return onSnapshot(
@@ -240,6 +244,15 @@ export function subscribeUserRoleRecord(
       onRole(snapshot.exists() ? (snapshot.data() as UserRoleRecord) : null);
     },
     (error) => {
+      if (auth.currentUser?.uid !== uid) {
+        return;
+      }
+      if (isTransientFirestoreConnectionError(error)) {
+        console.warn('Role subscription paused while reconnecting:', path, error);
+        onError?.(error);
+        return;
+      }
+      onError?.(error);
       handleFirestoreError(error, OperationType.GET, path);
     }
   );
@@ -266,7 +279,8 @@ export async function fetchPublicMemberProfile(
 
 export function subscribePublicMemberProfile(
   uid: string,
-  onProfile: (profile: PublicUserProfile | null) => void
+  onProfile: (profile: PublicUserProfile | null) => void,
+  onError?: (error: unknown) => void
 ): Unsubscribe {
   const path = `${COLLECTION_NAMES.users}/${uid}`;
   return onSnapshot(
@@ -275,6 +289,15 @@ export function subscribePublicMemberProfile(
       onProfile(snapshot.exists() ? (snapshot.data() as PublicUserProfile) : null);
     },
     (error) => {
+      if (auth.currentUser?.uid !== uid) {
+        return;
+      }
+      if (isTransientFirestoreConnectionError(error)) {
+        console.warn('Profile subscription paused while reconnecting:', path, error);
+        onError?.(error);
+        return;
+      }
+      onError?.(error);
       handleFirestoreError(error, OperationType.GET, path);
     }
   );
@@ -1565,6 +1588,13 @@ export function subscribeViewerFollowUsernames(
       void syncResolvedSets();
     },
     (error) => {
+      if (auth.currentUser?.uid !== viewerUid) {
+        return;
+      }
+      if (isTransientFirestoreConnectionError(error)) {
+        console.warn('Following listener paused while reconnecting:', error);
+        return;
+      }
       handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
     }
   );
@@ -1582,6 +1612,13 @@ export function subscribeViewerFollowUsernames(
       void syncResolvedSets();
     },
     (error) => {
+      if (auth.currentUser?.uid !== viewerUid) {
+        return;
+      }
+      if (isTransientFirestoreConnectionError(error)) {
+        console.warn('Followers listener paused while reconnecting:', error);
+        return;
+      }
       handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
     }
   );
