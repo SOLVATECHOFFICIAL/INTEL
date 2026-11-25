@@ -841,6 +841,65 @@ test('Guest and account deduplicated views across posts, anonymousPosts, and upd
   assert.ok('visitorKey' in blueprint.entities.PostViewRecord.properties);
 });
 
+test('Official-Post-only polls, deduplicated votes, user WhatsApp/media toggles, and partial privateUserData rules extend without duplication', () => {
+  // 1. No duplicate match blocks for core collections
+  const countMatches = (pattern: RegExp) => (rulesText.match(pattern) ?? []).length;
+  assert.equal(countMatches(/match \/users\/\{userId\}\s*\{/g), 1);
+  assert.equal(countMatches(/match \/privateUserData\/\{userId\}\s*\{/g), 1);
+  assert.equal(countMatches(/match \/updates\/\{updateId\}\s*\{/g), 1);
+  assert.equal(countMatches(/match \/polls\/\{pollId\}\s*\{/g), 1);
+  assert.equal(countMatches(/match \/votes\/\{voterUid\}\s*\{/g), 1);
+
+  // 2. Narrow WhatsApp visibility & avatar/cover updates on users/{userId}
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  assert.match(usersBlock, /incoming\(\)\.showWhatsappPublicly is bool &&[\s\S]*affectedKeys\(\)\.hasOnly\(\['showWhatsappPublicly', 'updatedAt'\]\)/);
+  assert.match(usersBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'photoUrl', 'coverUrl', 'photoImageId', 'coverImageId', 'updatedAt'\s*\]\)/);
+
+  // 3. Partial updates on privateUserData/{userId} preserve underground badge lock and legacy uid guard
+  const privateBlock = rulesText.slice(
+    rulesText.indexOf('match /privateUserData/{userId}'),
+    rulesText.indexOf('match /anonymousHistory/{postId}')
+  );
+  assert.match(privateBlock, /!\('uid' in existing\(\)\) \|\| incoming\(\)\.uid == existing\(\)\.uid/);
+  assert.match(privateBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'notificationPrefs', 'interestCategories',\s*'ownedAnonymousPostIds', 'ownedAnonymousCommentIds',\s*'showSupremeAdminBadge', 'updatedAt'\s*\]\)/);
+
+  // 4. Official Updates support optional pollId linked bidirectionally on create
+  const updatesBlock = rulesText.slice(
+    rulesText.indexOf('match /updates/{updateId}'),
+    rulesText.indexOf('match /adminUpdateMappings/{updateId}')
+  );
+  assert.match(updatesBlock, /!\('pollId' in incoming\(\)\) \|\| \(\s*existsAfter\(\/databases\/\$\(database\)\/documents\/polls\/\$\(incoming\(\)\.pollId\)\) &&[\s\S]*updateId == updateId/);
+  assert.match(updatesBlock, /'mediaItems', 'pollId', 'isPinned', 'status', 'updatedAt'/);
+
+  // 5. Polls strictly bind to Official Updates, restrict CRUD to Supreme Admins, and guard voting + vote changes
+  const pollsBlock = rulesText.slice(
+    rulesText.indexOf('match /polls/{pollId}'),
+    rulesText.indexOf('match /platformSettings/{settingId}')
+  );
+  assert.match(pollsBlock, /isZeroedCountsArray\(incoming\(\)\.optionCounts, incoming\(\)\.options\.size\(\)\)/);
+  assert.match(pollsBlock, /incoming\(\)\.authorMode == 'official_desk' &&\s*!\('ownerUID' in incoming\(\)\)/);
+  assert.match(pollsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/updates\/\$\(incoming\(\)\.updateId\)\)\.data\.pollId == pollId/);
+  assert.match(pollsBlock, /existing\(\)\.status == 'open' &&\s*request\.time < existing\(\)\.expiresAt &&\s*isOfficialUpdatePublished\(existing\(\)\.updateId\) &&\s*isEligiblePollVoter\(existing\(\)\.voterScope\)/);
+  assert.match(pollsBlock, /isValidPollCountsTransition\(/);
+  assert.match(pollsBlock, /existing\(\)\.allowVoteChange == true/);
+
+  const votesBlock = pollsBlock.slice(pollsBlock.indexOf('match /votes/{voterUid}'));
+  assert.match(votesBlock, /allow get: if isValidId\(pollId\) && isValidId\(voterUid\) && \(\s*resource == null \|\|\s*isOwnerOf\(voterUid\) \|\|\s*isSupremeAdmin\(\)\s*\)/);
+  assert.match(votesBlock, /allow list: if isValidId\(pollId\) && isSupremeAdmin\(\);/);
+  assert.match(votesBlock, /!exists\(\/databases\/\$\(database\)\/documents\/polls\/\$\(pollId\)\/votes\/\$\(voterUid\)\)/);
+  assert.match(votesBlock, /get\(\/databases\/\$\(database\)\/documents\/polls\/\$\(pollId\)\)\.data\.allowVoteChange == true/);
+  assert.match(votesBlock, /allow delete: if isValidId\(pollId\) && isValidId\(voterUid\) && isSupremeAdmin\(\);/);
+
+  // 6. Blueprint schema parity for CampusPoll, PollVoteRecord, and AdminUpdate.pollId
+  assert.ok('pollId' in blueprint.entities.AdminUpdate.properties);
+  assert.ok('updateId' in blueprint.entities.CampusPoll.properties);
+  assert.ok('PollVoteRecord' in blueprint.entities);
+  assert.ok('/polls/{pollId}/votes/{voterUid}' in blueprint.firestore);
+});
+
 test('firestore.rules has balanced braces, parentheses, brackets, and valid postViews match syntax', () => {
   const stack: string[] = [];
   const pairs: Record<string, string> = { '(': ')', '{': '}', '[': ']' };

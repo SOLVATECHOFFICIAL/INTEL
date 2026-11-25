@@ -2234,7 +2234,8 @@ export async function fetchPrivateUserData(
 
 export async function updateNotificationPreferences(
   uid: string,
-  prefs: NotificationPreferences
+  prefs: NotificationPreferences,
+  fallbackEmail?: string | null
 ): Promise<NotificationPreferences> {
   if (!isValidFirestoreId(uid)) {
     throw new Error('Sign in to update notification preferences.');
@@ -2242,13 +2243,31 @@ export async function updateNotificationPreferences(
   const normalized = normalizeNotificationPrefs(prefs);
   const ref = doc(db, COLLECTION_NAMES.privateUserData, uid);
   const path = `${COLLECTION_NAMES.privateUserData}/${uid}`;
+  const resolvedEmail =
+    fallbackEmail?.trim() || auth.currentUser?.email?.trim() || '';
   try {
-    await runWithFirestoreConnectionRetry(() =>
-      updateDoc(ref, {
-        notificationPrefs: normalized,
-        updatedAt: serverTimestamp(),
-      })
-    );
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      await runWithFirestoreConnectionRetry(() =>
+        updateDoc(ref, {
+          notificationPrefs: normalized,
+          updatedAt: serverTimestamp(),
+        })
+      );
+    } else if (resolvedEmail.length >= 3) {
+      await runWithFirestoreConnectionRetry(() =>
+        setDoc(ref, {
+          uid,
+          authEmail: resolvedEmail.slice(0, 160),
+          notificationPrefs: normalized,
+          updatedAt: serverTimestamp(),
+        })
+      );
+    } else {
+      throw new Error(
+        'Initialize your member profile before saving notification preferences.'
+      );
+    }
     return normalized;
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);

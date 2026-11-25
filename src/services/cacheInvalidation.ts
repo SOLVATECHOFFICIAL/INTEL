@@ -2,6 +2,7 @@ import type {
   AdminUpdate,
   AnonymousPost,
   CampusEvent,
+  CampusPoll,
   CommunityPost,
   MarketplaceListing,
   Opportunity,
@@ -56,6 +57,8 @@ export type CacheMutationEvent =
   | { type: 'admin_update_reaction'; updateId: string; liked: boolean; likesCount: number }
   | { type: 'admin_update_saved'; updateId: string; saved: boolean }
   | { type: 'admin_update_comment_mutated'; updateId: string; commentsCount: number }
+  | { type: 'official_poll_mutated'; poll: CampusPoll }
+  | { type: 'official_poll_deleted'; pollId: string; updateId: string }
   | { type: 'marketplace_updates_mutated' }
   | { type: 'marketplace_mutated' }
   | { type: 'event_mutated' }
@@ -874,6 +877,14 @@ export function notifyAdminUpdateCommentMutated(
     cachedAt: Date.now(),
   }));
   emitMutation({ type: 'admin_update_comment_mutated', updateId, commentsCount: safeCount });
+}
+
+export function notifyOfficialPollMutated(poll: CampusPoll): void {
+  emitMutation({ type: 'official_poll_mutated', poll });
+}
+
+export function notifyOfficialPollDeleted(pollId: string, updateId: string): void {
+  emitMutation({ type: 'official_poll_deleted', pollId, updateId });
 }
 
 // ---------------------------------------------------------------------------

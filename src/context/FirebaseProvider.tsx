@@ -669,7 +669,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       setNotificationError(null);
 
       try {
-        await updateNotificationPreferences(user.uid, normalized);
+        await updateNotificationPreferences(user.uid, normalized, user.email);
       } catch (err) {
         setNotificationPrefs(previousPrefs);
         const msg = formatFirestoreOrAppError(

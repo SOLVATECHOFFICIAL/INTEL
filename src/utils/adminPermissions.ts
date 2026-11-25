@@ -442,6 +442,14 @@ export function formatAdminAuditActionLabel(
       return 'Edited official update';
     case 'update_deleted':
       return 'Deleted official update';
+    case 'poll_created':
+      return 'Created official poll';
+    case 'poll_updated':
+      return 'Updated official poll';
+    case 'poll_closed':
+      return 'Closed official poll';
+    case 'poll_deleted':
+      return 'Deleted official poll';
   }
 }
 

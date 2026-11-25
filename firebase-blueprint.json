@@ -430,18 +430,59 @@
     },
     "CampusPoll": {
       "title": "CampusPoll",
-      "description": "Community poll attached to updates or campus topics.",
+      "description": "Official poll attached strictly to an Official Administrator Update in /updates.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "updateId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorMode": { "type": "string", "enum": ["public_admin", "official_desk"] },
         "ownerUID": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "question": { "type": "string", "minLength": 5, "maxLength": 280 },
         "options": { "type": "array" },
+        "optionCounts": { "type": "array" },
+        "totalVotes": { "type": "integer" },
+        "allowMultiple": { "type": "boolean" },
+        "maxSelections": { "type": "integer" },
+        "allowVoteChange": { "type": "boolean" },
+        "voterScope": { "type": "string", "enum": ["all_members", "verified_and_above"] },
+        "resultsVisibility": { "type": "string", "enum": ["always", "after_vote", "after_close"] },
         "status": { "type": "string", "enum": ["open", "closed"] },
         "expiresAt": { "type": "string", "format": "date-time" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "ownerUID", "question", "options", "status", "expiresAt", "createdAt"]
+      "required": [
+        "id",
+        "updateId",
+        "authorMode",
+        "question",
+        "options",
+        "optionCounts",
+        "totalVotes",
+        "allowMultiple",
+        "maxSelections",
+        "allowVoteChange",
+        "voterScope",
+        "resultsVisibility",
+        "status",
+        "expiresAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PollVoteRecord": {
+      "title": "PollVoteRecord",
+      "description": "Per-voter deduplicated ballot stored under /polls/{pollId}/votes/{voterUid}.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pollId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "voterUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "selectedIndices": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "pollId", "voterUid", "selectedIndices", "createdAt", "updatedAt"]
     },
     "PlatformSetting": {
       "title": "PlatformSetting",
@@ -549,7 +590,11 @@
             "announcement_broadcast",
             "update_created",
             "update_updated",
-            "update_deleted"
+            "update_deleted",
+            "poll_created",
+            "poll_updated",
+            "poll_closed",
+            "poll_deleted"
           ]
         },
         "targetCollection": { "type": "string", "minLength": 2, "maxLength": 64 },
@@ -609,6 +654,7 @@
         "body": { "type": "string", "maxLength": 5000 },
         "backgroundStyle": { "type": "string", "enum": ["navy_slate", "ocean_blue", "cobalt_indigo", "midnight_emerald", "sunset_amber", "crimson_rose", "royal_plum", "warm_charcoal"] },
         "mediaItems": { "type": "array" },
+        "pollId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "isPinned": { "type": "boolean" },
         "status": { "type": "string", "enum": ["published", "deleted"] },
         "visibility": { "type": "string", "enum": ["public"] },
@@ -720,7 +766,11 @@
     },
     "/polls/{pollId}": {
       "schema": { "$ref": "#/entities/CampusPoll" },
-      "description": "Campus polls."
+      "description": "Official campus polls strictly attached to /updates/{updateId}."
+    },
+    "/polls/{pollId}/votes/{voterUid}": {
+      "schema": { "$ref": "#/entities/PollVoteRecord" },
+      "description": "Per-voter deduplicated poll ballots under /polls/{pollId}."
     },
     "/platformSettings/{settingId}": {
       "schema": { "$ref": "#/entities/PlatformSetting" },

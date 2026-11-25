@@ -141,6 +141,10 @@ service cloud.firestore {
       return !(key in data) || (data[key] is string && (data[key] == '' || isValidId(data[key])));
     }
 
+    function isOptionalValidId(data, key) {
+      return !(key in data) || isValidId(data[key]);
+    }
+
     function isValidMediaArray(data, key) {
       return !(key in data) || (
         data[key] is list &&
@@ -439,7 +443,8 @@ service cloud.firestore {
           'event_cancelled', 'event_deleted', 'trusted_contact_created',
           'trusted_contact_updated', 'trusted_contact_deleted',
           'settings_updated', 'announcement_broadcast',
-          'update_created', 'update_updated', 'update_deleted'
+          'update_created', 'update_updated', 'update_deleted',
+          'poll_created', 'poll_updated', 'poll_closed', 'poll_deleted'
         ] &&
         data.targetCollection is string && data.targetCollection.size() >= 2 && data.targetCollection.size() <= 64 &&
         isValidId(data.targetId) &&
@@ -526,7 +531,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'format', 'authorMode', 'ownerUID', 'authorDisplayName',
           'authorBadge', 'authorPhotoUrl', 'authorPhotoImageId', 'category',
-          'title', 'body', 'backgroundStyle', 'mediaItems', 'isPinned',
+          'title', 'body', 'backgroundStyle', 'mediaItems', 'pollId', 'isPinned',
           'status', 'visibility', 'likesCount', 'commentsCount', 'viewsCount',
           'createdAt', 'updatedAt'
         ]) &&
@@ -538,6 +543,7 @@ service cloud.firestore {
         data.authorBadge in ['supreme_admin', 'verified'] &&
         isOptionalShortString(data, 'authorPhotoUrl', 512) &&
         isOptionalValidImageId(data, 'authorPhotoImageId') &&
+        isOptionalValidId(data, 'pollId') &&
         data.category in ['announcement', 'academic', 'campus_life', 'security', 'urgent'] &&
         isOptionalShortString(data, 'title', 180) &&
         data.body is string && data.body.size() <= 5000 &&
@@ -938,12 +944,54 @@ service cloud.firestore {
         data.createdAt is timestamp;
     }
 
+    function isValidIntCountsArray(counts, expectedSize) {
+      return counts is list &&
+        counts.size() == expectedSize &&
+        counts.size() >= 2 &&
+        counts.size() <= 8 &&
+        counts[0] is int && counts[0] >= 0 &&
+        counts[1] is int && counts[1] >= 0 &&
+        (counts.size() < 3 || (counts[2] is int && counts[2] >= 0)) &&
+        (counts.size() < 4 || (counts[3] is int && counts[3] >= 0)) &&
+        (counts.size() < 5 || (counts[4] is int && counts[4] >= 0)) &&
+        (counts.size() < 6 || (counts[5] is int && counts[5] >= 0)) &&
+        (counts.size() < 7 || (counts[6] is int && counts[6] >= 0)) &&
+        (counts.size() < 8 || (counts[7] is int && counts[7] >= 0));
+    }
+
+    function isZeroedCountsArray(counts, expectedSize) {
+      return isValidIntCountsArray(counts, expectedSize) &&
+        counts[0] == 0 &&
+        counts[1] == 0 &&
+        (counts.size() < 3 || counts[2] == 0) &&
+        (counts.size() < 4 || counts[3] == 0) &&
+        (counts.size() < 5 || counts[4] == 0) &&
+        (counts.size() < 6 || counts[5] == 0) &&
+        (counts.size() < 7 || counts[6] == 0) &&
+        (counts.size() < 8 || counts[7] == 0);
+    }
+
     function isValidCampusPoll(data, pollId) {
-      return data.keys().hasAll(['id', 'ownerUID', 'question', 'options', 'status', 'expiresAt', 'createdAt']) &&
-        data.keys().hasOnly(['id', 'ownerUID', 'question', 'options', 'status', 'expiresAt', 'createdAt']) &&
+      return data.keys().hasAll([
+          'id', 'updateId', 'authorMode', 'question', 'options',
+          'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
+          'allowVoteChange', 'voterScope', 'resultsVisibility',
+          'status', 'expiresAt', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'updateId', 'authorMode', 'ownerUID', 'question', 'options',
+          'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
+          'allowVoteChange', 'voterScope', 'resultsVisibility',
+          'status', 'expiresAt', 'createdAt', 'updatedAt'
+        ]) &&
         data.id == pollId &&
         isValidId(data.id) &&
-        isValidId(data.ownerUID) &&
+        isValidId(data.updateId) &&
+        data.authorMode in ['public_admin', 'official_desk'] &&
+        (
+          (data.authorMode == 'public_admin' && 'ownerUID' in data && isValidId(data.ownerUID)) ||
+          (data.authorMode == 'official_desk' && !('ownerUID' in data))
+        ) &&
         data.question is string && data.question.size() >= 5 && data.question.size() <= 280 &&
         data.options is list && data.options.size() >= 2 && data.options.size() <= 8 &&
         data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 120 &&
@@ -954,9 +1002,77 @@ service cloud.firestore {
         (data.options.size() < 6 || (data.options[5] is string && data.options[5].size() >= 1 && data.options[5].size() <= 120)) &&
         (data.options.size() < 7 || (data.options[6] is string && data.options[6].size() >= 1 && data.options[6].size() <= 120)) &&
         (data.options.size() < 8 || (data.options[7] is string && data.options[7].size() >= 1 && data.options[7].size() <= 120)) &&
+        isValidIntCountsArray(data.optionCounts, data.options.size()) &&
+        data.totalVotes is int && data.totalVotes >= 0 &&
+        data.allowMultiple is bool &&
+        data.maxSelections is int && data.maxSelections >= 1 && data.maxSelections <= data.options.size() &&
+        (data.allowMultiple || data.maxSelections == 1) &&
+        data.allowVoteChange is bool &&
+        data.voterScope in ['all_members', 'verified_and_above'] &&
+        data.resultsVisibility in ['always', 'after_vote', 'after_close'] &&
         data.status in ['open', 'closed'] &&
         data.expiresAt is timestamp &&
-        data.createdAt is timestamp;
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPollVote(data, voteId, pollId, optionCount, maxSelections) {
+      return data.keys().hasAll(['id', 'pollId', 'voterUid', 'selectedIndices', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'pollId', 'voterUid', 'selectedIndices', 'createdAt', 'updatedAt']) &&
+        data.id == voteId &&
+        isValidId(data.id) &&
+        data.pollId == pollId &&
+        isValidId(data.pollId) &&
+        data.voterUid == voteId &&
+        isValidId(data.voterUid) &&
+        data.selectedIndices is list &&
+        data.selectedIndices.size() >= 1 &&
+        data.selectedIndices.size() <= maxSelections &&
+        data.selectedIndices.size() <= optionCount &&
+        data.selectedIndices[0] is int && data.selectedIndices[0] >= 0 && data.selectedIndices[0] < optionCount &&
+        (data.selectedIndices.size() < 2 || (data.selectedIndices[1] is int && data.selectedIndices[1] > data.selectedIndices[0] && data.selectedIndices[1] < optionCount)) &&
+        (data.selectedIndices.size() < 3 || (data.selectedIndices[2] is int && data.selectedIndices[2] > data.selectedIndices[1] && data.selectedIndices[2] < optionCount)) &&
+        (data.selectedIndices.size() < 4 || (data.selectedIndices[3] is int && data.selectedIndices[3] > data.selectedIndices[2] && data.selectedIndices[3] < optionCount)) &&
+        (data.selectedIndices.size() < 5 || (data.selectedIndices[4] is int && data.selectedIndices[4] > data.selectedIndices[3] && data.selectedIndices[4] < optionCount)) &&
+        (data.selectedIndices.size() < 6 || (data.selectedIndices[5] is int && data.selectedIndices[5] > data.selectedIndices[4] && data.selectedIndices[5] < optionCount)) &&
+        (data.selectedIndices.size() < 7 || (data.selectedIndices[6] is int && data.selectedIndices[6] > data.selectedIndices[5] && data.selectedIndices[6] < optionCount)) &&
+        (data.selectedIndices.size() < 8 || (data.selectedIndices[7] is int && data.selectedIndices[7] > data.selectedIndices[6] && data.selectedIndices[7] < optionCount)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPollOptionCountDelta(prevCount, nextCount, idx, prevIndices, nextIndices) {
+      return nextCount is int && nextCount >= 0 && (
+        ((idx in prevIndices) && (idx in nextIndices) && nextCount == prevCount) ||
+        (!(idx in prevIndices) && !(idx in nextIndices) && nextCount == prevCount) ||
+        (!(idx in prevIndices) && (idx in nextIndices) && nextCount == prevCount + 1) ||
+        ((idx in prevIndices) && !(idx in nextIndices) && prevCount > 0 && nextCount == prevCount - 1)
+      );
+    }
+
+    function isValidPollCountsTransition(prevCounts, nextCounts, optionCount, prevIndices, nextIndices) {
+      return isValidIntCountsArray(nextCounts, optionCount) &&
+        isValidPollOptionCountDelta(prevCounts[0], nextCounts[0], 0, prevIndices, nextIndices) &&
+        isValidPollOptionCountDelta(prevCounts[1], nextCounts[1], 1, prevIndices, nextIndices) &&
+        (optionCount < 3 || isValidPollOptionCountDelta(prevCounts[2], nextCounts[2], 2, prevIndices, nextIndices)) &&
+        (optionCount < 4 || isValidPollOptionCountDelta(prevCounts[3], nextCounts[3], 3, prevIndices, nextIndices)) &&
+        (optionCount < 5 || isValidPollOptionCountDelta(prevCounts[4], nextCounts[4], 4, prevIndices, nextIndices)) &&
+        (optionCount < 6 || isValidPollOptionCountDelta(prevCounts[5], nextCounts[5], 5, prevIndices, nextIndices)) &&
+        (optionCount < 7 || isValidPollOptionCountDelta(prevCounts[6], nextCounts[6], 6, prevIndices, nextIndices)) &&
+        (optionCount < 8 || isValidPollOptionCountDelta(prevCounts[7], nextCounts[7], 7, prevIndices, nextIndices));
+    }
+
+    function isEligiblePollVoter(scope) {
+      return isActiveSignedInUser() && (
+        scope == 'all_members' ||
+        (scope == 'verified_and_above' && isValidPublishRoleAndBadge(request.auth.uid))
+      );
+    }
+
+    function isOfficialUpdatePublished(updateId) {
+      return isValidId(updateId) &&
+        exists(/databases/$(database)/documents/updates/$(updateId)) &&
+        get(/databases/$(database)/documents/updates/$(updateId)).data.status == 'published';
     }
 
     function isValidPlatformSetting(data, settingId) {
@@ -1074,6 +1190,23 @@ service cloud.firestore {
             (!('followingCount' in existing()) ? incoming().followingCount == 0 : incoming().followingCount == existing().followingCount) &&
             incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'isHiddenFromDirectory', 'accountStatus', 'followersCount', 'followingCount', 'updatedAt'])
           ) ||
+          // [MEMBER/ADMIN RULE] Narrow WhatsApp public visibility toggle (works for both members & admins regardless of legacy optional fields)
+          (isActiveSignedInUser() &&
+            isOwnerOf(userId) &&
+            incoming().showWhatsappPublicly is bool &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['showWhatsappPublicly', 'updatedAt'])
+          ) ||
+          // [MEMBER/ADMIN RULE] Narrow avatar/cover image upload or removal without failing on partial legacy profiles
+          (isActiveSignedInUser() &&
+            isOwnerOf(userId) &&
+            isOptionalShortString(incoming(), 'photoUrl', 512) &&
+            isOptionalShortString(incoming(), 'coverUrl', 512) &&
+            isOptionalValidImageId(incoming(), 'photoImageId') &&
+            isOptionalValidImageId(incoming(), 'coverImageId') &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'photoUrl', 'coverUrl', 'photoImageId', 'coverImageId', 'updatedAt'
+            ])
+          ) ||
           // [MEMBER RULE] Self-profile edits & avatar/cover image updates (enforces reserved username check only when username changes)
           (isActiveSignedInUser() &&
             isOwnerOf(userId) &&
@@ -1123,10 +1256,34 @@ service cloud.firestore {
       allow update: if isActiveSignedInUser() &&
         isValidId(userId) &&
         isOwnerOf(userId) &&
-        isValidPrivateUser(incoming(), userId) &&
+        (!('uid' in existing()) || incoming().uid == existing().uid) &&
         (!isUndergroundSupremeAdminEmail() || !('showSupremeAdminBadge' in incoming()) || incoming().showSupremeAdminBadge == false) &&
-        incoming().uid == existing().uid &&
-        incoming().updatedAt == request.time;
+        incoming().updatedAt == request.time && (
+          isValidPrivateUser(incoming(), userId) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly([
+              'notificationPrefs', 'interestCategories',
+              'ownedAnonymousPostIds', 'ownedAnonymousCommentIds',
+              'showSupremeAdminBadge', 'updatedAt'
+            ]) &&
+            (!('notificationPrefs' in incoming()) || incoming().notificationPrefs is map) &&
+            (!('showSupremeAdminBadge' in incoming()) || incoming().showSupremeAdminBadge is bool) &&
+            (!('interestCategories' in incoming()) || (
+              incoming().interestCategories is list &&
+              incoming().interestCategories.size() <= 20 &&
+              (incoming().interestCategories.size() == 0 || (incoming().interestCategories[0] is string && incoming().interestCategories[0].size() <= 64))
+            )) &&
+            (!('ownedAnonymousPostIds' in incoming()) || (
+              incoming().ownedAnonymousPostIds is list &&
+              incoming().ownedAnonymousPostIds.size() <= 100 &&
+              (incoming().ownedAnonymousPostIds.size() == 0 || (incoming().ownedAnonymousPostIds[0] is string && incoming().ownedAnonymousPostIds[0].size() <= 128))
+            )) &&
+            (!('ownedAnonymousCommentIds' in incoming()) || (
+              incoming().ownedAnonymousCommentIds is list &&
+              incoming().ownedAnonymousCommentIds.size() <= 200 &&
+              (incoming().ownedAnonymousCommentIds.size() == 0 || (incoming().ownedAnonymousCommentIds[0] is string && incoming().ownedAnonymousCommentIds[0].size() <= 128))
+            ))
+          )
+        );
       allow delete: if isValidId(userId) &&
         isOwnerOf(userId) &&
         !isDesignatedSupremeAdminEmail() &&
@@ -2175,22 +2332,145 @@ service cloud.firestore {
     }
 
     match /polls/{pollId} {
-      allow get, list: if true;
+      allow get: if isValidId(pollId) && (
+        resource == null ||
+        isSupremeAdmin() ||
+        isOfficialUpdatePublished(existing().updateId)
+      );
+      allow list: if isSupremeAdmin() || isOfficialUpdatePublished(existing().updateId);
       allow create: if isValidId(pollId) &&
         isSupremeAdmin() &&
         isValidCampusPoll(incoming(), pollId) &&
-        incoming().ownerUID == request.auth.uid &&
-        incoming().createdAt == request.time;
+        incoming().totalVotes == 0 &&
+        isZeroedCountsArray(incoming().optionCounts, incoming().options.size()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          (isUndergroundSupremeAdminEmail() &&
+            incoming().authorMode == 'official_desk' &&
+            !('ownerUID' in incoming())) ||
+          (!isUndergroundSupremeAdminEmail() &&
+            incoming().authorMode == 'public_admin' &&
+            incoming().ownerUID == request.auth.uid)
+        ) &&
+        (exists(/databases/$(database)/documents/updates/$(incoming().updateId)) ||
+          existsAfter(/databases/$(database)/documents/updates/$(incoming().updateId))) &&
+        getAfter(/databases/$(database)/documents/updates/$(incoming().updateId)).data.status == 'published' &&
+        getAfter(/databases/$(database)/documents/updates/$(incoming().updateId)).data.pollId == pollId;
       allow update: if isValidId(pollId) &&
-        isSupremeAdmin() &&
-        isValidCampusPoll(incoming(), pollId) &&
-        incoming().id == existing().id &&
-        incoming().ownerUID == existing().ownerUID &&
-        incoming().createdAt == existing().createdAt &&
-        incoming().diff(existing()).affectedKeys().hasOnly([
-          'question', 'options', 'status', 'expiresAt'
-        ]);
+        (!('id' in existing()) || incoming().id == existing().id) &&
+        (!('updateId' in existing()) || incoming().updateId == existing().updateId) &&
+        (!('authorMode' in existing()) || incoming().authorMode == existing().authorMode) &&
+        (!('ownerUID' in existing())
+          ? !('ownerUID' in incoming())
+          : ('ownerUID' in incoming() && incoming().ownerUID == existing().ownerUID)) &&
+        (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) && (
+          // [VOTER RULE] Atomic ballot submission or allowed vote change strictly coupled to /polls/{pollId}/votes/{request.auth.uid}
+          (isActiveSignedInUser() &&
+            existing().status == 'open' &&
+            request.time < existing().expiresAt &&
+            isOfficialUpdatePublished(existing().updateId) &&
+            isEligiblePollVoter(existing().voterScope) &&
+            incoming().totalVotes is int &&
+            incoming().totalVotes >= 0 &&
+            incoming().updatedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['optionCounts', 'totalVotes', 'updatedAt']) &&
+            existsAfter(/databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)) && (
+              (!exists(/databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)) &&
+                incoming().totalVotes == existing().totalVotes + 1 &&
+                isValidPollCountsTransition(
+                  existing().optionCounts,
+                  incoming().optionCounts,
+                  existing().options.size(),
+                  [],
+                  getAfter(/databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)).data.selectedIndices
+                )
+              ) ||
+              (existing().allowVoteChange == true &&
+                exists(/databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)) &&
+                incoming().totalVotes == existing().totalVotes &&
+                isValidPollCountsTransition(
+                  existing().optionCounts,
+                  incoming().optionCounts,
+                  existing().options.size(),
+                  get(/databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)).data.selectedIndices,
+                  getAfter(/databases/$(database)/documents/polls/$(pollId)/votes/$(request.auth.uid)).data.selectedIndices
+                )
+              )
+            )
+          ) ||
+          // [ADMIN RULE] Designated Supreme Admin edits poll settings/status/expiry
+          (isSupremeAdmin() &&
+            isValidCampusPoll(incoming(), pollId) &&
+            incoming().updatedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'question', 'options', 'status', 'expiresAt',
+              'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
+              'allowVoteChange', 'voterScope', 'resultsVisibility', 'updatedAt'
+            ])) ||
+          // [ADMIN RULE] Preserved narrow metadata edit signature
+          (isSupremeAdmin() &&
+            isValidCampusPoll(incoming(), pollId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'question', 'options', 'status', 'expiresAt'
+            ]))
+        );
       allow delete: if isValidId(pollId) && isSupremeAdmin();
+
+      match /votes/{voterUid} {
+        allow get: if isValidId(pollId) && isValidId(voterUid) && (
+          resource == null ||
+          isOwnerOf(voterUid) ||
+          isSupremeAdmin()
+        );
+        allow list: if isValidId(pollId) && isSupremeAdmin();
+        allow create: if isValidId(pollId) &&
+          isValidId(voterUid) &&
+          isActiveSignedInUser() &&
+          isOwnerOf(voterUid) &&
+          exists(/databases/$(database)/documents/polls/$(pollId)) &&
+          get(/databases/$(database)/documents/polls/$(pollId)).data.status == 'open' &&
+          request.time < get(/databases/$(database)/documents/polls/$(pollId)).data.expiresAt &&
+          isOfficialUpdatePublished(get(/databases/$(database)/documents/polls/$(pollId)).data.updateId) &&
+          isEligiblePollVoter(get(/databases/$(database)/documents/polls/$(pollId)).data.voterScope) &&
+          isValidPollVote(
+            incoming(),
+            voterUid,
+            pollId,
+            get(/databases/$(database)/documents/polls/$(pollId)).data.options.size(),
+            get(/databases/$(database)/documents/polls/$(pollId)).data.maxSelections
+          ) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          !exists(/databases/$(database)/documents/polls/$(pollId)/votes/$(voterUid)) &&
+          getAfter(/databases/$(database)/documents/polls/$(pollId)).data.totalVotes ==
+            get(/databases/$(database)/documents/polls/$(pollId)).data.totalVotes + 1;
+        allow update: if isValidId(pollId) &&
+          isValidId(voterUid) &&
+          isActiveSignedInUser() &&
+          isOwnerOf(voterUid) &&
+          exists(/databases/$(database)/documents/polls/$(pollId)) &&
+          get(/databases/$(database)/documents/polls/$(pollId)).data.status == 'open' &&
+          get(/databases/$(database)/documents/polls/$(pollId)).data.allowVoteChange == true &&
+          request.time < get(/databases/$(database)/documents/polls/$(pollId)).data.expiresAt &&
+          isOfficialUpdatePublished(get(/databases/$(database)/documents/polls/$(pollId)).data.updateId) &&
+          isEligiblePollVoter(get(/databases/$(database)/documents/polls/$(pollId)).data.voterScope) &&
+          isValidPollVote(
+            incoming(),
+            voterUid,
+            pollId,
+            get(/databases/$(database)/documents/polls/$(pollId)).data.options.size(),
+            get(/databases/$(database)/documents/polls/$(pollId)).data.maxSelections
+          ) &&
+          incoming().id == existing().id &&
+          incoming().pollId == existing().pollId &&
+          incoming().voterUid == existing().voterUid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['selectedIndices', 'updatedAt']) &&
+          getAfter(/databases/$(database)/documents/polls/$(pollId)).data.totalVotes ==
+            get(/databases/$(database)/documents/polls/$(pollId)).data.totalVotes;
+        allow delete: if isValidId(pollId) && isValidId(voterUid) && isSupremeAdmin();
+      }
     }
 
     match /platformSettings/{settingId} {
@@ -2294,6 +2574,10 @@ service cloud.firestore {
         incoming().likesCount == 0 &&
         incoming().commentsCount == 0 &&
         (!('viewsCount' in incoming()) || incoming().viewsCount == 0) &&
+        (!('pollId' in incoming()) || (
+          existsAfter(/databases/$(database)/documents/polls/$(incoming().pollId)) &&
+          getAfter(/databases/$(database)/documents/polls/$(incoming().pollId)).data.updateId == updateId
+        )) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time && (
           (isUndergroundSupremeAdminEmail() &&
@@ -2357,7 +2641,7 @@ service cloud.firestore {
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'category', 'title', 'body', 'backgroundStyle',
-              'mediaItems', 'isPinned', 'status', 'updatedAt'
+              'mediaItems', 'pollId', 'isPinned', 'status', 'updatedAt'
             ]))
         );
       allow delete: if isValidId(updateId) && isSupremeAdmin();

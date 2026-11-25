@@ -74,6 +74,7 @@ import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
+import { OfficialUpdatePollBlock } from './OfficialUpdatePollBlock';
 
 const CATEGORY_LABELS: Record<string, string> = {
   announcement: 'Announcement',
@@ -741,6 +742,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
     try {
       await deleteOfficialUpdateCascading({
         updateId: update.id,
+        pollId: update.pollId,
         likesCount: update.likesCount ?? 0,
         mediaImageIds: (update.mediaItems ?? []).map((m) => m.imageId),
         actorUid: viewerUid,
@@ -1016,6 +1018,18 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
             {update.body}
           </p>
         </div>
+      )}
+
+      {update.pollId && (
+        <OfficialUpdatePollBlock
+          updateId={update.id}
+          pollId={update.pollId}
+          viewerUid={viewerUid}
+          viewerTier={viewerTier}
+          viewerSuspended={viewerSuspended}
+          onRequireAuth={onRequireAuth}
+          returnRoute={returnRoute}
+        />
       )}
 
       {cardError && (

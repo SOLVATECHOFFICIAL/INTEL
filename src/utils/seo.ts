@@ -165,7 +165,7 @@ function resolveRouteCopy(dest: NormalizedRouteDestination): {
       };
     case 'anonymous':
       return {
-        title: `The Unfiltered (Anonymous Confessions & Polls) — ${BRAND.name}`,
+        title: `The Unfiltered (Anonymous Campus Confessions) — ${BRAND.name}`,
         description:
           'Join candid, privacy-protected anonymous campus conversations, questions, and community discussions on LASUED Intel.',
         ogType: 'website',

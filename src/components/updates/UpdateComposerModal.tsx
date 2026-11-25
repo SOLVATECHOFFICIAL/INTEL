@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
+  BarChart3,
   Check,
   Eye,
   ImagePlus,
@@ -9,6 +10,7 @@ import {
   Megaphone,
   Palette,
   Pin,
+  Plus,
   RefreshCw,
   Send,
   ShieldCheck,
@@ -30,6 +32,7 @@ import {
   generateFirestoreDocId,
   type UploadProgressState,
 } from '../../services/mediaStorage';
+import { fetchOfficialPollById } from '../../services/officialPolls';
 import type { ComposerImageAttachment } from '../../services/socialPosts';
 import {
   ALLOWED_ADMIN_UPDATE_CATEGORIES,
@@ -38,6 +41,9 @@ import {
   resolveAdminUpdateFormat,
   type AdminUpdate,
   type AdminUpdateFormat,
+  type CampusPoll,
+  type PollResultsVisibility,
+  type PollVoterScope,
   type PublicProfileProjection,
   type TextPostBackgroundId,
   type UserRole,
@@ -46,6 +52,7 @@ import {
   formatFirestoreOrAppError,
   isUndergroundSupremeAdminUser,
 } from '../../utils/authValidation';
+import { extractTimestampMs } from '../../utils/contextualSearch';
 import {
   ALL_IMAGE_FILE_ACCEPT,
   compressImageFile,
@@ -57,6 +64,11 @@ import {
   reorderArrayItem,
 } from '../../utils/mediaCache';
 import type { GridPhotoItem } from '../../utils/mediaGrid';
+import {
+  POLL_DURATION_PRESETS,
+  normalizeAndValidatePollDraft,
+  type OfficialPollDraftInput,
+} from '../../utils/polls';
 import { RoleBadge } from '../RoleBadge';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
@@ -69,6 +81,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   security: 'Security Notice',
   urgent: 'Urgent',
 };
+
+function toLocalDateTimeInputValue(ms: number): string {
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export interface UpdateComposerModalProps {
   actorUid: string;
@@ -162,6 +182,58 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
     useState<UploadProgressState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Official-Post-only Poll state
+  const [existingPoll, setExistingPoll] = useState<CampusPoll | null>(null);
+  const [loadedPollId, setLoadedPollId] = useState<string | null>(null);
+  const loadingExistingPoll =
+    Boolean(initialUpdate?.pollId) && loadedPollId !== initialUpdate?.pollId;
+  const [attachPoll, setAttachPoll] = useState(Boolean(initialUpdate?.pollId));
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
+  const [pollAllowMultiple, setPollAllowMultiple] = useState(false);
+  const [pollMaxSelections, setPollMaxSelections] = useState(2);
+  const [pollAllowVoteChange, setPollAllowVoteChange] = useState(false);
+  const [pollVoterScope, setPollVoterScope] =
+    useState<PollVoterScope>('all_members');
+  const [pollResultsVisibility, setPollResultsVisibility] =
+    useState<PollResultsVisibility>('always');
+  const [pollStatus, setPollStatus] = useState<'open' | 'closed'>('open');
+  const [pollExpiresAtLocal, setPollExpiresAtLocal] = useState(() =>
+    toLocalDateTimeInputValue(Date.now() + 3 * 24 * 60 * 60 * 1000)
+  );
+
+  useEffect(() => {
+    const existingPollId = initialUpdate?.pollId;
+    if (!existingPollId) {
+      return;
+    }
+    let active = true;
+    void fetchOfficialPollById(existingPollId)
+      .then((poll) => {
+        if (!active || !poll) return;
+        setExistingPoll(poll);
+        setAttachPoll(true);
+        setPollQuestion(poll.question);
+        setPollOptions(poll.options.length >= 2 ? poll.options : ['', '']);
+        setPollAllowMultiple(poll.allowMultiple);
+        setPollMaxSelections(Math.max(2, poll.maxSelections));
+        setPollAllowVoteChange(poll.allowVoteChange);
+        setPollVoterScope(poll.voterScope);
+        setPollResultsVisibility(poll.resultsVisibility);
+        setPollStatus(poll.status);
+        const expMs = extractTimestampMs(poll.expiresAt);
+        if (expMs) {
+          setPollExpiresAtLocal(toLocalDateTimeInputValue(expMs));
+        }
+      })
+      .finally(() => {
+        if (active) setLoadedPollId(existingPollId);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initialUpdate?.pollId]);
 
   // Hydrate existing image previews when editing an existing photo update
   useEffect(() => {
@@ -380,6 +452,41 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
       }
     }
 
+    let validatedPollDraft: OfficialPollDraftInput | null = null;
+    if (attachPoll) {
+      const parsedExpMs = new Date(pollExpiresAtLocal).getTime();
+      const draft: OfficialPollDraftInput = {
+        question: pollQuestion,
+        options: pollOptions,
+        allowMultiple: pollAllowMultiple,
+        maxSelections: pollAllowMultiple ? pollMaxSelections : 1,
+        allowVoteChange: pollAllowVoteChange,
+        voterScope: pollVoterScope,
+        resultsVisibility: pollResultsVisibility,
+        expiresAtMs: parsedExpMs,
+      };
+      try {
+        const existingExpMs = existingPoll
+          ? extractTimestampMs(existingPoll.expiresAt)
+          : null;
+        const expiresChanged =
+          !existingPoll ||
+          existingExpMs === null ||
+          Math.abs(parsedExpMs - existingExpMs) > 60_000;
+        normalizeAndValidatePollDraft(draft, {
+          requireFutureExpiry: expiresChanged,
+        });
+        validatedPollDraft = draft;
+      } catch (pollErr) {
+        setErrorMessage(
+          pollErr instanceof Error
+            ? pollErr.message
+            : 'Invalid official poll settings.'
+        );
+        return;
+      }
+    }
+
     submitLockRef.current = true;
     setIsSubmitting(true);
     setUploadProgress({
@@ -389,6 +496,20 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
 
     try {
       if (isEditing && initialUpdate) {
+        const pollEdit = attachPoll && validatedPollDraft
+          ? {
+              mode: 'upsert' as const,
+              existingPoll,
+              draft: validatedPollDraft,
+              status: pollStatus,
+            }
+          : existingPoll
+          ? {
+              mode: 'remove' as const,
+              existingPollId: existingPoll.id,
+            }
+          : { mode: 'unchanged' as const };
+
         const updated = await updateOfficialUpdateWithMedia({
           update: initialUpdate,
           actorUid,
@@ -399,6 +520,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
           backgroundStyle: format === 'text' ? backgroundStyle : undefined,
           attachments: format === 'photo' ? attachments : [],
           isPinned,
+          pollEdit,
           onProgress: setUploadProgress,
         });
         onSuccess(updated, null);
@@ -413,6 +535,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
           backgroundStyle: format === 'text' ? backgroundStyle : undefined,
           attachments: format === 'photo' ? attachments : [],
           isPinned,
+          pollDraft: validatedPollDraft,
           onProgress: setUploadProgress,
         });
         onSuccess(result.update, result.author);
@@ -898,6 +1021,325 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     </div>
                   </>
                 )}
+
+                {/* Official-Post-Only Poll Builder */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white">
+                        <BarChart3
+                          className="h-4 w-4 text-[#1E88E5]"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-[#0B1A2E]">
+                          Attach Official Poll (Optional)
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Polls are strictly embedded inside Official Updates.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={attachPoll}
+                      disabled={loadingExistingPoll || isSubmitting}
+                      onClick={() => {
+                        setAttachPoll((prev) => !prev);
+                        setErrorMessage(null);
+                      }}
+                      data-testid="toggle-attach-official-poll"
+                      className={`inline-flex min-h-[34px] shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
+                        attachPoll
+                          ? 'border-[#1E88E5] bg-[#1E88E5] text-white'
+                          : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-100'
+                      }`}
+                    >
+                      {attachPoll ? 'Included' : 'Add Poll'}
+                    </button>
+                  </div>
+
+                  {loadingExistingPoll && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]" />
+                      Loading attached poll configuration...
+                    </div>
+                  )}
+
+                  {attachPoll && !loadingExistingPoll && (
+                    <div className="mt-3.5 space-y-3 border-t border-slate-200 pt-3.5">
+                      <div>
+                        <label
+                          htmlFor="official-poll-question"
+                          className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                        >
+                          <span>Poll Question</span>
+                          <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                            {pollQuestion.length}/{BLUEPRINT_LIMITS.pollQuestionMax}
+                          </span>
+                        </label>
+                        <input
+                          id="official-poll-question"
+                          type="text"
+                          maxLength={BLUEPRINT_LIMITS.pollQuestionMax}
+                          value={pollQuestion}
+                          onChange={(e) => setPollQuestion(e.target.value)}
+                          placeholder="Ask students or verified members a clear question..."
+                          className="min-h-[40px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-[#0B1A2E]">
+                            Options ({pollOptions.length}/{BLUEPRINT_LIMITS.pollOptionsMax})
+                          </span>
+                          {existingPoll && existingPoll.totalVotes > 0 ? (
+                            <span className="text-[11px] font-medium text-amber-700">
+                              Options locked after votes cast ({existingPoll.totalVotes})
+                            </span>
+                          ) : (
+                            pollOptions.length < BLUEPRINT_LIMITS.pollOptionsMax && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPollOptions((prev) =>
+                                    prev.length < BLUEPRINT_LIMITS.pollOptionsMax
+                                      ? [...prev, '']
+                                      : prev
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100"
+                              >
+                                <Plus className="h-3 w-3 text-[#1E88E5]" />
+                                Add option
+                              </button>
+                            )
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          {pollOptions.map((opt, idx) => {
+                            const optionsLocked = Boolean(
+                              existingPoll && existingPoll.totalVotes > 0
+                            );
+                            return (
+                              <div key={`poll-opt-input-${idx}`} className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  disabled={optionsLocked}
+                                  maxLength={BLUEPRINT_LIMITS.pollOptionMaxLength}
+                                  value={opt}
+                                  onChange={(e) =>
+                                    setPollOptions((prev) =>
+                                      prev.map((item, i) =>
+                                        i === idx ? e.target.value : item
+                                      )
+                                    )
+                                  }
+                                  placeholder={`Option ${idx + 1}`}
+                                  className="min-h-[38px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5] disabled:bg-slate-100 disabled:text-slate-500"
+                                />
+                                {!optionsLocked &&
+                                  pollOptions.length > BLUEPRINT_LIMITS.pollOptionsMin && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPollOptions((prev) =>
+                                          prev.filter((_, i) => i !== idx)
+                                        )
+                                      }
+                                      aria-label={`Remove option ${idx + 1}`}
+                                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-red-700 hover:bg-red-50"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label
+                            htmlFor="official-poll-expiry"
+                            className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                          >
+                            Closes At
+                          </label>
+                          <input
+                            id="official-poll-expiry"
+                            type="datetime-local"
+                            value={pollExpiresAtLocal}
+                            onChange={(e) => setPollExpiresAtLocal(e.target.value)}
+                            className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                          />
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {POLL_DURATION_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() =>
+                                  setPollExpiresAtLocal(
+                                    toLocalDateTimeInputValue(
+                                      Date.now() + preset.durationMs
+                                    )
+                                  )
+                                }
+                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-[#1E88E5] hover:text-[#0B1A2E]"
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          <div>
+                            <label
+                              htmlFor="official-poll-voter-scope"
+                              className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                            >
+                              Eligible Voters
+                            </label>
+                            <select
+                              id="official-poll-voter-scope"
+                              value={pollVoterScope}
+                              onChange={(e) =>
+                                setPollVoterScope(
+                                  e.target.value as PollVoterScope
+                                )
+                              }
+                              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                            >
+                              <option value="all_members">
+                                All Signed-In Members
+                              </option>
+                              <option value="verified_and_above">
+                                Verified, Moderator &amp; Admin Only
+                              </option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor="official-poll-visibility"
+                              className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                            >
+                              Results Visibility
+                            </label>
+                            <select
+                              id="official-poll-visibility"
+                              value={pollResultsVisibility}
+                              onChange={(e) =>
+                                setPollResultsVisibility(
+                                  e.target.value as PollResultsVisibility
+                                )
+                              }
+                              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                            >
+                              <option value="always">Always Visible</option>
+                              <option value="after_vote">
+                                Visible After User Votes
+                              </option>
+                              <option value="after_close">
+                                Visible After Poll Closes
+                              </option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E]">
+                          <span>Allow multiple choices</span>
+                          <input
+                            type="checkbox"
+                            checked={pollAllowMultiple}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setPollAllowMultiple(checked);
+                              if (checked && pollMaxSelections < 2) {
+                                setPollMaxSelections(2);
+                              }
+                            }}
+                            className="h-4 w-4 accent-[#1E88E5]"
+                          />
+                        </label>
+
+                        <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E]">
+                          <span>Allow vote changes</span>
+                          <input
+                            type="checkbox"
+                            checked={pollAllowVoteChange}
+                            onChange={(e) =>
+                              setPollAllowVoteChange(e.target.checked)
+                            }
+                            className="h-4 w-4 accent-[#1E88E5]"
+                          />
+                        </label>
+                      </div>
+
+                      {pollAllowMultiple && (
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                          <span className="font-semibold text-[#0B1A2E]">
+                            Maximum selections per voter
+                          </span>
+                          <select
+                            aria-label="Maximum selections per voter"
+                            value={Math.min(
+                              Math.max(2, pollMaxSelections),
+                              Math.max(2, pollOptions.length)
+                            )}
+                            onChange={(e) =>
+                              setPollMaxSelections(Number(e.target.value))
+                            }
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-[#0B1A2E]"
+                          >
+                            {Array.from(
+                              {
+                                length: Math.max(1, pollOptions.length - 1),
+                              },
+                              (_, i) => i + 2
+                            ).map((num) => (
+                              <option key={num} value={num}>
+                                Up to {num} options
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {existingPoll && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+                          <span className="font-semibold text-[#0B1A2E]">
+                            Poll Status
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <select
+                              aria-label="Poll status"
+                              value={pollStatus}
+                              onChange={(e) =>
+                                setPollStatus(
+                                  e.target.value === 'closed' ? 'closed' : 'open'
+                                )
+                              }
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-[#0B1A2E]"
+                            >
+                              <option value="open">Open</option>
+                              <option value="closed">Closed</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               /* Live Preview Card */
@@ -977,6 +1419,30 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     >
                       {body.trim() || 'Your official text update will appear here.'}
                     </p>
+                  </div>
+                )}
+
+                {attachPoll && (
+                  <div className="mt-3.5 rounded-xl border border-[#1E88E5]/25 bg-slate-50/80 p-3.5">
+                    <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase">
+                      Official Poll Preview
+                    </p>
+                    <p className="mt-0.5 font-display text-sm font-bold text-[#0B1A2E]">
+                      {pollQuestion.trim() || 'Your poll question will appear here.'}
+                    </p>
+                    <div className="mt-2.5 space-y-1.5">
+                      {pollOptions
+                        .map((o) => o.trim())
+                        .filter(Boolean)
+                        .map((opt, idx) => (
+                          <div
+                            key={`preview-opt-${idx}`}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#0B1A2E]"
+                          >
+                            {opt}
+                          </div>
+                        ))}
+                    </div>
                   </div>
                 )}
               </div>

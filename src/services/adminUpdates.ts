@@ -79,6 +79,17 @@ import {
   primeMediaImageCache,
   type UploadProgressState,
 } from './mediaStorage';
+import {
+  attachCreatePollToBatch,
+  attachUpdatePollToBatch,
+  collectPollCascadeDeleteRefs,
+  emitOfficialPollDeleted,
+} from './officialPolls';
+import {
+  notifyOfficialPollMutated,
+} from './cacheInvalidation';
+import type { OfficialPollDraftInput } from '../utils/polls';
+import type { CampusPoll } from '../types/database';
 import type { CommentWithAuthor, ComposerImageAttachment } from './socialPosts';
 import { triggerBestEffortPushBroadcast } from './webPush';
 
@@ -398,6 +409,7 @@ export async function createOfficialUpdateWithMedia(input: {
   backgroundStyle?: TextPostBackgroundId;
   attachments: ComposerImageAttachment[];
   isPinned?: boolean;
+  pollDraft?: OfficialPollDraftInput | null;
   onProgress?: (state: UploadProgressState) => void;
 }): Promise<{ update: AdminUpdate; author: PublicProfileProjection | null }> {
   const currentUser = auth.currentUser;
@@ -482,6 +494,13 @@ export async function createOfficialUpdateWithMedia(input: {
     updateDoc.mediaItems = mediaItems;
   }
 
+  const pollId = input.pollDraft
+    ? generateFirestoreDocId(COLLECTION_NAMES.polls)
+    : null;
+  if (pollId) {
+    updateDoc.pollId = pollId;
+  }
+
   validateAdminUpdatePayload(updateDoc);
 
   input.onProgress?.({
@@ -495,10 +514,20 @@ export async function createOfficialUpdateWithMedia(input: {
   input.onProgress?.({ percent: 72, label: 'Confirming with Firebase...' });
 
   const path = `${COLLECTION_NAMES.updates}/${updateId}`;
+  let createdPoll: CampusPoll | null = null;
   try {
     await commitFreshWriteBatchWithRetry(
       () => writeBatch(db),
       (batch) => {
+        if (pollId && input.pollDraft) {
+          createdPoll = attachCreatePollToBatch(batch, {
+            pollId,
+            updateId,
+            authorMode,
+            actorUid: input.actorUid,
+            draft: input.pollDraft,
+          });
+        }
         batch.set(doc(db, COLLECTION_NAMES.updates, updateId), updateDoc);
         batch.set(doc(db, COLLECTION_NAMES.adminUpdateMappings, updateId), {
           updateId,
@@ -548,6 +577,9 @@ export async function createOfficialUpdateWithMedia(input: {
     updatedAt: Date.now(),
   };
 
+  if (createdPoll) {
+    notifyOfficialPollMutated(createdPoll);
+  }
   notifyAdminUpdateCreated(createdUpdate, authorProjection);
   void notifyUsersOfOfficialUpdate({
     update: createdUpdate,
@@ -567,6 +599,15 @@ export async function updateOfficialUpdateWithMedia(input: {
   backgroundStyle?: TextPostBackgroundId;
   attachments: ComposerImageAttachment[];
   isPinned?: boolean;
+  pollEdit?:
+    | { mode: 'unchanged' }
+    | { mode: 'remove'; existingPollId: string }
+    | {
+        mode: 'upsert';
+        existingPoll?: CampusPoll | null;
+        draft: OfficialPollDraftInput;
+        status?: 'open' | 'closed';
+      };
   onProgress?: (state: UploadProgressState) => void;
 }): Promise<AdminUpdate> {
   const currentUser = auth.currentUser;
@@ -656,11 +697,46 @@ export async function updateOfficialUpdateWithMedia(input: {
       ? input.actorUid
       : undefined;
 
+  let pollDeleteRefs: ReturnType<typeof doc>[] = [];
+  let newPollId: string | null = null;
+  let removedPollId: string | null = null;
+
+  if (input.pollEdit?.mode === 'remove' && input.pollEdit.existingPollId) {
+    removedPollId = input.pollEdit.existingPollId;
+    pollDeleteRefs = await collectPollCascadeDeleteRefs(removedPollId);
+    updatePayload.pollId = deleteField();
+  } else if (input.pollEdit?.mode === 'upsert') {
+    if (!input.pollEdit.existingPoll) {
+      newPollId = generateFirestoreDocId(COLLECTION_NAMES.polls);
+      updatePayload.pollId = newPollId;
+    }
+  }
+
+  let mutatedPoll: CampusPoll | null = null;
   const path = `${COLLECTION_NAMES.updates}/${input.update.id}`;
   try {
     await commitFreshWriteBatchWithRetry(
       () => writeBatch(db),
       (batch) => {
+        if (input.pollEdit?.mode === 'upsert') {
+          if (input.pollEdit.existingPoll) {
+            mutatedPoll = attachUpdatePollToBatch(batch, {
+              existingPoll: input.pollEdit.existingPoll,
+              actorUid: input.actorUid,
+              draft: input.pollEdit.draft,
+              status: input.pollEdit.status,
+            });
+          } else if (newPollId) {
+            mutatedPoll = attachCreatePollToBatch(batch, {
+              pollId: newPollId,
+              updateId: input.update.id,
+              authorMode: input.update.authorMode,
+              actorUid: input.actorUid,
+              draft: input.pollEdit.draft,
+            });
+          }
+        }
+
         batch.update(doc(db, COLLECTION_NAMES.updates, input.update.id), updatePayload);
 
         for (const att of effectiveAttachments) {
@@ -678,6 +754,10 @@ export async function updateOfficialUpdateWithMedia(input: {
 
         for (const removedId of removedImageIds) {
           batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
+        }
+
+        for (const pRef of pollDeleteRefs) {
+          batch.delete(pRef);
         }
 
         attachUpdateAuditLogToBatch(batch, {
@@ -705,12 +785,18 @@ export async function updateOfficialUpdateWithMedia(input: {
 
   input.onProgress?.({ percent: 100, label: 'Update saved' });
 
+  const resolvedPollId =
+    input.pollEdit?.mode === 'remove'
+      ? undefined
+      : newPollId ?? input.update.pollId;
+
   const updated: AdminUpdate = {
     ...input.update,
     format: lockedFormat,
     category: cleanCategory,
     title: cleanTitle || undefined,
     body: cleanBody,
+    pollId: resolvedPollId,
     isPinned:
       input.isPinned !== undefined
         ? Boolean(input.isPinned)
@@ -720,6 +806,12 @@ export async function updateOfficialUpdateWithMedia(input: {
     updatedAt: Date.now(),
   };
 
+  if (mutatedPoll) {
+    notifyOfficialPollMutated(mutatedPoll);
+  }
+  if (removedPollId) {
+    emitOfficialPollDeleted(removedPollId, input.update.id);
+  }
   notifyAdminUpdateUpdated(updated);
   return updated;
 }
@@ -774,6 +866,7 @@ export async function toggleOfficialUpdatePin(input: {
 
 export async function deleteOfficialUpdateCascading(input: {
   updateId: string;
+  pollId?: string;
   mediaImageIds: string[];
   actorUid: string;
   actorRole: UserRole;
@@ -794,38 +887,55 @@ export async function deleteOfficialUpdateCascading(input: {
   if (!isValidFirestoreId(input.updateId)) return;
 
   const existingMediaIds = await resolveExistingImageIds(input.mediaImageIds);
-  const [commentsSnap, reactionsSnap, savedSnap, mappingSnap] = await Promise.all([
-    getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.postComments),
-        where('postId', '==', input.updateId),
-        where('status', '==', 'published'),
-        limit(200)
-      )
-    ).catch(() => null),
-    getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.postReactions),
-        where('targetCollection', '==', 'updates'),
-        where('targetId', '==', input.updateId),
-        limit(300)
-      )
-    ).catch(() => null),
-    getDocs(
-      query(
-        collection(db, COLLECTION_NAMES.savedPosts),
-        where('ownerUID', '==', input.actorUid),
-        where('targetCollection', '==', 'updates'),
-        where('targetId', '==', input.updateId),
-        limit(200)
-      )
-    ).catch(() => null),
-    getDoc(doc(db, COLLECTION_NAMES.adminUpdateMappings, input.updateId)).catch(
-      () => null
-    ),
-  ]);
+  let resolvedPollId =
+    input.pollId && isValidFirestoreId(input.pollId) ? input.pollId : undefined;
+  if (!resolvedPollId) {
+    const updSnap = await getDoc(
+      doc(db, COLLECTION_NAMES.updates, input.updateId)
+    ).catch(() => null);
+    const maybePollId = (updSnap?.data() as AdminUpdate | undefined)?.pollId;
+    if (maybePollId && isValidFirestoreId(maybePollId)) {
+      resolvedPollId = maybePollId;
+    }
+  }
+
+  const [commentsSnap, reactionsSnap, savedSnap, mappingSnap, pollDeleteRefs] =
+    await Promise.all([
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.postComments),
+          where('postId', '==', input.updateId),
+          where('status', '==', 'published'),
+          limit(200)
+        )
+      ).catch(() => null),
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.postReactions),
+          where('targetCollection', '==', 'updates'),
+          where('targetId', '==', input.updateId),
+          limit(300)
+        )
+      ).catch(() => null),
+      getDocs(
+        query(
+          collection(db, COLLECTION_NAMES.savedPosts),
+          where('ownerUID', '==', input.actorUid),
+          where('targetCollection', '==', 'updates'),
+          where('targetId', '==', input.updateId),
+          limit(200)
+        )
+      ).catch(() => null),
+      getDoc(doc(db, COLLECTION_NAMES.adminUpdateMappings, input.updateId)).catch(
+        () => null
+      ),
+      resolvedPollId
+        ? collectPollCascadeDeleteRefs(resolvedPollId)
+        : Promise.resolve([]),
+    ]);
 
   const refsToDelete = [
+    ...pollDeleteRefs,
     doc(db, COLLECTION_NAMES.updates, input.updateId),
     ...(mappingSnap?.exists()
       ? [doc(db, COLLECTION_NAMES.adminUpdateMappings, input.updateId)]
@@ -866,6 +976,9 @@ export async function deleteOfficialUpdateCascading(input: {
 
   if (existingMediaIds.length > 0) {
     evictMediaImageCacheBatch(existingMediaIds);
+  }
+  if (resolvedPollId) {
+    emitOfficialPollDeleted(resolvedPollId, input.updateId);
   }
   notifyAdminUpdateDeleted(input.updateId, {
     likesCount: input.likesCount,

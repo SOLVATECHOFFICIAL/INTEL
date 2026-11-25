@@ -189,6 +189,12 @@ export const BLUEPRINT_LIMITS = {
   eventVenueMax: 200,
   auditReasonMin: 5,
   auditReasonMax: 500,
+  pollQuestionMin: 5,
+  pollQuestionMax: 280,
+  pollOptionsMin: 2,
+  pollOptionsMax: 8,
+  pollOptionMinLength: 1,
+  pollOptionMaxLength: 120,
   sevenDaysMs: 7 * 24 * 60 * 60 * 1000,
 } as const;
 
@@ -226,6 +232,7 @@ export const COLLECTION_NAMES = {
 export const SUBCOLLECTION_NAMES = {
   anonymousHistory: 'anonymousHistory',
   pushSubscriptions: 'pushSubscriptions',
+  votes: 'votes',
 } as const;
 
 export interface PostMediaMeta {
@@ -406,7 +413,11 @@ export type AdminAuditAction =
   | 'announcement_broadcast'
   | 'update_created'
   | 'update_updated'
-  | 'update_deleted';
+  | 'update_deleted'
+  | 'poll_created'
+  | 'poll_updated'
+  | 'poll_closed'
+  | 'poll_deleted';
 
 export interface AdminAuditLog {
   id: string;
@@ -493,6 +504,7 @@ export interface AdminUpdate {
   body: string;
   backgroundStyle?: TextPostBackgroundId;
   mediaItems?: PostMediaMeta[];
+  pollId?: string;
   isPinned: boolean;
   status: PostStatus;
   visibility: 'public';
@@ -768,14 +780,36 @@ export interface NotificationItem {
   createdAt: unknown;
 }
 
+export type PollVoterScope = 'all_members' | 'verified_and_above';
+export type PollResultsVisibility = 'always' | 'after_vote' | 'after_close';
+
 export interface CampusPoll {
   id: string;
-  ownerUID: string;
+  updateId: string;
+  authorMode: AdminUpdateAuthorMode;
+  ownerUID?: string;
   question: string;
   options: string[];
+  optionCounts: number[];
+  totalVotes: number;
+  allowMultiple: boolean;
+  maxSelections: number;
+  allowVoteChange: boolean;
+  voterScope: PollVoterScope;
+  resultsVisibility: PollResultsVisibility;
   status: 'open' | 'closed';
   expiresAt: unknown;
   createdAt: unknown;
+  updatedAt: unknown;
+}
+
+export interface PollVoteRecord {
+  id: string;
+  pollId: string;
+  voterUid: string;
+  selectedIndices: number[];
+  createdAt: unknown;
+  updatedAt: unknown;
 }
 
 export interface PlatformSetting {
