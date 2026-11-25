@@ -564,12 +564,13 @@
     },
     "PostViewRecord": {
       "title": "PostViewRecord",
-      "description": "Deduplicated per-user view record preventing inflation while never exposing viewer identity on Anonymous posts.",
+      "description": "Deduplicated per-user or per-guest-visitor view record preventing count inflation while never exposing viewer identity.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
-        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts"] },
+        "targetCollection": { "type": "string", "enum": ["posts", "anonymousPosts", "updates"] },
         "targetId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "visitorKey": { "type": "string", "minLength": 14, "maxLength": 64, "pattern": "^guest_[a-zA-Z0-9_\\-]+$" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "targetCollection", "targetId", "createdAt"]

@@ -72,6 +72,7 @@ import {
   buildPostViewDocId,
   hasRecordedPostViewLocally,
   markPostViewLocally,
+  resolveActiveViewActor,
 } from '../utils/postViews';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
@@ -1301,14 +1302,15 @@ export async function fetchViewerLikedPostIds(
     const q = query(
       collection(db, COLLECTION_NAMES.postReactions),
       where('ownerUID', '==', viewerUid),
-      where('targetCollection', '==', kind),
-      limit(200)
+      limit(1000)
     );
     const snap = await getDocs(q);
     const likedIds = new Set<string>();
     for (const item of snap.docs) {
       const data = item.data() as PostReaction;
-      likedIds.add(data.targetId);
+      if (data.targetCollection === kind && data.targetId) {
+        likedIds.add(data.targetId);
+      }
     }
     return likedIds;
   } catch (error) {
@@ -1460,13 +1462,13 @@ export async function fetchViewerSavedPostIds(
     const q = query(
       collection(db, COLLECTION_NAMES.savedPosts),
       where('ownerUID', '==', viewerUid),
-      limit(200)
+      limit(1000)
     );
     const snap = await getDocs(q);
     const savedIds = new Set<string>();
     for (const item of snap.docs) {
       const data = item.data() as SavedPost;
-      if (data.targetCollection === kind) {
+      if (data.targetCollection === kind && data.targetId) {
         savedIds.add(data.targetId);
       }
     }
@@ -2630,7 +2632,7 @@ export async function deleteMarketplaceListingComment(input: {
 }
 
 export async function recordDeduplicatedPostView(input: {
-  kind: 'ordinary' | 'anonymous';
+  kind: 'ordinary' | 'anonymous' | 'update';
   postId: string;
   viewerUid?: string | null;
   currentViewsCount?: number;
@@ -2643,20 +2645,16 @@ export async function recordDeduplicatedPostView(input: {
   const targetCollection =
     input.kind === 'ordinary'
       ? COLLECTION_NAMES.posts
-      : COLLECTION_NAMES.anonymousPosts;
+      : input.kind === 'update'
+        ? COLLECTION_NAMES.updates
+        : COLLECTION_NAMES.anonymousPosts;
   const hasSignedInViewer =
     Boolean(input.viewerUid) &&
     isValidFirestoreId(input.viewerUid!) &&
     auth.currentUser?.uid === input.viewerUid;
-  const viewerKey = hasSignedInViewer ? input.viewerUid! : 'guest';
+  const actor = resolveActiveViewActor(hasSignedInViewer ? input.viewerUid! : null);
 
-  if (hasRecordedPostViewLocally(targetCollection, input.postId, viewerKey)) {
-    return null;
-  }
-
-  if (!hasSignedInViewer) {
-    // Guest sessions deduplicate locally without attempting restricted Firestore view writes.
-    markPostViewLocally(targetCollection, input.postId, 'guest');
+  if (hasRecordedPostViewLocally(targetCollection, input.postId, actor.dedupKey)) {
     return null;
   }
 
@@ -2683,19 +2681,24 @@ export async function recordDeduplicatedPostView(input: {
     const viewId = buildPostViewDocId(
       targetCollection,
       input.postId,
-      input.viewerUid!
+      actor.actorId
     );
-    const batch = writeBatch(db);
-    batch.set(doc(db, COLLECTION_NAMES.postViews, viewId), {
+    const viewPayload: Record<string, unknown> = {
       id: viewId,
       targetCollection,
       targetId: input.postId,
       createdAt: serverTimestamp(),
-    });
+    };
+    if (actor.actorType === 'guest') {
+      viewPayload.visitorKey = actor.actorId;
+    }
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, COLLECTION_NAMES.postViews, viewId), viewPayload);
     batch.update(postRef, { viewsCount: nextViews });
 
     await batch.commit();
-    markPostViewLocally(targetCollection, input.postId, input.viewerUid!);
+    markPostViewLocally(targetCollection, input.postId, actor.dedupKey);
     notifyPostViewCountUpdated(input.kind, input.postId, nextViews);
     return nextViews;
   } catch (error) {
@@ -2704,7 +2707,7 @@ export async function recordDeduplicatedPostView(input: {
       isFirebaseErrorCode(error, 'already-exists')
     ) {
       // Server rule blocks duplicate postViews creation; record locally to avoid retries.
-      markPostViewLocally(targetCollection, input.postId, input.viewerUid!);
+      markPostViewLocally(targetCollection, input.postId, actor.dedupKey);
     }
     return null;
   }

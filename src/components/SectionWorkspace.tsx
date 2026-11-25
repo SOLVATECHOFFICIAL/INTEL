@@ -167,6 +167,9 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   const [anonLoadState, setAnonLoadState] = useState<
     'loading' | 'ready' | 'error'
   >(() => (initialAnonCache ? 'ready' : 'loading'));
+  const [hydratedAnonViewerKey, setHydratedAnonViewerKey] = useState<string>(
+    () => (initialAnonCache ? viewerKey : '')
+  );
   const [retryToken, setRetryToken] = useState(0);
   const [actionPrompt, setActionPrompt] = useState<
     'none' | 'guest' | 'suspended'
@@ -223,10 +226,12 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
   const anonPostsRef = useRef(anonymousPosts);
   const viewerUidRef = useRef(user?.uid ?? null);
+  const hydratedAnonViewerKeyRef = useRef(hydratedAnonViewerKey);
   useEffect(() => {
     anonPostsRef.current = anonymousPosts;
     viewerUidRef.current = user?.uid ?? null;
-  }, [anonymousPosts, user?.uid]);
+    hydratedAnonViewerKeyRef.current = hydratedAnonViewerKey;
+  }, [anonymousPosts, user?.uid, hydratedAnonViewerKey]);
 
   const prefetchAnonMedia = useCallback((posts: readonly AnonymousPost[]) => {
     if (isDataSaverConnection()) return;
@@ -252,23 +257,17 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
       }
 
       const uid = viewerUidRef.current;
+      const expectedViewerKey = uid ?? 'guest';
       const likedPromise = uid
-        ? fetchViewerLikedPostIds('anonymousPosts', uid).catch(
-            () => new Set<string>()
-          )
+        ? fetchViewerLikedPostIds('anonymousPosts', uid).catch(() => null)
         : Promise.resolve(new Set<string>());
 
       const savedPromise = uid
-        ? fetchViewerSavedPostIds('anonymousPosts', uid).catch(
-            () => new Set<string>()
-          )
+        ? fetchViewerSavedPostIds('anonymousPosts', uid).catch(() => null)
         : Promise.resolve(new Set<string>());
 
       const ownedPromise = uid
-        ? fetchOwnedAnonymousEntries(uid).catch(() => ({
-            postIds: new Set<string>(),
-            commentIds: new Set<string>(),
-          }))
+        ? fetchOwnedAnonymousEntries(uid).catch(() => null)
         : Promise.resolve({
             postIds: new Set<string>(),
             commentIds: new Set<string>(),
@@ -281,7 +280,10 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
         ownedPromise,
       ]);
 
-      if (isCancelled?.()) return;
+      if (isCancelled?.() || viewerUidRef.current !== uid) return;
+
+      const alreadyHydrated =
+        hydratedAnonViewerKeyRef.current === expectedViewerKey;
 
       setAnonymousPosts((prev) =>
         mode === 'background' && prev.length > 0
@@ -305,12 +307,27 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           ? prevHasMore
           : page.hasMore
       );
-      setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedIds));
-      setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedIds));
-      setOwnedAnonPostIds((prev) => reuseSetIfUnchanged(prev, owned.postIds));
-      setOwnedAnonCommentIds((prev) =>
-        reuseSetIfUnchanged(prev, owned.commentIds)
-      );
+      if (likedIds !== null) {
+        setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+      } else if (mode === 'initial' || !alreadyHydrated) {
+        setLikedAnonIds(new Set());
+      }
+      if (savedIds !== null) {
+        setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedIds));
+      } else if (mode === 'initial' || !alreadyHydrated) {
+        setSavedAnonIds(new Set());
+      }
+      if (owned !== null) {
+        setOwnedAnonPostIds((prev) => reuseSetIfUnchanged(prev, owned.postIds));
+        setOwnedAnonCommentIds((prev) =>
+          reuseSetIfUnchanged(prev, owned.commentIds)
+        );
+      } else if (mode === 'initial' || !alreadyHydrated) {
+        setOwnedAnonPostIds(new Set());
+        setOwnedAnonCommentIds(new Set());
+      }
+      hydratedAnonViewerKeyRef.current = expectedViewerKey;
+      setHydratedAnonViewerKey(expectedViewerKey);
       setAnonLoadState('ready');
       prefetchAnonMedia(page.items);
     },
@@ -324,9 +341,25 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
     let active = true;
     let networkSettled = false;
+    let timer: number | null = null;
 
     const cached = getAnonymousFeedSessionSnapshot(viewerKey);
     if (cached && retryToken === lastHandledAnonRetryRef.current) {
+      if (hydratedAnonViewerKeyRef.current !== viewerKey) {
+        hydratedAnonViewerKeyRef.current = viewerKey;
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          setAnonymousPosts(cached.anonymousPosts);
+          setAnonCursor(cached.anonCursor);
+          setHasMoreAnon(cached.hasMoreAnon);
+          setLikedAnonIds(cached.likedAnonIds);
+          setSavedAnonIds(cached.savedAnonIds);
+          setOwnedAnonPostIds(cached.ownedAnonPostIds);
+          setOwnedAnonCommentIds(cached.ownedAnonCommentIds);
+          setHydratedAnonViewerKey(viewerKey);
+          setAnonLoadState('ready');
+        }, 0);
+      }
       prefetchAnonMedia(cached.anonymousPosts);
       if (Date.now() - cached.cachedAt > 15_000) {
         void syncAnonymousFeed('background', () => !active).catch(
@@ -335,9 +368,19 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
       }
       return () => {
         active = false;
+        if (timer !== null) window.clearTimeout(timer);
       };
     }
     lastHandledAnonRetryRef.current = retryToken;
+    if (hydratedAnonViewerKeyRef.current !== viewerKey) {
+      timer = window.setTimeout(() => {
+        if (!active || networkSettled) return;
+        setLikedAnonIds(new Set());
+        setSavedAnonIds(new Set());
+        setOwnedAnonPostIds(new Set());
+        setOwnedAnonCommentIds(new Set());
+      }, 0);
+    }
 
     const run = async () => {
       if (retryToken === 0) {
@@ -348,6 +391,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           persisted &&
           persisted.anonymousPosts.length > 0
         ) {
+          hydratedAnonViewerKeyRef.current = viewerKey;
           setAnonymousPosts(persisted.anonymousPosts);
           setAnonCursor(persisted.anonCursor);
           setHasMoreAnon(persisted.hasMoreAnon);
@@ -355,6 +399,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           setSavedAnonIds(persisted.savedAnonIds);
           setOwnedAnonPostIds(persisted.ownedAnonPostIds);
           setOwnedAnonCommentIds(persisted.ownedAnonCommentIds);
+          setHydratedAnonViewerKey(viewerKey);
           setAnonLoadState('ready');
           prefetchAnonMedia(persisted.anonymousPosts);
 
@@ -380,6 +425,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
     return () => {
       active = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [sectionId, user?.uid, viewerKey, retryToken, prefetchAnonMedia, syncAnonymousFeed]);
 
@@ -387,13 +433,18 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
     enabled:
       sectionId === 'anonymous' &&
       activeAnonTab === 'feed' &&
-      anonLoadState === 'ready',
+      anonLoadState === 'ready' &&
+      hydratedAnonViewerKey === viewerKey,
     onRefresh: () => syncAnonymousFeed('background'),
     baseIntervalMs: 5000,
   });
 
   useEffect(() => {
-    if (sectionId !== 'anonymous' || anonLoadState !== 'ready') {
+    if (
+      sectionId !== 'anonymous' ||
+      anonLoadState !== 'ready' ||
+      hydratedAnonViewerKey !== viewerKey
+    ) {
       return;
     }
     saveAnonymousFeedSessionSnapshot({
@@ -410,6 +461,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
   }, [
     sectionId,
     anonLoadState,
+    hydratedAnonViewerKey,
     viewerKey,
     anonymousPosts,
     anonCursor,

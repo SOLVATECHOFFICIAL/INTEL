@@ -82,6 +82,9 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
     () => initialCache?.savedIds ?? new Set()
   );
   const [loading, setLoading] = useState(() => !initialCache);
+  const [hydratedViewerKey, setHydratedViewerKey] = useState<string>(() =>
+    initialCache ? viewerKey : ''
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
@@ -126,10 +129,12 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
 
   const opportunitiesRef = useRef(opportunities);
   const viewerUidRef = useRef(viewerUid);
+  const hydratedViewerKeyRef = useRef(hydratedViewerKey);
   useEffect(() => {
     opportunitiesRef.current = opportunities;
     viewerUidRef.current = viewerUid;
-  }, [opportunities, viewerUid]);
+    hydratedViewerKeyRef.current = hydratedViewerKey;
+  }, [opportunities, viewerUid, hydratedViewerKey]);
 
   const syncOpportunitiesFromNetwork = useCallback(
     async (
@@ -145,10 +150,9 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
       }
 
       const uid = viewerUidRef.current;
+      const expectedViewerKey = uid ?? 'guest';
       const savedPromise = uid
-        ? fetchViewerSavedPostIds('opportunities', uid).catch(
-            () => new Set<string>()
-          )
+        ? fetchViewerSavedPostIds('opportunities', uid).catch(() => null)
         : Promise.resolve(new Set<string>());
 
       const [items, viewerSaved] = await Promise.all([
@@ -156,7 +160,9 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
         savedPromise,
       ]);
 
-      if (isCancelled?.()) return;
+      if (isCancelled?.() || viewerUidRef.current !== uid) return;
+
+      const alreadyHydrated = hydratedViewerKeyRef.current === expectedViewerKey;
 
       setOpportunities((prev) =>
         mode === 'background' && prev.length > 0
@@ -168,7 +174,13 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
             })
           : items
       );
-      setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
+      if (viewerSaved !== null) {
+        setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
+      } else if (mode === 'initial' || !alreadyHydrated) {
+        setSavedIds(new Set());
+      }
+      hydratedViewerKeyRef.current = expectedViewerKey;
+      setHydratedViewerKey(expectedViewerKey);
       setErrorMessage(null);
       setLoading(false);
     },
@@ -178,9 +190,26 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
   useEffect(() => {
     let active = true;
     let networkSettled = false;
+    let timer: number | null = null;
 
     const cached = getOpportunitiesSessionSnapshot(viewerKey);
     if (cached && reloadNonce === lastHandledReloadRef.current) {
+      if (hydratedViewerKeyRef.current !== viewerKey) {
+        hydratedViewerKeyRef.current = viewerKey;
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          setOpportunities(cached.opportunities);
+          setSavedIds(cached.savedIds);
+          setActiveTab(cached.activeTab);
+          setSearchQuery(cached.searchQuery);
+          setCategoryFilter(cached.categoryFilter);
+          setStatusFilter(cached.statusFilter);
+          setDeadlineFilter(cached.deadlineFilter);
+          setOrganisationFilter(cached.organisationFilter);
+          setHydratedViewerKey(viewerKey);
+          setLoading(false);
+        }, 0);
+      }
       if (Date.now() - cached.cachedAt > 15_000) {
         void syncOpportunitiesFromNetwork('background', () => !active).catch(
           () => undefined
@@ -188,14 +217,22 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
       }
       return () => {
         active = false;
+        if (timer !== null) window.clearTimeout(timer);
       };
     }
     lastHandledReloadRef.current = reloadNonce;
+    if (hydratedViewerKeyRef.current !== viewerKey) {
+      timer = window.setTimeout(() => {
+        if (!active || networkSettled) return;
+        setSavedIds(new Set());
+      }, 0);
+    }
 
     const run = async () => {
       if (reloadNonce === 0) {
         const persisted = await hydrateOpportunitiesSnapshot(viewerKey);
         if (active && !networkSettled && persisted) {
+          hydratedViewerKeyRef.current = viewerKey;
           setOpportunities(persisted.opportunities);
           setSavedIds(persisted.savedIds);
           setActiveTab(persisted.activeTab);
@@ -204,6 +241,7 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
           setStatusFilter(persisted.statusFilter);
           setDeadlineFilter(persisted.deadlineFilter);
           setOrganisationFilter(persisted.organisationFilter);
+          setHydratedViewerKey(viewerKey);
           setLoading(false);
 
           await syncOpportunitiesFromNetwork('background', () => !active).catch(
@@ -235,11 +273,12 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
 
     return () => {
       active = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [viewerKey, viewerUid, reloadNonce, syncOpportunitiesFromNetwork]);
 
   useActiveBackgroundRefresh({
-    enabled: !loading,
+    enabled: !loading && hydratedViewerKey === viewerKey,
     onRefresh: () => syncOpportunitiesFromNetwork('background'),
     baseIntervalMs: 5000,
   });
@@ -282,7 +321,7 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
   }, [needsDirectLookup, effectiveSelectedId]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || hydratedViewerKey !== viewerKey) return;
     saveOpportunitiesSessionSnapshot({
       viewerKey,
       opportunities,
@@ -298,6 +337,7 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
     });
   }, [
     loading,
+    hydratedViewerKey,
     viewerKey,
     opportunities,
     savedIds,

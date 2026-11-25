@@ -49,7 +49,7 @@ export type CacheMutationEvent =
   | { type: 'anonymous_post_deleted'; postId: string; ownerUID?: string; likesCount?: number }
   | { type: 'anonymous_post_reaction'; postId: string; liked: boolean; likesCount: number }
   | { type: 'anonymous_post_saved'; postId: string; saved: boolean }
-  | { type: 'post_view_updated'; kind: 'ordinary' | 'anonymous'; postId: string; viewsCount: number }
+  | { type: 'post_view_updated'; kind: 'ordinary' | 'anonymous' | 'update'; postId: string; viewsCount: number }
   | { type: 'admin_update_created'; update: AdminUpdate; author: PublicProfileProjection | null }
   | { type: 'admin_update_updated'; update: AdminUpdate }
   | { type: 'admin_update_deleted'; updateId: string; likesCount?: number }
@@ -615,7 +615,7 @@ export function notifyAnonymousPostSavedChanged(
 }
 
 export function notifyPostViewCountUpdated(
-  kind: 'ordinary' | 'anonymous',
+  kind: 'ordinary' | 'anonymous' | 'update',
   postId: string,
   viewsCount: number
 ): void {
@@ -652,6 +652,21 @@ export function notifyPostViewCountUpdated(
             ),
           }
         : null,
+    }));
+  } else if (kind === 'update') {
+    updateAllCachedAdminUpdatesSnapshots((snap) => ({
+      ...snap,
+      updates: snap.updates.map((item) =>
+        item.id === postId ? { ...item, viewsCount: safeCount } : item
+      ),
+    }));
+    updateAllCachedHomeFeedSnapshots((snap) => ({
+      ...snap,
+      updateItems: (snap.updateItems ?? []).map((entry) =>
+        entry.update.id === postId
+          ? { ...entry, update: { ...entry.update, viewsCount: safeCount } }
+          : entry
+      ),
     }));
   } else {
     updateCachedAnonymousFeedSnapshot((snap) => ({

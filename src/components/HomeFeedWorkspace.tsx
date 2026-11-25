@@ -249,6 +249,9 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(
     () => (initialCache ? 'ready' : 'loading')
   );
+  const [hydratedFeedKey, setHydratedFeedKey] = useState<string>(() =>
+    initialCache ? `${viewerKey}:${activeFeedTab}` : ''
+  );
   const [retryToken, setRetryToken] = useState(0);
   const [savingOppId, setSavingOppId] = useState<string | null>(null);
   const [nowMs] = useState(() => Date.now());
@@ -303,6 +306,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
   );
 
   const currentTabKey = `${viewerKey}:${activeFeedTab}`;
+  const hydratedFeedKeyRef = useRef(hydratedFeedKey);
   const [anchoredOrderState, setAnchoredOrderState] = useState<{
     key: string;
     ids: string[];
@@ -351,6 +355,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     dismissedKeysRef.current = dismissedKeys;
     loadStateRef.current = loadState;
     rankingOptionsRef.current = rankingOptions;
+    hydratedFeedKeyRef.current = hydratedFeedKey;
   }, [
     activeFeedTab,
     viewerKey,
@@ -363,6 +368,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     dismissedKeys,
     loadState,
     rankingOptions,
+    hydratedFeedKey,
   ]);
 
   const prefetchLeadPostMedia = useCallback(
@@ -457,36 +463,25 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         ownedAnons,
       ] = await Promise.all([
         uid
-          ? fetchViewerLikedPostIds('posts', uid).catch(() => new Set<string>())
+          ? fetchViewerLikedPostIds('posts', uid).catch(() => null)
           : Promise.resolve(new Set<string>()),
         uid
-          ? fetchViewerSavedPostIds('posts', uid).catch(() => new Set<string>())
+          ? fetchViewerSavedPostIds('posts', uid).catch(() => null)
           : Promise.resolve(new Set<string>()),
         uid
-          ? fetchViewerLikedPostIds('updates', uid).catch(
-              () => new Set<string>()
-            )
+          ? fetchViewerLikedPostIds('updates', uid).catch(() => null)
           : Promise.resolve(new Set<string>()),
         uid
-          ? fetchViewerSavedPostIds('updates', uid).catch(
-              () => new Set<string>()
-            )
+          ? fetchViewerSavedPostIds('updates', uid).catch(() => null)
           : Promise.resolve(new Set<string>()),
         uid && includeCombinedSources
-          ? fetchViewerLikedPostIds('anonymousPosts', uid).catch(
-              () => new Set<string>()
-            )
+          ? fetchViewerLikedPostIds('anonymousPosts', uid).catch(() => null)
           : Promise.resolve(new Set<string>()),
         uid && includeCombinedSources
-          ? fetchViewerSavedPostIds('anonymousPosts', uid).catch(
-              () => new Set<string>()
-            )
+          ? fetchViewerSavedPostIds('anonymousPosts', uid).catch(() => null)
           : Promise.resolve(new Set<string>()),
         uid && includeCombinedSources
-          ? fetchOwnedAnonymousEntries(uid).catch(() => ({
-              postIds: new Set<string>(),
-              commentIds: new Set<string>(),
-            }))
+          ? fetchOwnedAnonymousEntries(uid).catch(() => null)
           : Promise.resolve({
               postIds: new Set<string>(),
               commentIds: new Set<string>(),
@@ -513,8 +508,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             interestCategories: latestInterestsRef.current,
             followedUids: [],
             followingUsernames: latestFollowingUsernamesRef.current,
-            likedPostIds: likedIds,
-            savedPostIds: savedIds,
+            likedPostIds: likedIds ?? new Set<string>(),
+            savedPostIds: savedIds ?? new Set<string>(),
             dismissedKeys: loadDismissedRecommendationKeys(uid),
           }).catch(() => null);
 
@@ -540,7 +535,13 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           : Promise.resolve(null),
       ]);
 
-      if (isCancelled?.()) return;
+      if (
+        isCancelled?.() ||
+        activeViewerUidRef.current !== uid ||
+        activeTabRef.current !== targetTab
+      ) {
+        return;
+      }
 
       if (nextDiscovery && latestFollowingUsernamesRef.current.size > 0) {
         const currentFollowingSet = latestFollowingUsernamesRef.current;
@@ -681,19 +682,49 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           ? prevHasMore
           : page.hasMore
       );
-      setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
-      setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
-      setLikedUpdateIds((prev) => reuseSetIfUnchanged(prev, likedUpdates));
-      setSavedUpdateIds((prev) => reuseSetIfUnchanged(prev, savedUpdates));
+      const alreadyHydratedForTab = hydratedFeedKeyRef.current === tabKey;
+      if (likedIds !== null) {
+        setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+      } else if (mode === 'initial' || !alreadyHydratedForTab) {
+        setLikedPostIds(new Set());
+      }
+      if (savedIds !== null) {
+        setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
+      } else if (mode === 'initial' || !alreadyHydratedForTab) {
+        setSavedPostIds(new Set());
+      }
+      if (likedUpdates !== null) {
+        setLikedUpdateIds((prev) => reuseSetIfUnchanged(prev, likedUpdates));
+      } else if (mode === 'initial' || !alreadyHydratedForTab) {
+        setLikedUpdateIds(new Set());
+      }
+      if (savedUpdates !== null) {
+        setSavedUpdateIds((prev) => reuseSetIfUnchanged(prev, savedUpdates));
+      } else if (mode === 'initial' || !alreadyHydratedForTab) {
+        setSavedUpdateIds(new Set());
+      }
       if (includeCombinedSources) {
-        setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedAnons));
-        setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedAnons));
-        setOwnedAnonPostIds((prev) =>
-          reuseSetIfUnchanged(prev, ownedAnons.postIds)
-        );
-        setOwnedAnonCommentIds((prev) =>
-          reuseSetIfUnchanged(prev, ownedAnons.commentIds)
-        );
+        if (likedAnons !== null) {
+          setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedAnons));
+        } else if (mode === 'initial' || !alreadyHydratedForTab) {
+          setLikedAnonIds(new Set());
+        }
+        if (savedAnons !== null) {
+          setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedAnons));
+        } else if (mode === 'initial' || !alreadyHydratedForTab) {
+          setSavedAnonIds(new Set());
+        }
+        if (ownedAnons !== null) {
+          setOwnedAnonPostIds((prev) =>
+            reuseSetIfUnchanged(prev, ownedAnons.postIds)
+          );
+          setOwnedAnonCommentIds((prev) =>
+            reuseSetIfUnchanged(prev, ownedAnons.commentIds)
+          );
+        } else if (mode === 'initial' || !alreadyHydratedForTab) {
+          setOwnedAnonPostIds(new Set());
+          setOwnedAnonCommentIds(new Set());
+        }
       }
       if (nextRankingOptions) {
         setRankingOptions(nextRankingOptions);
@@ -702,6 +733,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         setDiscovery(nextDiscovery);
       }
       setDismissedKeys(loadDismissedRecommendationKeys(uid));
+      hydratedFeedKeyRef.current = tabKey;
+      setHydratedFeedKey(tabKey);
       setLoadState('ready');
       prefetchLeadPostMedia(
         page.items,
@@ -940,6 +973,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     let active = true;
     let networkSettled = false;
 
+    const tabKey = `${viewerKey}:${activeFeedTab}`;
+    let timer: number | null = null;
     const cached = getHomeFeedSessionSnapshot(viewerKey, activeFeedTab);
     const ramMatches =
       Boolean(cached) &&
@@ -948,6 +983,31 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         cached?.interestSignature === interestSignature);
 
     if (ramMatches && cached) {
+      if (hydratedFeedKeyRef.current !== tabKey) {
+        hydratedFeedKeyRef.current = tabKey;
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          setFollowingCount(cached.followingCount);
+          setFollowedUids(cached.followedUids);
+          setPostItems(cached.postItems);
+          setUpdateItems(cached.updateItems ?? []);
+          setAnonymousItems(cached.anonymousItems ?? []);
+          setFeedCursor(cached.feedCursor);
+          setHasMorePosts(cached.hasMorePosts);
+          setLikedPostIds(cached.likedPostIds);
+          setSavedPostIds(cached.savedPostIds);
+          setLikedUpdateIds(cached.likedUpdateIds ?? new Set());
+          setSavedUpdateIds(cached.savedUpdateIds ?? new Set());
+          setLikedAnonIds(cached.likedAnonIds ?? new Set());
+          setSavedAnonIds(cached.savedAnonIds ?? new Set());
+          setOwnedAnonPostIds(cached.ownedAnonPostIds ?? new Set());
+          setOwnedAnonCommentIds(cached.ownedAnonCommentIds ?? new Set());
+          if (cached.rankingOptions) setRankingOptions(cached.rankingOptions);
+          if (cached.discovery) setDiscovery(cached.discovery);
+          setHydratedFeedKey(tabKey);
+          setLoadState('ready');
+        }, 0);
+      }
       prefetchLeadPostMedia(
         cached.postItems,
         cached.discovery?.recommendedPeople,
@@ -961,10 +1021,24 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       }
       return () => {
         active = false;
+        if (timer !== null) window.clearTimeout(timer);
       };
     }
 
     lastHandledRetryRef.current = retryToken;
+    if (hydratedFeedKeyRef.current !== tabKey) {
+      timer = window.setTimeout(() => {
+        if (!active || networkSettled) return;
+        setLikedPostIds(new Set());
+        setSavedPostIds(new Set());
+        setLikedUpdateIds(new Set());
+        setSavedUpdateIds(new Set());
+        setLikedAnonIds(new Set());
+        setSavedAnonIds(new Set());
+        setOwnedAnonPostIds(new Set());
+        setOwnedAnonCommentIds(new Set());
+      }, 0);
+    }
 
     const run = async () => {
       // Cold-reload persistent IDB fast paint before network settles
@@ -984,6 +1058,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             !persisted.interestSignature ||
             persisted.interestSignature === interestSignature)
         ) {
+          hydratedFeedKeyRef.current = tabKey;
           setFollowingCount(persisted.followingCount);
           setFollowedUids(persisted.followedUids);
           setPostItems(persisted.postItems);
@@ -1000,6 +1075,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           setOwnedAnonPostIds(persisted.ownedAnonPostIds ?? new Set());
           setOwnedAnonCommentIds(persisted.ownedAnonCommentIds ?? new Set());
           if (persisted.discovery) setDiscovery(persisted.discovery);
+          setHydratedFeedKey(tabKey);
           setLoadState('ready');
           prefetchLeadPostMedia(
             persisted.postItems,
@@ -1031,6 +1107,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
     return () => {
       active = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [
     activeFeedTab,
@@ -1044,13 +1121,20 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
   useActiveBackgroundRefresh({
     enabled:
-      loadState === 'ready' && !(activeFeedTab === 'following' && !activeViewerUid),
+      loadState === 'ready' &&
+      hydratedFeedKey === `${viewerKey}:${activeFeedTab}` &&
+      !(activeFeedTab === 'following' && !activeViewerUid),
     onRefresh: () => syncHomeFeedFromNetwork('background'),
     baseIntervalMs: 5000,
   });
 
   useEffect(() => {
-    if (loadState !== 'ready') return;
+    if (
+      loadState !== 'ready' ||
+      hydratedFeedKey !== `${viewerKey}:${activeFeedTab}`
+    ) {
+      return;
+    }
     if (activeFeedTab === 'following' && !user) return;
     saveHomeFeedSessionSnapshot({
       viewerKey,
@@ -1077,6 +1161,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
     });
   }, [
     loadState,
+    hydratedFeedKey,
     viewerKey,
     activeFeedTab,
     user,

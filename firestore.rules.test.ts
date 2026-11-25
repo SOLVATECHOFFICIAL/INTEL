@@ -808,5 +808,34 @@ test('Audit regression: admin follows, legacy counter-only likes/comments/views,
   assert.equal(blueprint.entities.MediaImage.properties.base64Data.maxLength, 340000);
 });
 
+test('Guest and account deduplicated views across posts, anonymousPosts, and updates plus Supreme Admin backfill are enforced', () => {
+  const postViewsBlock = rulesText.slice(
+    rulesText.indexOf('match /postViews/{viewId}'),
+    rulesText.indexOf('match /marketplaceUpdates/{updateId}')
+  );
+  assert.match(postViewsBlock, /incoming\(\)\.targetCollection in \['posts', 'anonymousPosts', 'updates'\]/);
+  assert.match(postViewsBlock, /incoming\(\)\.visitorKey\.matches\('\^guest_\[a-zA-Z0-9_\\\\-\]\{8,58\}\$'\)/);
+  assert.match(postViewsBlock, /viewId == incoming\(\)\.targetCollection \+ '_' \+ incoming\(\)\.targetId \+ '_' \+ incoming\(\)\.visitorKey/);
 
+  const updatesBlock = rulesText.slice(
+    rulesText.indexOf('match /updates/{updateId}'),
+    rulesText.indexOf('match /adminUpdateMappings/{updateId}')
+  );
+  assert.match(updatesBlock, /\(!\('viewsCount' in incoming\(\)\) \|\| incoming\(\)\.viewsCount == 0\)/);
+  assert.match(updatesBlock, /'updates_' \+ updateId \+ '_' \+ request\.auth\.uid/);
+  assert.match(updatesBlock, /incoming\(\)\.diff\(existing\(\)\)\.affectedKeys\(\)\.hasOnly\(\['viewsCount'\]\)/);
+
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  assert.match(usersBlock, /affectedKeys\(\)\.hasOnly\(\['badge', 'isHiddenFromDirectory', 'accountStatus', 'followersCount', 'followingCount', 'updatedAt'\]\)/);
+
+  assert.deepEqual(blueprint.entities.PostViewRecord.properties.targetCollection.enum, [
+    'posts',
+    'anonymousPosts',
+    'updates',
+  ]);
+  assert.ok('visitorKey' in blueprint.entities.PostViewRecord.properties);
+});
 

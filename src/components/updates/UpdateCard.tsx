@@ -6,6 +6,7 @@ import {
   ChevronUp,
   CornerDownRight,
   Edit3,
+  Eye,
   Heart,
   Loader2,
   MessageCircle,
@@ -26,9 +27,11 @@ import {
   toggleOfficialUpdatePin,
   toggleOfficialUpdateReaction,
 } from '../../services/adminUpdates';
+import { subscribeCacheMutations } from '../../services/cacheInvalidation';
 import { togglePostCommentReaction } from '../../services/events';
 import {
   fetchViewerLikedPostIds,
+  recordDeduplicatedPostView,
   toggleSavedPost,
   type CommentWithAuthor,
 } from '../../services/socialPosts';
@@ -59,6 +62,11 @@ import {
   removeCommentTreeEntries,
   restoreCommentEntriesOrdered,
 } from '../../utils/optimisticInteractions';
+import {
+  formatCompactViewCount,
+  hasRecordedPostViewLocally,
+  resolveActiveViewActor,
+} from '../../utils/postViews';
 import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
@@ -154,15 +162,20 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       ? mediaMetaToGridItems(update.mediaItems)
       : [];
 
+  const viewerKey = viewerUid ?? 'guest';
+
   const [likedOverride, setLikedOverride] = useState<{
+    viewerKey: string;
     base: boolean;
     value: boolean;
   } | null>(null);
   const [likesCountOverride, setLikesCountOverride] = useState<{
+    viewerKey: string;
     base: number;
     value: number;
   } | null>(null);
   const [savedOverride, setSavedOverride] = useState<{
+    viewerKey: string;
     base: boolean;
     value: boolean;
   } | null>(null);
@@ -172,21 +185,39 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
   } | null>(null);
 
   const likedState =
-    likedOverride && likedOverride.base === isLiked
+    likedOverride &&
+    likedOverride.viewerKey === viewerKey &&
+    likedOverride.base === isLiked
       ? likedOverride.value
       : isLiked;
   const likesCount =
-    likesCountOverride && likesCountOverride.base === update.likesCount
+    likesCountOverride &&
+    likesCountOverride.viewerKey === viewerKey &&
+    likesCountOverride.base === update.likesCount
       ? likesCountOverride.value
       : update.likesCount;
   const savedState =
-    savedOverride && savedOverride.base === isSaved
+    savedOverride &&
+    savedOverride.viewerKey === viewerKey &&
+    savedOverride.base === isSaved
       ? savedOverride.value
       : isSaved;
   const commentsCount =
     commentsCountOverride && commentsCountOverride.base === update.commentsCount
       ? commentsCountOverride.value
       : update.commentsCount;
+
+  const rawViewsCount = Math.max(0, Number(update.viewsCount ?? 0));
+  const [viewsCountOverride, setViewsCountOverride] = useState<{
+    updateId: string;
+    value: number;
+  } | null>(null);
+  const effectiveViewsCount =
+    viewsCountOverride && viewsCountOverride.updateId === update.id
+      ? Math.max(viewsCountOverride.value, rawViewsCount)
+      : rawViewsCount;
+  const articleRef = useRef<HTMLElement | null>(null);
+  const recordedViewKeyRef = useRef<string | null>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -205,7 +236,14 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentBody, setEditingCommentBody] = useState('');
   const [commentBusyId, setCommentBusyId] = useState<string | null>(null);
-  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
+  const [likedCommentState, setLikedCommentState] = useState<{
+    uid: string | null;
+    ids: Set<string>;
+  }>({ uid: null, ids: new Set() });
+  const likedCommentIds =
+    viewerUid && likedCommentState.uid === viewerUid
+      ? likedCommentState.ids
+      : new Set<string>();
   const [commentLikesCounts, setCommentLikesCounts] = useState<
     Record<string, number>
   >({});
@@ -217,6 +255,79 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
   const commentLikeLockRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    return subscribeCacheMutations((event) => {
+      if (
+        event.type === 'post_view_updated' &&
+        event.kind === 'update' &&
+        event.postId === update.id
+      ) {
+        setViewsCountOverride({
+          updateId: update.id,
+          value: event.viewsCount,
+        });
+      }
+    });
+  }, [update.id]);
+
+  useEffect(() => {
+    const actor = resolveActiveViewActor(viewerUid);
+    const viewKey = `updates:${update.id}:${actor.dedupKey}`;
+    if (recordedViewKeyRef.current === viewKey) return;
+    const target = articleRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+
+    const triggerImmediateView = () => {
+      if (recordedViewKeyRef.current === viewKey) return;
+      recordedViewKeyRef.current = viewKey;
+      const alreadyRecorded = hasRecordedPostViewLocally(
+        'updates',
+        update.id,
+        actor.dedupKey
+      );
+      if (!alreadyRecorded) {
+        setViewsCountOverride({
+          updateId: update.id,
+          value: rawViewsCount + 1,
+        });
+      }
+      void recordDeduplicatedPostView({
+        kind: 'update',
+        postId: update.id,
+        viewerUid,
+        currentViewsCount: rawViewsCount,
+      }).then((nextViews) => {
+        if (typeof nextViews === 'number') {
+          setViewsCountOverride({
+            updateId: update.id,
+            value: nextViews,
+          });
+        } else if (!alreadyRecorded) {
+          setViewsCountOverride((prev) =>
+            prev?.updateId === update.id ? null : prev
+          );
+        }
+      });
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.05) {
+          observer.disconnect();
+          triggerImmediateView();
+        }
+      },
+      { threshold: [0.05] }
+    );
+
+    observer.observe(target);
+    return () => {
+      observer.disconnect();
+    };
+  }, [update.id, viewerUid, rawViewsCount]);
+
+  useEffect(() => {
     if (!menuOpen) return;
     const handleOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -226,6 +337,19 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!commentsOpen || !commentsLoaded || !viewerUid) return;
+    let active = true;
+    fetchViewerLikedPostIds('postComments', viewerUid)
+      .then((ids) => {
+        if (active) setLikedCommentState({ uid: viewerUid, ids });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [commentsOpen, commentsLoaded, viewerUid]);
 
   const loadComments = async () => {
     setCommentsLoading(true);
@@ -239,7 +363,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
           : Promise.resolve(new Set<string>()),
       ]);
       setComments(fetchedComments);
-      setLikedCommentIds(viewerLikes);
+      setLikedCommentState({ uid: viewerUid ?? null, ids: viewerLikes });
       const countMap: Record<string, number> = {};
       for (const entry of fetchedComments) {
         countMap[entry.comment.id] = Number(entry.comment.likesCount ?? 0);
@@ -293,8 +417,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       currentCount: prevCount,
     });
 
-    setLikedOverride({ base: isLiked, value: nextLiked });
-    setLikesCountOverride({ base: update.likesCount, value: nextCount });
+    setLikedOverride({ viewerKey, base: isLiked, value: nextLiked });
+    setLikesCountOverride({
+      viewerKey,
+      base: update.likesCount,
+      value: nextCount,
+    });
     onUpdateMutated?.({ ...update, likesCount: nextCount });
 
     void toggleOfficialUpdateReaction({
@@ -302,13 +430,21 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       actorUid: viewerUid,
     })
       .then((res) => {
-        setLikedOverride({ base: isLiked, value: res.liked });
-        setLikesCountOverride({ base: update.likesCount, value: res.likesCount });
+        setLikedOverride({ viewerKey, base: isLiked, value: res.liked });
+        setLikesCountOverride({
+          viewerKey,
+          base: update.likesCount,
+          value: res.likesCount,
+        });
         onUpdateMutated?.({ ...update, likesCount: res.likesCount });
       })
       .catch((err) => {
-        setLikedOverride({ base: isLiked, value: prevLiked });
-        setLikesCountOverride({ base: update.likesCount, value: prevCount });
+        setLikedOverride({ viewerKey, base: isLiked, value: prevLiked });
+        setLikesCountOverride({
+          viewerKey,
+          base: update.likesCount,
+          value: prevCount,
+        });
         onUpdateMutated?.({ ...update, likesCount: prevCount });
         setCardError(
           formatFirestoreOrAppError(err, 'Could not update your reaction.')
@@ -335,7 +471,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
 
     const prevSaved = savedState;
     const nextSaved = !prevSaved;
-    setSavedOverride({ base: isSaved, value: nextSaved });
+    setSavedOverride({ viewerKey, base: isSaved, value: nextSaved });
     onSaveChanged?.(update.id, nextSaved);
 
     void toggleSavedPost({
@@ -345,11 +481,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       currentlySaved: prevSaved,
     })
       .then((res) => {
-        setSavedOverride({ base: isSaved, value: res.saved });
+        setSavedOverride({ viewerKey, base: isSaved, value: res.saved });
         onSaveChanged?.(update.id, res.saved);
       })
       .catch((err) => {
-        setSavedOverride({ base: isSaved, value: prevSaved });
+        setSavedOverride({ viewerKey, base: isSaved, value: prevSaved });
         onSaveChanged?.(update.id, prevSaved);
         setCardError(
           formatFirestoreOrAppError(err, 'Could not update bookmark state.')
@@ -548,7 +684,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       baseCount: Number(comment.likesCount ?? 0),
     });
 
-    setLikedCommentIds(optimistic.nextLikedSet);
+    setLikedCommentState({ uid: viewerUid, ids: optimistic.nextLikedSet });
     setCommentLikesCounts(optimistic.nextCountsMap);
 
     void togglePostCommentReaction({
@@ -556,11 +692,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       actorUid: viewerUid,
     })
       .then((res) => {
-        setLikedCommentIds((curr) => {
-          const next = new Set(curr);
+        setLikedCommentState((curr) => {
+          const next = new Set(curr.uid === viewerUid ? curr.ids : []);
           if (res.liked) next.add(comment.id);
           else next.delete(comment.id);
-          return next;
+          return { uid: viewerUid, ids: next };
         });
         setCommentLikesCounts((curr) => ({
           ...curr,
@@ -568,7 +704,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
         }));
       })
       .catch(() => {
-        setLikedCommentIds(prevLikedSet);
+        setLikedCommentState({ uid: viewerUid, ids: prevLikedSet });
         setCommentLikesCounts(prevCountsMap);
       })
       .finally(() => {
@@ -644,6 +780,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
 
   return (
     <article
+      ref={articleRef}
       id={`update-${update.id}`}
       data-testid={`update-card-${update.id}`}
       className={`min-w-0 max-w-full overflow-hidden rounded-2xl border bg-white p-4 shadow-xs transition-colors sm:p-5 ${
@@ -904,25 +1041,32 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
 
       {/* Actions Footer */}
       <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
-        <button
-          type="button"
-          onClick={handleToggleSave}
-          aria-pressed={savedState}
-          aria-label={savedState ? 'Remove bookmark' : 'Save update'}
-          className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
-            savedState
-              ? 'lasued-accent-gradient text-white shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
-          }`}
+        <div
+          className="inline-flex min-h-[36px] items-center gap-1.5 px-1 text-xs font-medium text-slate-500 tabular-nums"
+          title="Unique update views"
         >
-          <Bookmark
-            className={`h-4 w-4 ${savedState ? 'fill-white' : ''}`}
-            aria-hidden="true"
-          />
-          <span>{savedState ? 'Saved' : 'Save'}</span>
-        </button>
+          <Eye className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+          <span>{formatCompactViewCount(effectiveViewsCount)}</span>
+        </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleToggleSave}
+            aria-pressed={savedState}
+            aria-label={savedState ? 'Remove bookmark' : 'Save update'}
+            className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
+              savedState
+                ? 'lasued-accent-gradient text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
+            }`}
+          >
+            <Bookmark
+              className={`h-4 w-4 ${savedState ? 'fill-white' : ''}`}
+              aria-hidden="true"
+            />
+            <span>{savedState ? 'Saved' : 'Save'}</span>
+          </button>
           <button
             type="button"
             onClick={handleToggleLike}

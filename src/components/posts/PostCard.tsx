@@ -82,7 +82,11 @@ import {
   removeCommentTreeEntries,
   restoreCommentEntriesOrdered,
 } from '../../utils/optimisticInteractions';
-import { formatCompactViewCount } from '../../utils/postViews';
+import {
+  formatCompactViewCount,
+  hasRecordedPostViewLocally,
+  resolveActiveViewActor,
+} from '../../utils/postViews';
 import { ProfileBadgesRow } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
@@ -157,16 +161,20 @@ const PostCardComponent: React.FC<PostCardProps> = ({
   const canRevealAnonymous = canRevealAnonymousAuthor(authUser);
   const viewerAuthorProjection: PublicProfileProjection | null =
     viewerProfile ? toPublicProfileProjection(viewerProfile) : null;
+  const viewerKey = viewerUid ?? 'guest';
 
   const [likedOverride, setLikedOverride] = useState<{
+    viewerKey: string;
     base: boolean;
     value: boolean;
   } | null>(null);
   const [likesCountOverride, setLikesCountOverride] = useState<{
+    viewerKey: string;
     base: number;
     value: number;
   } | null>(null);
   const [savedOverride, setSavedOverride] = useState<{
+    viewerKey: string;
     base: boolean;
     value: boolean;
   } | null>(null);
@@ -182,15 +190,21 @@ const PostCardComponent: React.FC<PostCardProps> = ({
   const commentLikeInFlightRef = useRef<Set<string>>(new Set());
 
   const likedState =
-    likedOverride && likedOverride.base === isLiked
+    likedOverride &&
+    likedOverride.viewerKey === viewerKey &&
+    likedOverride.base === isLiked
       ? likedOverride.value
       : isLiked;
   const likesCount =
-    likesCountOverride && likesCountOverride.base === post.likesCount
+    likesCountOverride &&
+    likesCountOverride.viewerKey === viewerKey &&
+    likesCountOverride.base === post.likesCount
       ? likesCountOverride.value
       : post.likesCount;
   const savedState =
-    savedOverride && savedOverride.base === isSaved
+    savedOverride &&
+    savedOverride.viewerKey === viewerKey &&
+    savedOverride.base === isSaved
       ? savedOverride.value
       : isSaved;
   const commentsCount =
@@ -200,11 +214,11 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
   const rawViewsCount = Math.max(0, Number(post.viewsCount ?? 0));
   const [viewsCountOverride, setViewsCountOverride] = useState<{
-    base: number;
+    postId: string;
     value: number;
   } | null>(null);
   const effectiveViewsCount =
-    viewsCountOverride && viewsCountOverride.base === rawViewsCount
+    viewsCountOverride && viewsCountOverride.postId === post.id
       ? Math.max(viewsCountOverride.value, rawViewsCount)
       : rawViewsCount;
   const articleRef = useRef<HTMLElement | null>(null);
@@ -218,62 +232,71 @@ const PostCardComponent: React.FC<PostCardProps> = ({
         event.postId === post.id
       ) {
         setViewsCountOverride({
-          base: rawViewsCount,
+          postId: post.id,
           value: event.viewsCount,
         });
       }
     });
-  }, [kind, post.id, rawViewsCount]);
+  }, [kind, post.id]);
 
   useEffect(() => {
-    const viewKey = `${kind}:${post.id}`;
+    const actor = resolveActiveViewActor(viewerUid);
+    const viewKey = `${targetCollection}:${post.id}:${actor.dedupKey}`;
     if (recordedViewKeyRef.current === viewKey) return;
     const target = articleRef.current;
     if (!target || typeof IntersectionObserver === 'undefined') return;
 
-    let dwellTimer: number | null = null;
+    const triggerImmediateView = () => {
+      if (recordedViewKeyRef.current === viewKey) return;
+      recordedViewKeyRef.current = viewKey;
+      const alreadyRecorded = hasRecordedPostViewLocally(
+        targetCollection,
+        post.id,
+        actor.dedupKey
+      );
+      if (!alreadyRecorded) {
+        setViewsCountOverride({
+          postId: post.id,
+          value: rawViewsCount + 1,
+        });
+      }
+      void recordDeduplicatedPostView({
+        kind,
+        postId: post.id,
+        viewerUid,
+        currentViewsCount: rawViewsCount,
+      }).then((nextViews) => {
+        if (typeof nextViews === 'number') {
+          setViewsCountOverride({
+            postId: post.id,
+            value: nextViews,
+          });
+        } else if (!alreadyRecorded) {
+          setViewsCountOverride((prev) =>
+            prev?.postId === post.id ? null : prev
+          );
+        }
+      });
+    };
+
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-          if (dwellTimer === null && recordedViewKeyRef.current !== viewKey) {
-            dwellTimer = window.setTimeout(() => {
-              if (recordedViewKeyRef.current === viewKey) return;
-              recordedViewKeyRef.current = viewKey;
-              void recordDeduplicatedPostView({
-                kind,
-                postId: post.id,
-                viewerUid,
-                currentViewsCount: rawViewsCount,
-              }).then((nextViews) => {
-                if (typeof nextViews === 'number') {
-                  setViewsCountOverride({
-                    base: rawViewsCount,
-                    value: nextViews,
-                  });
-                }
-              });
-            }, 1000);
-          }
-        } else if (dwellTimer !== null) {
-          window.clearTimeout(dwellTimer);
-          dwellTimer = null;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.05) {
+          observer.disconnect();
+          triggerImmediateView();
         }
       },
-      { threshold: [0.5] }
+      { threshold: [0.05] }
     );
 
     observer.observe(target);
     return () => {
       observer.disconnect();
-      if (dwellTimer !== null) {
-        window.clearTimeout(dwellTimer);
-      }
     };
-  }, [kind, post.id, viewerUid, rawViewsCount]);
+  }, [kind, targetCollection, post.id, viewerUid, rawViewsCount]);
 
-  const viewerKey = viewerUid ?? 'guest';
   const initialUiSnapshot = getPostUiSnapshot(viewerKey, kind, post.id);
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(
@@ -690,8 +713,8 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     });
 
     // Immediate optimistic UI update
-    setLikedOverride({ base: isLiked, value: nextLiked });
-    setLikesCountOverride({ base: post.likesCount, value: nextCount });
+    setLikedOverride({ viewerKey, base: isLiked, value: nextLiked });
+    setLikesCountOverride({ viewerKey, base: post.likesCount, value: nextCount });
     onPostUpdated({ ...post, likesCount: nextCount });
 
     void togglePostReaction({
@@ -701,16 +724,21 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       currentlyLiked: prevLiked,
     })
       .then((result) => {
-        setLikedOverride({ base: isLiked, value: result.liked });
+        setLikedOverride({ viewerKey, base: isLiked, value: result.liked });
         setLikesCountOverride({
+          viewerKey,
           base: post.likesCount,
           value: result.likesCount,
         });
         onPostUpdated({ ...post, likesCount: result.likesCount });
       })
       .catch((error) => {
-        setLikedOverride({ base: isLiked, value: prevLiked });
-        setLikesCountOverride({ base: post.likesCount, value: prevCount });
+        setLikedOverride({ viewerKey, base: isLiked, value: prevLiked });
+        setLikesCountOverride({
+          viewerKey,
+          base: post.likesCount,
+          value: prevCount,
+        });
         onPostUpdated({ ...post, likesCount: prevCount });
         setCardError(
           formatFirestoreOrAppError(
@@ -742,7 +770,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     const nextSaved = !prevSaved;
 
     // Immediate optimistic UI update
-    setSavedOverride({ base: isSaved, value: nextSaved });
+    setSavedOverride({ viewerKey, base: isSaved, value: nextSaved });
     onSaveChanged?.(post.id, nextSaved);
 
     void toggleSavedPost({
@@ -752,11 +780,11 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       currentlySaved: prevSaved,
     })
       .then((result) => {
-        setSavedOverride({ base: isSaved, value: result.saved });
+        setSavedOverride({ viewerKey, base: isSaved, value: result.saved });
         onSaveChanged?.(post.id, result.saved);
       })
       .catch((error) => {
-        setSavedOverride({ base: isSaved, value: prevSaved });
+        setSavedOverride({ viewerKey, base: isSaved, value: prevSaved });
         onSaveChanged?.(post.id, prevSaved);
         setCardError(
           formatFirestoreOrAppError(

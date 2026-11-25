@@ -1,6 +1,85 @@
 const SESSION_VIEW_CACHE = new Set<string>();
 const VIEW_STORAGE_KEY_PREFIX = 'lasued_post_views_v1:';
+const GUEST_VISITOR_ID_STORAGE_KEY = 'lasued_guest_visitor_id_v1';
+const GUEST_VISITOR_ID_PATTERN = /^guest_[a-zA-Z0-9_-]{8,58}$/;
 const VIEW_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type PostViewTargetCollection = 'posts' | 'anonymousPosts' | 'updates';
+
+let inMemoryGuestVisitorId: string | null = null;
+
+function generateGuestVisitorId(): string {
+  try {
+    if (
+      typeof globalThis.crypto !== 'undefined' &&
+      typeof globalThis.crypto.randomUUID === 'function'
+    ) {
+      const compact = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+      if (compact.length >= 12) {
+        return `guest_${compact}`;
+      }
+    }
+  } catch {
+    // Fallback below
+  }
+  const timePart = Date.now().toString(36);
+  const randA = Math.random().toString(36).slice(2, 12);
+  const randB = Math.random().toString(36).slice(2, 12);
+  return `guest_${timePart}${randA}${randB}`.slice(0, 48);
+}
+
+export function getOrCreateGuestVisitorId(): string {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const existing = window.localStorage.getItem(GUEST_VISITOR_ID_STORAGE_KEY);
+      if (existing && GUEST_VISITOR_ID_PATTERN.test(existing)) {
+        inMemoryGuestVisitorId = existing;
+        return existing;
+      }
+      const created =
+        inMemoryGuestVisitorId &&
+        GUEST_VISITOR_ID_PATTERN.test(inMemoryGuestVisitorId)
+          ? inMemoryGuestVisitorId
+          : generateGuestVisitorId();
+      inMemoryGuestVisitorId = created;
+      window.localStorage.setItem(GUEST_VISITOR_ID_STORAGE_KEY, created);
+      return created;
+    } catch {
+      // Ignore storage failures in restricted browser modes
+    }
+  }
+
+  if (
+    !inMemoryGuestVisitorId ||
+    !GUEST_VISITOR_ID_PATTERN.test(inMemoryGuestVisitorId)
+  ) {
+    inMemoryGuestVisitorId = generateGuestVisitorId();
+  }
+  return inMemoryGuestVisitorId;
+}
+
+export function resolveActiveViewActor(
+  viewerUid: string | null | undefined
+): {
+  actorType: 'user' | 'guest';
+  actorId: string;
+  dedupKey: string;
+} {
+  const cleanUid = typeof viewerUid === 'string' ? viewerUid.trim() : '';
+  if (cleanUid) {
+    return {
+      actorType: 'user',
+      actorId: cleanUid,
+      dedupKey: cleanUid,
+    };
+  }
+  const guestId = getOrCreateGuestVisitorId();
+  return {
+    actorType: 'guest',
+    actorId: guestId,
+    dedupKey: guestId,
+  };
+}
 
 export function formatCompactViewCount(count: number | null | undefined): string {
   const safe =
@@ -25,15 +104,15 @@ export function formatCompactViewCount(count: number | null | undefined): string
 }
 
 export function buildPostViewDocId(
-  targetCollection: 'posts' | 'anonymousPosts',
+  targetCollection: PostViewTargetCollection,
   postId: string,
-  viewerUid: string
+  viewerOrVisitorId: string
 ): string {
-  return `${targetCollection}_${postId.trim()}_${viewerUid.trim()}`;
+  return `${targetCollection}_${postId.trim()}_${viewerOrVisitorId.trim()}`;
 }
 
 export function buildLocalPostViewKey(
-  targetCollection: 'posts' | 'anonymousPosts',
+  targetCollection: PostViewTargetCollection,
   postId: string,
   viewerKey: string
 ): string {
@@ -63,7 +142,7 @@ function readStoredViewMap(viewerKey: string): Record<string, number> {
 }
 
 export function hasRecordedPostViewLocally(
-  targetCollection: 'posts' | 'anonymousPosts',
+  targetCollection: PostViewTargetCollection,
   postId: string,
   viewerKey: string,
   nowMs: number = Date.now()
@@ -78,7 +157,7 @@ export function hasRecordedPostViewLocally(
 }
 
 export function markPostViewLocally(
-  targetCollection: 'posts' | 'anonymousPosts',
+  targetCollection: PostViewTargetCollection,
   postId: string,
   viewerKey: string,
   nowMs: number = Date.now()

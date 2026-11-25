@@ -1063,6 +1063,17 @@ service cloud.firestore {
             incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail() &&
             incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'isHiddenFromDirectory', 'updatedAt'])
           ) ||
+          // [ADMIN RULE] Designated Supreme Admin legacy profile backfill (accountStatus, followersCount, followingCount)
+          (isDesignatedSupremeAdminEmail() &&
+            isOwnerOf(userId) &&
+            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
+            incoming().badge == (isUndergroundSupremeAdminEmail() ? 'none' : 'supreme_admin') &&
+            incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail() &&
+            (!('accountStatus' in existing()) ? incoming().accountStatus == 'active' : incoming().accountStatus == existing().accountStatus) &&
+            (!('followersCount' in existing()) ? incoming().followersCount == 0 : incoming().followersCount == existing().followersCount) &&
+            (!('followingCount' in existing()) ? incoming().followingCount == 0 : incoming().followingCount == existing().followingCount) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'isHiddenFromDirectory', 'accountStatus', 'followersCount', 'followingCount', 'updatedAt'])
+          ) ||
           // [MEMBER RULE] Self-profile edits & avatar/cover image updates (enforces reserved username check only when username changes)
           (isActiveSignedInUser() &&
             isOwnerOf(userId) &&
@@ -1289,14 +1300,14 @@ service cloud.firestore {
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(postId) &&
-        isActiveSignedInUser() &&
         (!('id' in existing()) || incoming().id == existing().id) &&
         (!('ownerUID' in existing()) || incoming().ownerUID == existing().ownerUID) &&
         (!('authorRole' in existing()) || incoming().authorRole == existing().authorRole) &&
         (!('postType' in existing()) || incoming().postType == existing().postType) &&
         (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) && (
           // [MEMBER RULE] Atomic like / unlike sync with postReactions (works on all published & legacy posts)
-          ((!('status' in existing()) || existing().status == 'published') &&
+          (isActiveSignedInUser() &&
+            (!('status' in existing()) || existing().status == 'published') &&
             incoming().likesCount is int &&
             incoming().likesCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
@@ -1315,7 +1326,8 @@ service cloud.firestore {
             )
           ) ||
           // [MEMBER RULE] Comment count sync when adding or deleting comments/replies
-          ((!('status' in existing()) || existing().status == 'published') &&
+          (isActiveSignedInUser() &&
+            (!('status' in existing()) || existing().status == 'published') &&
             incoming().commentsCount is int &&
             incoming().commentsCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
@@ -1324,13 +1336,16 @@ service cloud.firestore {
               ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount < existing().commentsCount)
             )
           ) ||
-          // [MEMBER RULE] Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker)
+          // [VIEW RULE] Deduplicated view count sync (+1 bound to postViews marker per signed-in account or guest visitor)
           ((!('status' in existing()) || existing().status == 'published') &&
             incoming().viewsCount is int &&
             incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount']) &&
-            incoming().viewsCount == ((('viewsCount' in existing() && existing().viewsCount is int) ? existing().viewsCount : 0) + 1) &&
-            !exists(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid)) &&
-            existsAfter(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid))
+            incoming().viewsCount == ((('viewsCount' in existing() && existing().viewsCount is int) ? existing().viewsCount : 0) + 1) && (
+              (isActiveSignedInUser() &&
+                !exists(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid)) &&
+                existsAfter(/databases/$(database)/documents/postViews/$('posts_' + postId + '_' + request.auth.uid))) ||
+              !isSignedIn()
+            )
           ) ||
           // [MEMBER/AUTHOR RULE] Author edits post content / format-specific media or background
           (canPublishFeed() &&
@@ -1342,6 +1357,7 @@ service cloud.firestore {
           ) ||
           // [ADMIN RULE] Supreme Admin governance edits (pin, official status, moderation edit)
           (isSupremeAdmin() &&
+            isActiveSignedInUser() &&
             isValidCommunityPost(incoming(), postId) &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['isOfficial', 'isPinned', 'status', 'title', 'body', 'mediaItems', 'updatedAt'])
@@ -1571,12 +1587,12 @@ service cloud.firestore {
         existsAfter(/databases/$(database)/documents/anonymousIdentityMappings/$(postId)) &&
         getAfter(/databases/$(database)/documents/anonymousIdentityMappings/$(postId)).data.authorUid == request.auth.uid;
       allow update: if isValidId(postId) &&
-        isActiveSignedInUser() &&
         (!('id' in existing()) || incoming().id == existing().id) &&
         (!('postType' in existing()) || incoming().postType == existing().postType) &&
         (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) && (
           // [MEMBER RULE] Atomic like / unlike sync with postReactions
-          ((!('status' in existing()) || existing().status == 'published') &&
+          (isActiveSignedInUser() &&
+            (!('status' in existing()) || existing().status == 'published') &&
             incoming().likesCount is int &&
             incoming().likesCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
@@ -1595,7 +1611,8 @@ service cloud.firestore {
             )
           ) ||
           // [MEMBER RULE] Comment count sync when adding or deleting anonymous comments/replies
-          ((!('status' in existing()) || existing().status == 'published') &&
+          (isActiveSignedInUser() &&
+            (!('status' in existing()) || existing().status == 'published') &&
             incoming().commentsCount is int &&
             incoming().commentsCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
@@ -1604,16 +1621,20 @@ service cloud.firestore {
               ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount < existing().commentsCount)
             )
           ) ||
-          // [MEMBER RULE] Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker without exposing viewer PII)
+          // [VIEW RULE] Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker per account or guest visitor)
           ((!('status' in existing()) || existing().status == 'published') &&
             incoming().viewsCount is int &&
             incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount']) &&
-            incoming().viewsCount == ((('viewsCount' in existing() && existing().viewsCount is int) ? existing().viewsCount : 0) + 1) &&
-            !exists(/databases/$(database)/documents/postViews/$('anonymousPosts_' + postId + '_' + request.auth.uid)) &&
-            existsAfter(/databases/$(database)/documents/postViews/$('anonymousPosts_' + postId + '_' + request.auth.uid))
+            incoming().viewsCount == ((('viewsCount' in existing() && existing().viewsCount is int) ? existing().viewsCount : 0) + 1) && (
+              (isActiveSignedInUser() &&
+                !exists(/databases/$(database)/documents/postViews/$('anonymousPosts_' + postId + '_' + request.auth.uid)) &&
+                existsAfter(/databases/$(database)/documents/postViews/$('anonymousPosts_' + postId + '_' + request.auth.uid))) ||
+              !isSignedIn()
+            )
           ) ||
           // [MEMBER RULE] Anonymous author edits their own post (preserves likes, comments, format, and identity shield)
-          (existing().status == 'published' &&
+          (isActiveSignedInUser() &&
+            existing().status == 'published' &&
             isValidAnonymousPost(incoming(), postId) &&
             (!('postType' in incoming()) || isValidTypedAnonymousPost(incoming(), postId)) &&
             incoming().updatedAt == request.time &&
@@ -2200,13 +2221,9 @@ service cloud.firestore {
     match /postViews/{viewId} {
       allow get, list: if false;
       allow create: if isValidId(viewId) &&
-        isActiveSignedInUser() &&
-        incoming().keys().hasAll(['id', 'targetCollection', 'targetId', 'createdAt']) &&
-        incoming().keys().hasOnly(['id', 'targetCollection', 'targetId', 'createdAt']) &&
         incoming().id == viewId &&
-        incoming().targetCollection in ['posts', 'anonymousPosts'] &&
+        incoming().targetCollection in ['posts', 'anonymousPosts', 'updates'] &&
         isValidId(incoming().targetId) &&
-        viewId == incoming().targetCollection + '_' + incoming().targetId + '_' + request.auth.uid &&
         incoming().createdAt == request.time && (
           (incoming().targetCollection == 'posts' &&
             exists(/databases/$(database)/documents/posts/$(incoming().targetId)) &&
@@ -2215,7 +2232,24 @@ service cloud.firestore {
           (incoming().targetCollection == 'anonymousPosts' &&
             exists(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)) &&
             (!('status' in get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data) ||
-              get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published'))
+              get(/databases/$(database)/documents/anonymousPosts/$(incoming().targetId)).data.status == 'published')) ||
+          (incoming().targetCollection == 'updates' &&
+            exists(/databases/$(database)/documents/updates/$(incoming().targetId)) &&
+            (!('status' in get(/databases/$(database)/documents/updates/$(incoming().targetId)).data) ||
+              get(/databases/$(database)/documents/updates/$(incoming().targetId)).data.status == 'published'))
+        ) && (
+          (isActiveSignedInUser() &&
+            incoming().keys().hasAll(['id', 'targetCollection', 'targetId', 'createdAt']) &&
+            incoming().keys().hasOnly(['id', 'targetCollection', 'targetId', 'createdAt']) &&
+            viewId == incoming().targetCollection + '_' + incoming().targetId + '_' + request.auth.uid) ||
+          (!isSignedIn() &&
+            incoming().keys().hasAll(['id', 'targetCollection', 'targetId', 'visitorKey', 'createdAt']) &&
+            incoming().keys().hasOnly(['id', 'targetCollection', 'targetId', 'visitorKey', 'createdAt']) &&
+            'visitorKey' in incoming() &&
+            incoming().visitorKey is string &&
+            incoming().visitorKey.matches('^guest_[a-zA-Z0-9_\\-]{8,58}$') &&
+            viewId == incoming().targetCollection + '_' + incoming().targetId + '_' + incoming().visitorKey &&
+            !exists(/databases/$(database)/documents/postViews/$(viewId)))
         );
       allow update, delete: if false;
     }
@@ -2259,6 +2293,7 @@ service cloud.firestore {
         incoming().visibility == 'public' &&
         incoming().likesCount == 0 &&
         incoming().commentsCount == 0 &&
+        (!('viewsCount' in incoming()) || incoming().viewsCount == 0) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time && (
           (isUndergroundSupremeAdminEmail() &&
@@ -2269,7 +2304,6 @@ service cloud.firestore {
             incoming().ownerUID == request.auth.uid)
         );
       allow update: if isValidId(updateId) &&
-        isActiveSignedInUser() &&
         (!('id' in existing()) || incoming().id == existing().id) &&
         (!('format' in existing()) || incoming().format == existing().format) &&
         (!('authorMode' in existing()) || incoming().authorMode == existing().authorMode) &&
@@ -2278,7 +2312,8 @@ service cloud.firestore {
           : ('ownerUID' in incoming() && incoming().ownerUID == existing().ownerUID)) &&
         (!('createdAt' in existing()) || incoming().createdAt == existing().createdAt) && (
           // [MEMBER RULE] Atomic like / unlike sync with postReactions
-          ((!('status' in existing()) || existing().status == 'published') &&
+          (isActiveSignedInUser() &&
+            (!('status' in existing()) || existing().status == 'published') &&
             incoming().likesCount is int &&
             incoming().likesCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && (
@@ -2296,7 +2331,8 @@ service cloud.firestore {
               )
             )) ||
           // [MEMBER RULE] Comment count sync when adding or deleting update comments/replies
-          ((!('status' in existing()) || existing().status == 'published') &&
+          (isActiveSignedInUser() &&
+            (!('status' in existing()) || existing().status == 'published') &&
             incoming().commentsCount is int &&
             incoming().commentsCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
@@ -2304,8 +2340,19 @@ service cloud.firestore {
               ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount == existing().commentsCount + 1) ||
               ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount < existing().commentsCount)
             )) ||
+          // [VIEW RULE] Deduplicated view count sync (+1 bound strictly to a brand-new postViews marker per account or guest visitor)
+          ((!('status' in existing()) || existing().status == 'published') &&
+            incoming().viewsCount is int &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['viewsCount']) &&
+            incoming().viewsCount == ((('viewsCount' in existing() && existing().viewsCount is int) ? existing().viewsCount : 0) + 1) && (
+              (isActiveSignedInUser() &&
+                !exists(/databases/$(database)/documents/postViews/$('updates_' + updateId + '_' + request.auth.uid)) &&
+                existsAfter(/databases/$(database)/documents/postViews/$('updates_' + updateId + '_' + request.auth.uid))) ||
+              !isSignedIn()
+            )) ||
           // [ADMIN RULE] Designated Supreme Admin edits or pins/unpins official update
           (isSupremeAdmin() &&
+            isActiveSignedInUser() &&
             isValidAdminUpdate(incoming(), updateId) &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly([

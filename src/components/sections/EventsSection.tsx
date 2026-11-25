@@ -77,6 +77,9 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
     () => initialCache?.savedIds ?? new Set()
   );
   const [loading, setLoading] = useState(() => !initialCache);
+  const [hydratedViewerKey, setHydratedViewerKey] = useState<string>(() =>
+    initialCache ? viewerKey : ''
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
@@ -131,10 +134,12 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
 
   const eventsRef = useRef(events);
   const viewerUidRef = useRef(viewerUid);
+  const hydratedViewerKeyRef = useRef(hydratedViewerKey);
   useEffect(() => {
     eventsRef.current = events;
     viewerUidRef.current = viewerUid;
-  }, [events, viewerUid]);
+    hydratedViewerKeyRef.current = hydratedViewerKey;
+  }, [events, viewerUid, hydratedViewerKey]);
 
   const prefetchEventMedia = useCallback((items: readonly CampusEvent[]) => {
     if (isDataSaverConnection()) return;
@@ -160,16 +165,13 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
       }
 
       const uid = viewerUidRef.current;
+      const expectedViewerKey = uid ?? 'guest';
       const likesPromise = uid
-        ? fetchViewerLikedPostIds('events', uid).catch(
-            () => new Set<string>()
-          )
+        ? fetchViewerLikedPostIds('events', uid).catch(() => null)
         : Promise.resolve(new Set<string>());
 
       const savedPromise = uid
-        ? fetchViewerSavedPostIds('events', uid).catch(
-            () => new Set<string>()
-          )
+        ? fetchViewerSavedPostIds('events', uid).catch(() => null)
         : Promise.resolve(new Set<string>());
 
       const [loadedEvents, viewerLiked, viewerSaved] = await Promise.all([
@@ -178,7 +180,9 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
         savedPromise,
       ]);
 
-      if (isCancelled?.()) return;
+      if (isCancelled?.() || viewerUidRef.current !== uid) return;
+
+      const alreadyHydrated = hydratedViewerKeyRef.current === expectedViewerKey;
 
       setEvents((prev) =>
         mode === 'background' && prev.length > 0
@@ -190,8 +194,18 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
             })
           : loadedEvents
       );
-      setLikedIds((prev) => reuseSetIfUnchanged(prev, viewerLiked));
-      setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
+      if (viewerLiked !== null) {
+        setLikedIds((prev) => reuseSetIfUnchanged(prev, viewerLiked));
+      } else if (mode === 'initial' || !alreadyHydrated) {
+        setLikedIds(new Set());
+      }
+      if (viewerSaved !== null) {
+        setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
+      } else if (mode === 'initial' || !alreadyHydrated) {
+        setSavedIds(new Set());
+      }
+      hydratedViewerKeyRef.current = expectedViewerKey;
+      setHydratedViewerKey(expectedViewerKey);
       setErrorMessage(null);
       setLoading(false);
       prefetchEventMedia(loadedEvents);
@@ -202,9 +216,28 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
   useEffect(() => {
     let active = true;
     let networkSettled = false;
+    let timer: number | null = null;
 
     const cached = getEventsSessionSnapshot(viewerKey);
     if (cached && reloadNonce === lastHandledReloadRef.current) {
+      if (hydratedViewerKeyRef.current !== viewerKey) {
+        hydratedViewerKeyRef.current = viewerKey;
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          setEvents(cached.events);
+          setLikedIds(cached.likedIds);
+          setSavedIds(cached.savedIds);
+          setActiveTab(cached.activeTab);
+          setSearchQuery(cached.searchQuery);
+          setCategoryFilter(cached.categoryFilter);
+          setStatusFilter(cached.statusFilter);
+          setDateWindowFilter(cached.dateWindowFilter);
+          setVenueFilter(cached.venueFilter);
+          setLightboxByEventId(cached.lightboxByEventId);
+          setHydratedViewerKey(viewerKey);
+          setLoading(false);
+        }, 0);
+      }
       prefetchEventMedia(cached.events);
       if (Date.now() - cached.cachedAt > 15_000) {
         void syncEventsFromNetwork('background', () => !active).catch(
@@ -213,14 +246,23 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
       }
       return () => {
         active = false;
+        if (timer !== null) window.clearTimeout(timer);
       };
     }
     lastHandledReloadRef.current = reloadNonce;
+    if (hydratedViewerKeyRef.current !== viewerKey) {
+      timer = window.setTimeout(() => {
+        if (!active || networkSettled) return;
+        setLikedIds(new Set());
+        setSavedIds(new Set());
+      }, 0);
+    }
 
     const run = async () => {
       if (reloadNonce === 0) {
         const persisted = await hydrateEventsSnapshot(viewerKey);
         if (active && !networkSettled && persisted) {
+          hydratedViewerKeyRef.current = viewerKey;
           setEvents(persisted.events);
           setLikedIds(persisted.likedIds);
           setSavedIds(persisted.savedIds);
@@ -231,6 +273,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
           setDateWindowFilter(persisted.dateWindowFilter);
           setVenueFilter(persisted.venueFilter);
           setLightboxByEventId(persisted.lightboxByEventId);
+          setHydratedViewerKey(viewerKey);
           setLoading(false);
           prefetchEventMedia(persisted.events);
 
@@ -263,17 +306,18 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
 
     return () => {
       active = false;
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [viewerKey, viewerUid, reloadNonce, prefetchEventMedia, syncEventsFromNetwork]);
 
   useActiveBackgroundRefresh({
-    enabled: !loading,
+    enabled: !loading && hydratedViewerKey === viewerKey,
     onRefresh: () => syncEventsFromNetwork('background'),
     baseIntervalMs: 5000,
   });
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || hydratedViewerKey !== viewerKey) return;
     saveEventsSessionSnapshot({
       viewerKey,
       events,
@@ -291,6 +335,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
     });
   }, [
     loading,
+    hydratedViewerKey,
     viewerKey,
     events,
     likedIds,

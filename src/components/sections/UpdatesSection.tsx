@@ -107,6 +107,13 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
   const [editingUpdate, setEditingUpdate] = useState<AdminUpdate | null>(null);
 
   const prevViewerKeyRef = useRef(viewerKey);
+  const likedIdsRef = useRef(likedIds);
+  const savedIdsRef = useRef(savedIds);
+  useEffect(() => {
+    likedIdsRef.current = likedIds;
+    savedIdsRef.current = savedIds;
+  }, [likedIds, savedIds]);
+
   const activeAnchorUpdateIdRef = useRef<string | null>(null);
   const pendingScrollAdjustRef = useRef<{
     anchorId: string;
@@ -118,6 +125,7 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
       options: { force?: boolean; mode?: 'initial' | 'background' } = {}
     ) => {
       const mode = options.mode ?? 'initial';
+      const expectedViewerKey = viewerKey;
       if (
         mode === 'background' &&
         typeof navigator !== 'undefined' &&
@@ -136,16 +144,16 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
         const [page, viewerLikes, viewerSaved] = await Promise.all([
           fetchOfficialUpdatesPage({ pageSize: 18 }),
           user?.uid
-            ? fetchViewerLikedPostIds('updates', user.uid).catch(
-                () => new Set<string>()
-              )
+            ? fetchViewerLikedPostIds('updates', user.uid).catch(() => null)
             : Promise.resolve(new Set<string>()),
           user?.uid
-            ? fetchViewerSavedPostIds('updates', user.uid).catch(
-                () => new Set<string>()
-              )
+            ? fetchViewerSavedPostIds('updates', user.uid).catch(() => null)
             : Promise.resolve(new Set<string>()),
         ]);
+
+        if (prevViewerKeyRef.current !== expectedViewerKey) {
+          return;
+        }
 
         let mergedItems = page.items;
         const mergedAuthors = new Map(page.authorMap);
@@ -157,6 +165,9 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
           const single = await fetchSingleOfficialUpdate(selectedUpdateId).catch(
             () => null
           );
+          if (prevViewerKeyRef.current !== expectedViewerKey) {
+            return;
+          }
           if (single) {
             mergedItems = [single.update, ...mergedItems];
             if (single.author && single.update.ownerUID) {
@@ -203,19 +214,35 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
           mergedAuthors.forEach((v, k) => next.set(k, v));
           return next;
         });
-        setLikedIds((prev) => reuseSetIfUnchanged(prev, viewerLikes));
-        setSavedIds((prev) => reuseSetIfUnchanged(prev, viewerSaved));
+        const resolvedLikes =
+          viewerLikes !== null
+            ? viewerLikes
+            : mode === 'initial'
+              ? new Set<string>()
+              : likedIdsRef.current;
+        const resolvedSaved =
+          viewerSaved !== null
+            ? viewerSaved
+            : mode === 'initial'
+              ? new Set<string>()
+              : savedIdsRef.current;
+        if (viewerLikes !== null || mode === 'initial') {
+          setLikedIds((prev) => reuseSetIfUnchanged(prev, resolvedLikes));
+        }
+        if (viewerSaved !== null || mode === 'initial') {
+          setSavedIds((prev) => reuseSetIfUnchanged(prev, resolvedSaved));
+        }
         if (mode === 'initial') {
           setCursor(page.nextCursor);
           setHasMore(page.hasMore);
         }
 
         saveAdminUpdatesSnapshot({
-          viewerKey,
+          viewerKey: expectedViewerKey,
           updates: mergedItems,
           authorMap: mergedAuthors,
-          likedIds: viewerLikes,
-          savedIds: viewerSaved,
+          likedIds: resolvedLikes,
+          savedIds: resolvedSaved,
           hasMore: page.hasMore,
           cachedAt: Date.now(),
         });
@@ -239,12 +266,21 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
   );
 
   useEffect(() => {
+    let timer: number | null = null;
     if (prevViewerKeyRef.current !== viewerKey) {
       prevViewerKeyRef.current = viewerKey;
+      const snap = getAdminUpdatesSnapshot(viewerKey);
+      timer = window.setTimeout(() => {
+        setLikedIds(snap?.likedIds ?? new Set());
+        setSavedIds(snap?.savedIds ?? new Set());
+      }, 0);
       void loadUpdatesFeed({ force: true, mode: 'initial' });
-      return;
+      return () => {
+        if (timer !== null) window.clearTimeout(timer);
+      };
     }
     void loadUpdatesFeed();
+    return undefined;
   }, [viewerKey, loadUpdatesFeed]);
 
   useActiveBackgroundRefresh({

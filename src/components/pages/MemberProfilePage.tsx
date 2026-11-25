@@ -295,7 +295,14 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   // Persist profile session snapshot per viewer
   useEffect(() => {
-    if (loadState !== 'ready' || !bundle || !effectiveUsername) return;
+    if (
+      loadState !== 'ready' ||
+      !bundle ||
+      !effectiveUsername ||
+      hydratedProfileKeyRef.current !== `${viewerKey}:${effectiveUsername}`
+    ) {
+      return;
+    }
     const allowOwnerPrivate = Boolean(user?.uid && bundle.isOwnProfile);
     saveProfileSessionSnapshot({
       viewerKey,
@@ -357,30 +364,19 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         ] = await Promise.all([
           fetchMemberProfileBundleByUsername(effectiveUsername, viewerUid),
           viewerUid
-            ? fetchViewerLikedPostIds('posts', viewerUid).catch(
-                () => new Set<string>()
-              )
+            ? fetchViewerLikedPostIds('posts', viewerUid).catch(() => null)
             : Promise.resolve(new Set<string>()),
           viewerUid
-            ? fetchViewerSavedPostIds('posts', viewerUid).catch(
-                () => new Set<string>()
-              )
+            ? fetchViewerSavedPostIds('posts', viewerUid).catch(() => null)
             : Promise.resolve(new Set<string>()),
           viewerUid
-            ? fetchViewerLikedPostIds('anonymousPosts', viewerUid).catch(
-                () => new Set<string>()
-              )
+            ? fetchViewerLikedPostIds('anonymousPosts', viewerUid).catch(() => null)
             : Promise.resolve(new Set<string>()),
           viewerUid
-            ? fetchViewerSavedPostIds('anonymousPosts', viewerUid).catch(
-                () => new Set<string>()
-              )
+            ? fetchViewerSavedPostIds('anonymousPosts', viewerUid).catch(() => null)
             : Promise.resolve(new Set<string>()),
           viewerUid
-            ? fetchOwnedAnonymousEntries(viewerUid).catch(() => ({
-                postIds: new Set<string>(),
-                commentIds: new Set<string>(),
-              }))
+            ? fetchOwnedAnonymousEntries(viewerUid).catch(() => null)
             : Promise.resolve({
                 postIds: new Set<string>(),
                 commentIds: new Set<string>(),
@@ -396,6 +392,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           return;
         }
 
+        const alreadyHydrated = hydratedProfileKeyRef.current === profileCacheKey;
         hydratedProfileKeyRef.current = profileCacheKey;
         setBundle((prev) => {
           if (
@@ -421,13 +418,33 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             }),
           };
         });
-        setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
-        setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
-        setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedAnons));
-        setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedAnons));
-        setOwnedAnonCommentIds((prev) =>
-          reuseSetIfUnchanged(prev, ownedAnon.commentIds)
-        );
+        if (likedIds !== null) {
+          setLikedPostIds((prev) => reuseSetIfUnchanged(prev, likedIds));
+        } else if (mode === 'initial' || !alreadyHydrated) {
+          setLikedPostIds(new Set());
+        }
+        if (savedIds !== null) {
+          setSavedPostIds((prev) => reuseSetIfUnchanged(prev, savedIds));
+        } else if (mode === 'initial' || !alreadyHydrated) {
+          setSavedPostIds(new Set());
+        }
+        if (likedAnons !== null) {
+          setLikedAnonIds((prev) => reuseSetIfUnchanged(prev, likedAnons));
+        } else if (mode === 'initial' || !alreadyHydrated) {
+          setLikedAnonIds(new Set());
+        }
+        if (savedAnons !== null) {
+          setSavedAnonIds((prev) => reuseSetIfUnchanged(prev, savedAnons));
+        } else if (mode === 'initial' || !alreadyHydrated) {
+          setSavedAnonIds(new Set());
+        }
+        if (ownedAnon !== null) {
+          setOwnedAnonCommentIds((prev) =>
+            reuseSetIfUnchanged(prev, ownedAnon.commentIds)
+          );
+        } else if (mode === 'initial' || !alreadyHydrated) {
+          setOwnedAnonCommentIds(new Set());
+        }
 
         // Enforce strict owner-only boundary on private tabs
         if (!result.isOwnProfile) {

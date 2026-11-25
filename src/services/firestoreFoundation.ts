@@ -524,15 +524,25 @@ export async function ensureDesignatedSupremeAdminAccountState(
       });
     } else {
       const userData = userSnap.data() as PublicUserProfile;
+      const missingStatus = userData.accountStatus !== 'active' && userData.accountStatus !== 'suspended';
+      const missingFollowers = typeof userData.followersCount !== 'number';
+      const missingFollowing = typeof userData.followingCount !== 'number';
       if (
         userData.badge !== expectedPublicBadge ||
-        userData.isHiddenFromDirectory !== isUnderground
+        userData.isHiddenFromDirectory !== isUnderground ||
+        missingStatus ||
+        missingFollowers ||
+        missingFollowing
       ) {
-        await updateDoc(userRef, {
+        const patch: Record<string, unknown> = {
           badge: expectedPublicBadge,
           isHiddenFromDirectory: isUnderground,
           updatedAt: serverTimestamp(),
-        });
+        };
+        if (missingStatus) patch.accountStatus = 'active';
+        if (missingFollowers) patch.followersCount = 0;
+        if (missingFollowing) patch.followingCount = 0;
+        await updateDoc(userRef, patch);
         notifyProfileUpdated({
           uid: user.uid,
           patch: {
@@ -1126,8 +1136,8 @@ export async function followMemberByUsername(
     isUndergroundSupremeAdminUser(auth.currentUser);
 
   let createdFollowNotifId: string | null = null;
-  try {
-    await runWithFirestoreConnectionRetry(() =>
+  const runFollowTransaction = () =>
+    runWithFirestoreConnectionRetry(() =>
       runTransaction(db, async (tx) => {
         createdFollowNotifId = null;
         const [followSnap, targetSnap, actorSnap] = await Promise.all([
@@ -1174,6 +1184,8 @@ export async function followMemberByUsername(
           updatedAt: serverTimestamp(),
         });
 
+        const safeActorName = (actorData.fullName?.trim() || 'Campus Member').slice(0, 100);
+        const safeActorUsername = (actorData.username?.trim() || 'member').slice(0, 32);
         const notifId = doc(collection(db, COLLECTION_NAMES.notifications)).id;
         const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
         const notifPayload: Record<string, unknown> = isSilentUndergroundActor
@@ -1190,12 +1202,12 @@ export async function followMemberByUsername(
               id: notifId,
               recipientUid: targetUid,
               eventType: 'follow',
-              title: `${actorData.fullName} started following you`,
-              body: `@${actorData.username} is now following your campus profile.`,
-              targetPath: `/?view=profile&username=${actorData.username}`,
+              title: `${safeActorName} started following you`.slice(0, 160),
+              body: `@${safeActorUsername} is now following your campus profile.`.slice(0, 500),
+              targetPath: `/?view=profile&username=${safeActorUsername}`.slice(0, 256),
               actorUid,
-              actorUsername: actorData.username,
-              actorName: actorData.fullName,
+              actorUsername: safeActorUsername,
+              actorName: safeActorName,
               isRead: false,
               createdAt: serverTimestamp(),
             };
@@ -1203,13 +1215,29 @@ export async function followMemberByUsername(
           if (actorData.photoImageId && isValidFirestoreId(actorData.photoImageId)) {
             notifPayload.actorPhotoImageId = actorData.photoImageId;
           } else if (actorData.photoUrl && isSafeMediaUrl(actorData.photoUrl)) {
-            notifPayload.actorPhotoUrl = actorData.photoUrl;
+            notifPayload.actorPhotoUrl = actorData.photoUrl.slice(0, 512);
           }
         }
         tx.set(notifRef, notifPayload);
         createdFollowNotifId = notifId;
       })
     );
+
+  try {
+    try {
+      await runFollowTransaction();
+    } catch (firstErr) {
+      if (
+        firstErr instanceof DomainValidationError &&
+        auth.currentUser?.uid === actorUid &&
+        isDesignatedSupremeAdminUser(auth.currentUser)
+      ) {
+        await ensureDesignatedSupremeAdminAccountState(auth.currentUser);
+        await runFollowTransaction();
+      } else {
+        throw firstErr;
+      }
+    }
     notifyFollowToggled({ targetUsername, following: true });
     if (createdFollowNotifId) {
       void triggerBestEffortPushDispatch({
