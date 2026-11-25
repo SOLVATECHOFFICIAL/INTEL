@@ -14,7 +14,13 @@ import {
   type FieldValue,
   type WriteBatch,
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  handleFirestoreError,
+  OperationType,
+  refreshAuthSessionToken,
+} from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -61,6 +67,10 @@ import {
 } from '../utils/authValidation';
 import { validateTrustedContactWhatsapp } from '../utils/trustedDirectory';
 import { extractTimestampMs } from '../utils/contextualSearch';
+import {
+  commitFreshWriteBatchWithPermissionRetry,
+  runWithPermissionRetry,
+} from '../utils/firestoreRetry';
 import {
   buildEventNotificationDocId,
   canSendNewEventNotice,
@@ -166,9 +176,17 @@ export async function recordAdminAuditLog(input: {
   performedByRole: UserRole;
   details?: string;
 }): Promise<string> {
-  const batch = writeBatch(db);
-  const logId = attachAdminAuditLogToBatch(batch, input);
-  await batch.commit();
+  let logId = '';
+  await commitFreshWriteBatchWithPermissionRetry(
+    () => writeBatch(db),
+    (batch) => {
+      logId = attachAdminAuditLogToBatch(batch, input);
+    },
+    {
+      actorUid: input.performedByUid,
+      refreshToken: () => refreshAuthSessionToken(input.performedByUid),
+    }
+  );
   return logId;
 }
 
@@ -484,24 +502,6 @@ export async function reviewMarketplaceListingWithAudit(input: {
     emitNotification: false,
   });
 
-  const batch = writeBatch(db);
-  attachAdminAuditLogToBatch(batch, {
-    action:
-      input.decision === 'approved'
-        ? 'marketplace_approved'
-        : 'marketplace_rejected',
-    targetCollection: COLLECTION_NAMES.marketplaceListings,
-    targetId: input.listing.id,
-    targetLabel: input.listing.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details:
-      input.note?.trim() ||
-      (input.decision === 'approved'
-        ? 'Approved for 7-day Campus Marketplace visibility.'
-        : 'Rejected during marketplace moderation review.'),
-  });
-
   const notifId = buildMarketplaceReviewNotificationId(
     input.listing.id,
     input.decision
@@ -532,10 +532,33 @@ export async function reviewMarketplaceListingWithAudit(input: {
     notifPayload.targetImageId = firstImageId;
   }
 
-  batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), notifPayload);
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        attachAdminAuditLogToBatch(batch, {
+          action:
+            input.decision === 'approved'
+              ? 'marketplace_approved'
+              : 'marketplace_rejected',
+          targetCollection: COLLECTION_NAMES.marketplaceListings,
+          targetId: input.listing.id,
+          targetLabel: input.listing.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details:
+            input.note?.trim() ||
+            (input.decision === 'approved'
+              ? 'Approved for 7-day Campus Marketplace visibility.'
+              : 'Rejected during marketplace moderation review.'),
+        });
+        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), notifPayload);
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     void triggerBestEffortPushDispatch({
       notificationId: notifId,
       recipientUid: input.listing.ownerUID,
@@ -560,24 +583,31 @@ export async function adminUpdateMarketplaceStatusWithAudit(input: {
 
   const nextVisibility =
     input.nextStatus === 'active' ? 'public' : 'owner_and_admins';
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.marketplaceListings, input.listing.id), {
-    status: input.nextStatus,
-    visibility: nextVisibility,
-    updatedAt: serverTimestamp(),
-  });
-  attachAdminAuditLogToBatch(batch, {
-    action: 'marketplace_status_updated',
-    targetCollection: COLLECTION_NAMES.marketplaceListings,
-    targetId: input.listing.id,
-    targetLabel: input.listing.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Status updated from ${input.listing.status} to ${input.nextStatus}.`,
-  });
 
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.marketplaceListings, input.listing.id), {
+          status: input.nextStatus,
+          visibility: nextVisibility,
+          updatedAt: serverTimestamp(),
+        });
+        attachAdminAuditLogToBatch(batch, {
+          action: 'marketplace_status_updated',
+          targetCollection: COLLECTION_NAMES.marketplaceListings,
+          targetId: input.listing.id,
+          targetLabel: input.listing.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Status updated from ${input.listing.status} to ${input.nextStatus}.`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updated: MarketplaceListing = {
       ...input.listing,
       status: input.nextStatus,
@@ -614,25 +644,31 @@ export async function adminDeleteMarketplaceListingWithAudit(input: {
     )
   ).catch(() => null);
 
-  const batch = writeBatch(db);
-  if (mediaSnap) {
-    for (const imgDoc of mediaSnap.docs) {
-      batch.delete(imgDoc.ref);
-    }
-  }
-  batch.delete(doc(db, COLLECTION_NAMES.marketplaceListings, input.listing.id));
-  attachAdminAuditLogToBatch(batch, {
-    action: 'marketplace_removed',
-    targetCollection: COLLECTION_NAMES.marketplaceListings,
-    targetId: input.listing.id,
-    targetLabel: input.listing.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: input.reason?.trim() || 'Removed by administrator.',
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        if (mediaSnap) {
+          for (const imgDoc of mediaSnap.docs) {
+            batch.delete(imgDoc.ref);
+          }
+        }
+        batch.delete(doc(db, COLLECTION_NAMES.marketplaceListings, input.listing.id));
+        attachAdminAuditLogToBatch(batch, {
+          action: 'marketplace_removed',
+          targetCollection: COLLECTION_NAMES.marketplaceListings,
+          targetId: input.listing.id,
+          targetLabel: input.listing.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: input.reason?.trim() || 'Removed by administrator.',
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     if (mediaSnap) {
       for (const imgDoc of mediaSnap.docs) {
         evictMediaImageCache(imgDoc.id);
@@ -823,38 +859,43 @@ export async function resolveAnonymousReportWithAudit(input: {
   }
 
   const actorAuditRole = getAuditActorRole(input.actorRole);
-  const batch = writeBatch(db);
-
-  batch.update(
-    doc(db, COLLECTION_NAMES.anonymousReports, input.report.id),
-    {
-      status: input.decision,
-      reviewedByUid: input.actorUid,
-      reviewedByRole: actorAuditRole,
-      updatedAt: serverTimestamp(),
-      ...(cleanNote ? { resolutionNote: cleanNote } : {}),
-    }
-  );
-  attachAdminAuditLogToBatch(batch, {
-    action:
-      input.decision === 'reviewed_removed'
-        ? 'anonymous_report_removed'
-        : 'anonymous_report_dismissed',
-    targetCollection: COLLECTION_NAMES.anonymousReports,
-    targetId: input.report.id,
-    targetLabel: `${input.report.targetType}: ${input.report.excerpt.slice(0, 80)}`,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details:
-      cleanNote ||
-      (input.decision === 'reviewed_removed'
-        ? `Removed reported content (${input.report.reason}).`
-        : `Dismissed report (${input.report.reason}).`),
-  });
-
   const path = `${COLLECTION_NAMES.anonymousReports}/${input.report.id}`;
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(
+          doc(db, COLLECTION_NAMES.anonymousReports, input.report.id),
+          {
+            status: input.decision,
+            reviewedByUid: input.actorUid,
+            reviewedByRole: actorAuditRole,
+            updatedAt: serverTimestamp(),
+            ...(cleanNote ? { resolutionNote: cleanNote } : {}),
+          }
+        );
+        attachAdminAuditLogToBatch(batch, {
+          action:
+            input.decision === 'reviewed_removed'
+              ? 'anonymous_report_removed'
+              : 'anonymous_report_dismissed',
+          targetCollection: COLLECTION_NAMES.anonymousReports,
+          targetId: input.report.id,
+          targetLabel: `${input.report.targetType}: ${input.report.excerpt.slice(0, 80)}`,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details:
+            cleanNote ||
+            (input.decision === 'reviewed_removed'
+              ? `Removed reported content (${input.report.reason}).`
+              : `Dismissed report (${input.report.reason}).`),
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     return {
       ...input.report,
       status: input.decision,
@@ -1043,13 +1084,6 @@ export async function adminTogglePostFlagsWithAudit(input: {
       ? input.isOfficial
       : input.post.isOfficial;
 
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.posts, input.post.id), {
-    isPinned: nextPinned,
-    isOfficial: nextOfficial,
-    updatedAt: serverTimestamp(),
-  });
-
   const action: AdminAuditAction =
     typeof input.isPinned === 'boolean'
       ? nextPinned
@@ -1057,18 +1091,31 @@ export async function adminTogglePostFlagsWithAudit(input: {
         : 'post_unpinned'
       : 'post_official_toggled';
 
-  attachAdminAuditLogToBatch(batch, {
-    action,
-    targetCollection: COLLECTION_NAMES.posts,
-    targetId: input.post.id,
-    targetLabel: input.post.title || input.post.body.slice(0, 100),
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `isPinned=${String(nextPinned)}, isOfficial=${String(nextOfficial)}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.posts, input.post.id), {
+          isPinned: nextPinned,
+          isOfficial: nextOfficial,
+          updatedAt: serverTimestamp(),
+        });
+
+        attachAdminAuditLogToBatch(batch, {
+          action,
+          targetCollection: COLLECTION_NAMES.posts,
+          targetId: input.post.id,
+          targetLabel: input.post.title || input.post.body.slice(0, 100),
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `isPinned=${String(nextPinned)}, isOfficial=${String(nextOfficial)}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updatedPost: CommunityPost = {
       ...input.post,
       isPinned: nextPinned,
@@ -1212,20 +1259,26 @@ export async function createOpportunityRecord(input: {
     payload.opensAt = Timestamp.fromMillis(opensMs);
   }
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.opportunities, oppId), payload);
-  attachAdminAuditLogToBatch(batch, {
-    action: 'opportunity_created',
-    targetCollection: COLLECTION_NAMES.opportunities,
-    targetId: oppId,
-    targetLabel: input.form.title.trim(),
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `${input.form.category} · ${input.form.organisation.trim()} (${status})`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.set(doc(db, COLLECTION_NAMES.opportunities, oppId), payload);
+        attachAdminAuditLogToBatch(batch, {
+          action: 'opportunity_created',
+          targetCollection: COLLECTION_NAMES.opportunities,
+          targetId: oppId,
+          targetLabel: input.form.title.trim(),
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `${input.form.category} · ${input.form.organisation.trim()} (${status})`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const createdOpp: Opportunity = {
       ...(payload as unknown as Opportunity),
       opensAt: opensMs ?? undefined,
@@ -1319,23 +1372,32 @@ export async function updateOpportunityRecord(input: {
     updatedAt: serverTimestamp(),
   };
 
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.opportunities, input.existing.id), updates);
-  attachAdminAuditLogToBatch(batch, {
-    action:
-      nextStatus === 'expired' && input.existing.status !== 'expired'
-        ? 'opportunity_expired'
-        : 'opportunity_updated',
-    targetCollection: COLLECTION_NAMES.opportunities,
-    targetId: input.existing.id,
-    targetLabel: input.form.title.trim(),
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Status: ${nextStatus} · Verified: ${String(nextVerified)}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(
+          doc(db, COLLECTION_NAMES.opportunities, input.existing.id),
+          updates
+        );
+        attachAdminAuditLogToBatch(batch, {
+          action:
+            nextStatus === 'expired' && input.existing.status !== 'expired'
+              ? 'opportunity_expired'
+              : 'opportunity_updated',
+          targetCollection: COLLECTION_NAMES.opportunities,
+          targetId: input.existing.id,
+          targetLabel: input.form.title.trim(),
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Status: ${nextStatus} · Verified: ${String(nextVerified)}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updatedOpp: Opportunity = {
       ...input.existing,
       category: input.form.category,
@@ -1384,29 +1446,35 @@ export async function toggleOpportunityStatusRecord(input: {
     );
   }
 
-  const batch = writeBatch(db);
-  batch.update(
-    doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id),
-    {
-      status: input.nextStatus,
-      updatedAt: serverTimestamp(),
-    }
-  );
-  attachAdminAuditLogToBatch(batch, {
-    action:
-      input.nextStatus === 'expired'
-        ? 'opportunity_expired'
-        : 'opportunity_updated',
-    targetCollection: COLLECTION_NAMES.opportunities,
-    targetId: input.opportunity.id,
-    targetLabel: input.opportunity.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Status changed from ${input.opportunity.status} to ${input.nextStatus}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(
+          doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id),
+          {
+            status: input.nextStatus,
+            updatedAt: serverTimestamp(),
+          }
+        );
+        attachAdminAuditLogToBatch(batch, {
+          action:
+            input.nextStatus === 'expired'
+              ? 'opportunity_expired'
+              : 'opportunity_updated',
+          targetCollection: COLLECTION_NAMES.opportunities,
+          targetId: input.opportunity.id,
+          targetLabel: input.opportunity.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Status changed from ${input.opportunity.status} to ${input.nextStatus}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updatedOpp: Opportunity = {
       ...input.opportunity,
       status: input.nextStatus,
@@ -1433,26 +1501,32 @@ export async function toggleOpportunityVerifiedRecord(input: {
     throw new Error('Only Supreme Admin accounts can verify opportunities.');
   }
 
-  const batch = writeBatch(db);
-  batch.update(
-    doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id),
-    {
-      isVerified: input.nextVerified,
-      updatedAt: serverTimestamp(),
-    }
-  );
-  attachAdminAuditLogToBatch(batch, {
-    action: 'opportunity_updated',
-    targetCollection: COLLECTION_NAMES.opportunities,
-    targetId: input.opportunity.id,
-    targetLabel: input.opportunity.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Verified status set to ${String(input.nextVerified)}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(
+          doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id),
+          {
+            isVerified: input.nextVerified,
+            updatedAt: serverTimestamp(),
+          }
+        );
+        attachAdminAuditLogToBatch(batch, {
+          action: 'opportunity_updated',
+          targetCollection: COLLECTION_NAMES.opportunities,
+          targetId: input.opportunity.id,
+          targetLabel: input.opportunity.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Verified status set to ${String(input.nextVerified)}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updatedOpp: Opportunity = {
       ...input.opportunity,
       isVerified: input.nextVerified,
@@ -1547,62 +1621,81 @@ export async function broadcastOpportunityNotification(input: {
   const createdNotificationIds: string[] = [];
 
   if (recipientUids.length === 0) {
-    const batch = writeBatch(db);
-    batch.update(
-      oppRef,
-      input.kind === 'new'
-        ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
-        : { lastDeadlineNotifiedMs: expiresMs, updatedAt: serverTimestamp() }
-    );
-    await batch.commit();
-  } else {
-    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
-      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
-
-      for (const uid of chunk) {
-        const notifId = buildOpportunityNotificationDocId(
-          input.kind,
-          input.opportunity.id,
-          uid,
-          expiresMs
-        );
-        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
-          id: notifId,
-          recipientUid: uid,
-          eventType: 'new_opportunity',
-          title: notifTitle,
-          body: notifBody,
-          targetPath,
-          isRead: false,
-          createdAt: serverTimestamp(),
-        });
-        createdNotificationIds.push(notifId);
-        sentCount += 1;
-      }
-
-      if (i === 0) {
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
         batch.update(
           oppRef,
           input.kind === 'new'
             ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
             : { lastDeadlineNotifiedMs: expiresMs, updatedAt: serverTimestamp() }
         );
-        attachAdminAuditLogToBatch(batch, {
-          action: 'opportunity_updated',
-          targetCollection: COLLECTION_NAMES.opportunities,
-          targetId: input.opportunity.id,
-          targetLabel: input.opportunity.title,
-          performedByUid: input.actorUid,
-          performedByRole: input.actorRole,
-          details:
-            input.kind === 'new'
-              ? `Sent new-opportunity alert to ${recipientUids.length} active members.`
-              : `Sent deadline update alert (${formattedDeadline}) to ${recipientUids.length} active members.`,
-        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
+    );
+  } else {
+    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
+      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
+      const chunkEntries = chunk.map((uid) => ({
+        uid,
+        notifId: buildOpportunityNotificationDocId(
+          input.kind,
+          input.opportunity.id,
+          uid,
+          expiresMs
+        ),
+      }));
 
-      await batch.commit();
+      await commitFreshWriteBatchWithPermissionRetry(
+        () => writeBatch(db),
+        (batch) => {
+          for (const entry of chunkEntries) {
+            batch.set(doc(db, COLLECTION_NAMES.notifications, entry.notifId), {
+              id: entry.notifId,
+              recipientUid: entry.uid,
+              eventType: 'new_opportunity',
+              title: notifTitle,
+              body: notifBody,
+              targetPath,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            });
+          }
+
+          if (i === 0) {
+            batch.update(
+              oppRef,
+              input.kind === 'new'
+                ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
+                : { lastDeadlineNotifiedMs: expiresMs, updatedAt: serverTimestamp() }
+            );
+            attachAdminAuditLogToBatch(batch, {
+              action: 'opportunity_updated',
+              targetCollection: COLLECTION_NAMES.opportunities,
+              targetId: input.opportunity.id,
+              targetLabel: input.opportunity.title,
+              performedByUid: input.actorUid,
+              performedByRole: input.actorRole,
+              details:
+                input.kind === 'new'
+                  ? `Sent new-opportunity alert to ${recipientUids.length} active members.`
+                  : `Sent deadline update alert (${formattedDeadline}) to ${recipientUids.length} active members.`,
+            });
+          }
+        },
+        {
+          actorUid: input.actorUid,
+          refreshToken: () => refreshAuthSessionToken(input.actorUid),
+        }
+      );
+
+      for (const entry of chunkEntries) {
+        createdNotificationIds.push(entry.notifId);
+        sentCount += 1;
+      }
     }
   }
 
@@ -1640,19 +1733,26 @@ export async function deleteOpportunityRecord(input: {
   if (input.actorRole !== 'supreme_admin') {
     throw new Error('Only Supreme Admin accounts can remove opportunities.');
   }
-  const batch = writeBatch(db);
-  batch.delete(doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id));
-  attachAdminAuditLogToBatch(batch, {
-    action: 'opportunity_deleted',
-    targetCollection: COLLECTION_NAMES.opportunities,
-    targetId: input.opportunity.id,
-    targetLabel: input.opportunity.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Removed opportunity by ${input.opportunity.organisation}`,
-  });
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.delete(doc(db, COLLECTION_NAMES.opportunities, input.opportunity.id));
+        attachAdminAuditLogToBatch(batch, {
+          action: 'opportunity_deleted',
+          targetCollection: COLLECTION_NAMES.opportunities,
+          targetId: input.opportunity.id,
+          targetLabel: input.opportunity.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Removed opportunity by ${input.opportunity.organisation}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     notifyOpportunityMutated({
       action: 'delete',
       opportunityId: input.opportunity.id,
@@ -1727,7 +1827,10 @@ export async function createCampusEventRecord(input: {
         : 'upcoming';
   }
 
-  const batch = writeBatch(db);
+  const preparedMedia: {
+    imageId: string;
+    mediaDoc: ReturnType<typeof buildMediaImageFirestoreRecord>;
+  }[] = [];
   const mediaItems: PostMediaMeta[] = [];
   const primedCache: { imageId: string; dataUrl: string }[] = [];
 
@@ -1741,7 +1844,7 @@ export async function createCampusEventRecord(input: {
       compressed,
       createdAtValue: serverTimestamp(),
     });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, imageId), mediaDoc);
+    preparedMedia.push({ imageId, mediaDoc });
     mediaItems.push({
       imageId,
       width: compressed.width,
@@ -1796,19 +1899,32 @@ export async function createCampusEventRecord(input: {
     payload.instructions = input.form.instructions.trim().slice(0, 2000);
   }
 
-  batch.set(doc(db, COLLECTION_NAMES.events, eventId), payload);
-  attachAdminAuditLogToBatch(batch, {
-    action: 'event_created',
-    targetCollection: COLLECTION_NAMES.events,
-    targetId: eventId,
-    targetLabel: input.form.title.trim(),
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `${published ? 'Published' : 'Saved draft'} · ${input.form.venue.trim()} · ${input.form.organiser.trim()}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        for (const item of preparedMedia) {
+          batch.set(
+            doc(db, COLLECTION_NAMES.mediaImages, item.imageId),
+            item.mediaDoc
+          );
+        }
+        batch.set(doc(db, COLLECTION_NAMES.events, eventId), payload);
+        attachAdminAuditLogToBatch(batch, {
+          action: 'event_created',
+          targetCollection: COLLECTION_NAMES.events,
+          targetId: eventId,
+          targetLabel: input.form.title.trim(),
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `${published ? 'Published' : 'Saved draft'} · ${input.form.venue.trim()} · ${input.form.organiser.trim()}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     for (const item of primedCache) {
       primeMediaImageCache(item.imageId, item.dataUrl);
     }
@@ -1891,7 +2007,10 @@ export async function updateCampusEventRecord(input: {
         : 'upcoming';
   }
 
-  const batch = writeBatch(db);
+  const preparedMedia: {
+    imageId: string;
+    mediaDoc: ReturnType<typeof buildMediaImageFirestoreRecord>;
+  }[] = [];
   const nextMediaItems: PostMediaMeta[] = retainedMedia.map((item, idx) => ({
     ...item,
     order: idx,
@@ -1908,7 +2027,7 @@ export async function updateCampusEventRecord(input: {
       compressed,
       createdAtValue: serverTimestamp(),
     });
-    batch.set(doc(db, COLLECTION_NAMES.mediaImages, imageId), mediaDoc);
+    preparedMedia.push({ imageId, mediaDoc });
     nextMediaItems.push({
       imageId,
       width: compressed.width,
@@ -1925,10 +2044,6 @@ export async function updateCampusEventRecord(input: {
     ...m,
     order: idx,
   }));
-
-  for (const removedId of removedMediaIds) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
-  }
 
   const updates: Record<
     string,
@@ -1969,22 +2084,38 @@ export async function updateCampusEventRecord(input: {
     updatedAt: serverTimestamp(),
   };
 
-  batch.update(doc(db, COLLECTION_NAMES.events, input.existing.id), updates);
-  attachAdminAuditLogToBatch(batch, {
-    action:
-      status === 'cancelled' && input.existing.status !== 'cancelled'
-        ? 'event_cancelled'
-        : 'event_updated',
-    targetCollection: COLLECTION_NAMES.events,
-    targetId: input.existing.id,
-    targetLabel: input.form.title.trim(),
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Event ${published ? 'published' : 'draft'} · status: ${status}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        for (const item of preparedMedia) {
+          batch.set(
+            doc(db, COLLECTION_NAMES.mediaImages, item.imageId),
+            item.mediaDoc
+          );
+        }
+        for (const removedId of removedMediaIds) {
+          batch.delete(doc(db, COLLECTION_NAMES.mediaImages, removedId));
+        }
+        batch.update(doc(db, COLLECTION_NAMES.events, input.existing.id), updates);
+        attachAdminAuditLogToBatch(batch, {
+          action:
+            status === 'cancelled' && input.existing.status !== 'cancelled'
+              ? 'event_cancelled'
+              : 'event_updated',
+          targetCollection: COLLECTION_NAMES.events,
+          targetId: input.existing.id,
+          targetLabel: input.form.title.trim(),
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Event ${published ? 'published' : 'draft'} · status: ${status}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     for (const removedId of removedMediaIds) {
       evictMediaImageCache(removedId);
     }
@@ -2032,22 +2163,31 @@ export async function toggleCampusEventPublishedRecord(input: {
   if (input.actorRole !== 'supreme_admin') {
     throw new Error('Only Supreme Admin accounts can publish or unpublish events.');
   }
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
-    published: input.nextPublished,
-    updatedAt: serverTimestamp(),
-  });
-  attachAdminAuditLogToBatch(batch, {
-    action: 'event_updated',
-    targetCollection: COLLECTION_NAMES.events,
-    targetId: input.event.id,
-    targetLabel: input.event.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: input.nextPublished ? 'Published campus event' : 'Unpublished to draft',
-  });
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
+          published: input.nextPublished,
+          updatedAt: serverTimestamp(),
+        });
+        attachAdminAuditLogToBatch(batch, {
+          action: 'event_updated',
+          targetCollection: COLLECTION_NAMES.events,
+          targetId: input.event.id,
+          targetLabel: input.event.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: input.nextPublished
+            ? 'Published campus event'
+            : 'Unpublished to draft',
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updatedEvent: CampusEvent = {
       ...input.event,
       published: input.nextPublished,
@@ -2072,22 +2212,29 @@ export async function markCampusEventCompletedRecord(input: {
   if (input.actorRole !== 'supreme_admin') {
     throw new Error('Only Supreme Admin accounts can mark events completed.');
   }
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
-    status: 'completed',
-    updatedAt: serverTimestamp(),
-  });
-  attachAdminAuditLogToBatch(batch, {
-    action: 'event_updated',
-    targetCollection: COLLECTION_NAMES.events,
-    targetId: input.event.id,
-    targetLabel: input.event.title,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: 'Marked campus event as completed',
-  });
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(doc(db, COLLECTION_NAMES.events, input.event.id), {
+          status: 'completed',
+          updatedAt: serverTimestamp(),
+        });
+        attachAdminAuditLogToBatch(batch, {
+          action: 'event_updated',
+          targetCollection: COLLECTION_NAMES.events,
+          targetId: input.event.id,
+          targetLabel: input.event.title,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: 'Marked campus event as completed',
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     const updatedEvent: CampusEvent = {
       ...input.event,
       status: 'completed',
@@ -2173,78 +2320,102 @@ export async function broadcastCampusEventNotification(input: {
   const createdNotificationIds: string[] = [];
 
   if (recipientUids.length === 0) {
-    const batch = writeBatch(db);
-    batch.update(
-      eventRef,
-      input.kind === 'new'
-        ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
-        : { lastUpdatedNoticeMs: nowMs, updatedAt: serverTimestamp() }
-    );
-    await batch.commit();
-  } else {
-    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
-      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
-
-      const firstEventImageId = input.event.mediaItems?.[0]?.imageId;
-      const validEventImageId =
-        firstEventImageId && isValidFirestoreId(firstEventImageId)
-          ? firstEventImageId
-          : undefined;
-      const validEventBannerUrl =
-        !validEventImageId &&
-        input.event.bannerUrl &&
-        isSafeMediaUrl(input.event.bannerUrl)
-          ? input.event.bannerUrl.slice(0, 512)
-          : undefined;
-
-      for (const uid of chunk) {
-        const notifId = buildEventNotificationDocId(
-          input.kind,
-          input.event.id,
-          uid,
-          versionBucket
-        );
-        const payload: Record<string, unknown> = {
-          id: notifId,
-          recipientUid: uid,
-          eventType: 'new_event',
-          title: notifTitle,
-          body: notifBody,
-          targetPath,
-          isRead: false,
-          createdAt: serverTimestamp(),
-        };
-        if (validEventImageId) {
-          payload.targetImageId = validEventImageId;
-        } else if (validEventBannerUrl) {
-          payload.targetImageUrl = validEventBannerUrl;
-        }
-        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), payload);
-        createdNotificationIds.push(notifId);
-        sentCount += 1;
-      }
-
-      if (i === 0) {
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
         batch.update(
           eventRef,
           input.kind === 'new'
             ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
             : { lastUpdatedNoticeMs: nowMs, updatedAt: serverTimestamp() }
         );
-        attachAdminAuditLogToBatch(batch, {
-          action:
-            input.kind === 'cancelled' ? 'event_cancelled' : 'event_updated',
-          targetCollection: COLLECTION_NAMES.events,
-          targetId: input.event.id,
-          targetLabel: input.event.title,
-          performedByUid: input.actorUid,
-          performedByRole: input.actorRole,
-          details: `Sent ${input.kind} event alert to ${recipientUids.length} active members.`,
-        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
+    );
+  } else {
+    const firstEventImageId = input.event.mediaItems?.[0]?.imageId;
+    const validEventImageId =
+      firstEventImageId && isValidFirestoreId(firstEventImageId)
+        ? firstEventImageId
+        : undefined;
+    const validEventBannerUrl =
+      !validEventImageId &&
+      input.event.bannerUrl &&
+      isSafeMediaUrl(input.event.bannerUrl)
+        ? input.event.bannerUrl.slice(0, 512)
+        : undefined;
 
-      await batch.commit();
+    for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
+      const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
+      const chunkEntries = chunk.map((uid) => ({
+        uid,
+        notifId: buildEventNotificationDocId(
+          input.kind,
+          input.event.id,
+          uid,
+          versionBucket
+        ),
+      }));
+
+      await commitFreshWriteBatchWithPermissionRetry(
+        () => writeBatch(db),
+        (batch) => {
+          for (const entry of chunkEntries) {
+            const payload: Record<string, unknown> = {
+              id: entry.notifId,
+              recipientUid: entry.uid,
+              eventType: 'new_event',
+              title: notifTitle,
+              body: notifBody,
+              targetPath,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            };
+            if (validEventImageId) {
+              payload.targetImageId = validEventImageId;
+            } else if (validEventBannerUrl) {
+              payload.targetImageUrl = validEventBannerUrl;
+            }
+            batch.set(
+              doc(db, COLLECTION_NAMES.notifications, entry.notifId),
+              payload
+            );
+          }
+
+          if (i === 0) {
+            batch.update(
+              eventRef,
+              input.kind === 'new'
+                ? { notifiedNewAt: serverTimestamp(), updatedAt: serverTimestamp() }
+                : { lastUpdatedNoticeMs: nowMs, updatedAt: serverTimestamp() }
+            );
+            attachAdminAuditLogToBatch(batch, {
+              action:
+                input.kind === 'cancelled'
+                  ? 'event_cancelled'
+                  : 'event_updated',
+              targetCollection: COLLECTION_NAMES.events,
+              targetId: input.event.id,
+              targetLabel: input.event.title,
+              performedByUid: input.actorUid,
+              performedByRole: input.actorRole,
+              details: `Sent ${input.kind} event alert to ${recipientUids.length} active members.`,
+            });
+          }
+        },
+        {
+          actorUid: input.actorUid,
+          refreshToken: () => refreshAuthSessionToken(input.actorUid),
+        }
+      );
+
+      for (const entry of chunkEntries) {
+        createdNotificationIds.push(entry.notifId);
+        sentCount += 1;
+      }
     }
   }
 
@@ -2316,23 +2487,30 @@ export async function deleteCampusEventRecord(input: {
   const CHUNK_SIZE = 380;
   for (let i = 0; i < deleteRefs.length; i += CHUNK_SIZE) {
     const chunk = deleteRefs.slice(i, i + CHUNK_SIZE);
-    const batch = writeBatch(db);
-    for (const ref of chunk) {
-      batch.delete(ref);
-    }
-    if (i === 0) {
-      attachAdminAuditLogToBatch(batch, {
-        action: 'event_deleted',
-        targetCollection: COLLECTION_NAMES.events,
-        targetId: input.event.id,
-        targetLabel: input.event.title,
-        performedByUid: input.actorUid,
-        performedByRole: input.actorRole,
-        details: `Removed campus event (${input.event.venue})`,
-      });
-    }
     try {
-      await batch.commit();
+      await commitFreshWriteBatchWithPermissionRetry(
+        () => writeBatch(db),
+        (batch) => {
+          for (const ref of chunk) {
+            batch.delete(ref);
+          }
+          if (i === 0) {
+            attachAdminAuditLogToBatch(batch, {
+              action: 'event_deleted',
+              targetCollection: COLLECTION_NAMES.events,
+              targetId: input.event.id,
+              targetLabel: input.event.title,
+              performedByUid: input.actorUid,
+              performedByRole: input.actorRole,
+              details: `Removed campus event (${input.event.venue})`,
+            });
+          }
+        },
+        {
+          actorUid: input.actorUid,
+          refreshToken: () => refreshAuthSessionToken(input.actorUid),
+        }
+      );
     } catch (error) {
       handleFirestoreError(
         error,
@@ -2431,51 +2609,62 @@ export async function updateTrustedContactWithAudit(input: {
 
   validateTrustedContactPayload(nextRecord);
 
-  const batch = writeBatch(db);
-  batch.update(doc(db, COLLECTION_NAMES.trustedContacts, input.existing.id), {
-    fullName: cleanName,
-    category: input.category,
-    badgeLabel: nextRecord.badgeLabel ?? deleteField(),
-    roleTitle: cleanRoleTitle,
-    department: nextRecord.department ?? deleteField(),
-    faculty: nextRecord.faculty ?? deleteField(),
-    photoUrl: nextRecord.photoUrl ?? deleteField(),
-    photoImageId: nextRecord.photoImageId ?? deleteField(),
-    contactNumber: nextRecord.contactNumber ?? deleteField(),
-    whatsappLink: nextRecord.whatsappLink ?? deleteField(),
-    description: nextRecord.description ?? deleteField(),
-    updatedAt: serverTimestamp(),
-  });
-
-  if (input.compressedPhoto && nextPhotoImageId) {
-    batch.set(
-      doc(db, COLLECTION_NAMES.mediaImages, nextPhotoImageId),
-      buildMediaImageFirestoreRecord({
-        imageId: nextPhotoImageId,
-        targetCollection: 'trustedContacts',
-        targetId: input.existing.id,
-        ownerUID: input.actorUid,
-        compressed: input.compressedPhoto,
-        createdAtValue: serverTimestamp(),
-      })
-    );
-  }
-  if (oldPhotoImageIdToDelete && isValidFirestoreId(oldPhotoImageIdToDelete)) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, oldPhotoImageIdToDelete));
-  }
-
-  attachAdminAuditLogToBatch(batch, {
-    action: 'trusted_contact_updated',
-    targetCollection: COLLECTION_NAMES.trustedContacts,
-    targetId: input.existing.id,
-    targetLabel: cleanName,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `${input.category} · ${cleanRoleTitle}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(
+          doc(db, COLLECTION_NAMES.trustedContacts, input.existing.id),
+          {
+            fullName: cleanName,
+            category: input.category,
+            badgeLabel: nextRecord.badgeLabel ?? deleteField(),
+            roleTitle: cleanRoleTitle,
+            department: nextRecord.department ?? deleteField(),
+            faculty: nextRecord.faculty ?? deleteField(),
+            photoUrl: nextRecord.photoUrl ?? deleteField(),
+            photoImageId: nextRecord.photoImageId ?? deleteField(),
+            contactNumber: nextRecord.contactNumber ?? deleteField(),
+            whatsappLink: nextRecord.whatsappLink ?? deleteField(),
+            description: nextRecord.description ?? deleteField(),
+            updatedAt: serverTimestamp(),
+          }
+        );
+
+        if (input.compressedPhoto && nextPhotoImageId) {
+          batch.set(
+            doc(db, COLLECTION_NAMES.mediaImages, nextPhotoImageId),
+            buildMediaImageFirestoreRecord({
+              imageId: nextPhotoImageId,
+              targetCollection: 'trustedContacts',
+              targetId: input.existing.id,
+              ownerUID: input.actorUid,
+              compressed: input.compressedPhoto,
+              createdAtValue: serverTimestamp(),
+            })
+          );
+        }
+        if (oldPhotoImageIdToDelete && isValidFirestoreId(oldPhotoImageIdToDelete)) {
+          batch.delete(
+            doc(db, COLLECTION_NAMES.mediaImages, oldPhotoImageIdToDelete)
+          );
+        }
+
+        attachAdminAuditLogToBatch(batch, {
+          action: 'trusted_contact_updated',
+          targetCollection: COLLECTION_NAMES.trustedContacts,
+          targetId: input.existing.id,
+          targetLabel: cleanName,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `${input.category} · ${cleanRoleTitle}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     if (oldPhotoImageIdToDelete) {
       evictMediaImageCache(oldPhotoImageIdToDelete);
     }
@@ -2587,35 +2776,44 @@ export async function createTrustedContactWithAudit(input: {
   if (record.whatsappLink) firestorePayload.whatsappLink = record.whatsappLink;
   if (record.description) firestorePayload.description = record.description;
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.trustedContacts, contactId), firestorePayload);
-
-  if (input.compressedPhoto && photoImageId) {
-    batch.set(
-      doc(db, COLLECTION_NAMES.mediaImages, photoImageId),
-      buildMediaImageFirestoreRecord({
-        imageId: photoImageId,
-        targetCollection: 'trustedContacts',
-        targetId: contactId,
-        ownerUID: input.actorUid,
-        compressed: input.compressedPhoto,
-        createdAtValue: serverTimestamp(),
-      })
-    );
-  }
-
-  attachAdminAuditLogToBatch(batch, {
-    action: 'trusted_contact_created',
-    targetCollection: COLLECTION_NAMES.trustedContacts,
-    targetId: contactId,
-    targetLabel: cleanName,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `${input.category} · ${cleanRoleTitle}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.set(
+          doc(db, COLLECTION_NAMES.trustedContacts, contactId),
+          firestorePayload
+        );
+
+        if (input.compressedPhoto && photoImageId) {
+          batch.set(
+            doc(db, COLLECTION_NAMES.mediaImages, photoImageId),
+            buildMediaImageFirestoreRecord({
+              imageId: photoImageId,
+              targetCollection: 'trustedContacts',
+              targetId: contactId,
+              ownerUID: input.actorUid,
+              compressed: input.compressedPhoto,
+              createdAtValue: serverTimestamp(),
+            })
+          );
+        }
+
+        attachAdminAuditLogToBatch(batch, {
+          action: 'trusted_contact_created',
+          targetCollection: COLLECTION_NAMES.trustedContacts,
+          targetId: contactId,
+          targetLabel: cleanName,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `${input.category} · ${cleanRoleTitle}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     if (input.compressedPhoto && photoImageId) {
       primeMediaImageCache(photoImageId, input.compressedPhoto.dataUrl);
     }
@@ -2638,28 +2836,36 @@ export async function deleteTrustedContactWithAudit(input: {
   if (input.actorRole !== 'supreme_admin') {
     throw new Error('Only Supreme Admin accounts can remove Trusted Circle contacts.');
   }
-  const batch = writeBatch(db);
-  batch.delete(doc(db, COLLECTION_NAMES.trustedContacts, input.contact.id));
-  if (
-    input.contact.photoImageId &&
-    isValidFirestoreId(input.contact.photoImageId)
-  ) {
-    batch.delete(
-      doc(db, COLLECTION_NAMES.mediaImages, input.contact.photoImageId)
-    );
-  }
-  attachAdminAuditLogToBatch(batch, {
-    action: 'trusted_contact_deleted',
-    targetCollection: COLLECTION_NAMES.trustedContacts,
-    targetId: input.contact.id,
-    targetLabel: input.contact.fullName,
-    performedByUid: input.actorUid,
-    performedByRole: input.actorRole,
-    details: `Removed ${input.contact.roleTitle}`,
-  });
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.delete(
+          doc(db, COLLECTION_NAMES.trustedContacts, input.contact.id)
+        );
+        if (
+          input.contact.photoImageId &&
+          isValidFirestoreId(input.contact.photoImageId)
+        ) {
+          batch.delete(
+            doc(db, COLLECTION_NAMES.mediaImages, input.contact.photoImageId)
+          );
+        }
+        attachAdminAuditLogToBatch(batch, {
+          action: 'trusted_contact_deleted',
+          targetCollection: COLLECTION_NAMES.trustedContacts,
+          targetId: input.contact.id,
+          targetLabel: input.contact.fullName,
+          performedByUid: input.actorUid,
+          performedByRole: input.actorRole,
+          details: `Removed ${input.contact.roleTitle}`,
+        });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     if (input.contact.photoImageId) {
       evictMediaImageCache(input.contact.photoImageId);
     }
@@ -2784,22 +2990,31 @@ export async function saveGlobalPlatformSettings(input: {
 
   const settingRef = doc(db, COLLECTION_NAMES.platformSettings, 'global');
   try {
-    await runTransaction(db, async (tx) => {
-      const existingSnap = await tx.get(settingRef);
-      if (existingSnap.exists()) {
-        tx.update(settingRef, {
-          updatedByUid: input.actorUid,
-          maintenanceNotice: cleanNotice || deleteField(),
-          pinnedAnnouncementPostId: cleanPinnedId || deleteField(),
-          marketplaceSubmissionsOpen: Boolean(input.marketplaceSubmissionsOpen),
-          anonymousPostingOpen: Boolean(input.anonymousPostingOpen),
-          newRegistrationsOpen: Boolean(input.newRegistrationsOpen),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        tx.set(settingRef, payload);
+    await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
+          const existingSnap = await tx.get(settingRef);
+          if (existingSnap.exists()) {
+            tx.update(settingRef, {
+              updatedByUid: input.actorUid,
+              maintenanceNotice: cleanNotice || deleteField(),
+              pinnedAnnouncementPostId: cleanPinnedId || deleteField(),
+              marketplaceSubmissionsOpen: Boolean(
+                input.marketplaceSubmissionsOpen
+              ),
+              anonymousPostingOpen: Boolean(input.anonymousPostingOpen),
+              newRegistrationsOpen: Boolean(input.newRegistrationsOpen),
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            tx.set(settingRef, payload);
+          }
+        }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
-    });
+    );
 
     await recordAdminAuditLog({
       action: 'settings_updated',
@@ -2925,37 +3140,49 @@ export async function broadcastOfficialAnnouncementNotification(input: {
 
   for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
     const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
-    const batch = writeBatch(db);
+    const chunkEntries = chunk.map((uid) => ({
+      uid,
+      notifId: buildAnnouncementNotificationId(announcementId, uid),
+    }));
 
-    for (const uid of chunk) {
-      const notifId = buildAnnouncementNotificationId(announcementId, uid);
-      batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), {
-        id: notifId,
-        recipientUid: uid,
-        eventType: 'announcement',
-        title: cleanTitle,
-        body: cleanBody,
-        targetPath,
-        isRead: false,
-        createdAt: serverTimestamp(),
-      });
-      createdNotificationIds.push(notifId);
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        for (const entry of chunkEntries) {
+          batch.set(doc(db, COLLECTION_NAMES.notifications, entry.notifId), {
+            id: entry.notifId,
+            recipientUid: entry.uid,
+            eventType: 'announcement',
+            title: cleanTitle,
+            body: cleanBody,
+            targetPath,
+            isRead: false,
+            createdAt: serverTimestamp(),
+          });
+        }
+
+        if (i === 0) {
+          attachAdminAuditLogToBatch(batch, {
+            action: 'announcement_broadcast',
+            targetCollection: COLLECTION_NAMES.notifications,
+            targetId: announcementId,
+            targetLabel: cleanTitle,
+            performedByUid: input.actorUid,
+            performedByRole: input.actorRole,
+            details: `Broadcast official announcement to ${recipientUids.length} active members (target ${targetPath}).`,
+          });
+        }
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
+
+    for (const entry of chunkEntries) {
+      createdNotificationIds.push(entry.notifId);
       sentCount += 1;
     }
-
-    if (i === 0) {
-      attachAdminAuditLogToBatch(batch, {
-        action: 'announcement_broadcast',
-        targetCollection: COLLECTION_NAMES.notifications,
-        targetId: announcementId,
-        targetLabel: cleanTitle,
-        performedByUid: input.actorUid,
-        performedByRole: input.actorRole,
-        details: `Broadcast official announcement to ${recipientUids.length} active members (target ${targetPath}).`,
-      });
-    }
-
-    await batch.commit();
   }
 
   if (sentCount > 0) {

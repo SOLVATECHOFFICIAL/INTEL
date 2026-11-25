@@ -18,7 +18,13 @@ import {
   type QueryDocumentSnapshot,
   type WriteBatch,
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  handleFirestoreError,
+  OperationType,
+  refreshAuthSessionToken,
+} from '../lib/firebase';
 import {
   ALLOWED_TEXT_POST_BACKGROUND_IDS,
   BLUEPRINT_LIMITS,
@@ -45,10 +51,10 @@ import {
 } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
-  commitFreshWriteBatchWithRetry,
+  commitFreshWriteBatchWithPermissionRetry,
   computeNextReactionTransactionState,
   isFirestoreSdkError,
-  runWithFirestoreConnectionRetry,
+  runWithPermissionRetry,
 } from '../utils/firestoreRetry';
 import {
   buildCommentNotificationId,
@@ -347,41 +353,58 @@ async function notifyUsersOfOfficialUpdate(input: {
 
     for (let i = 0; i < recipientUids.length; i += CHUNK_SIZE) {
       const chunk = recipientUids.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
-      for (const uid of chunk) {
-        const notifId = buildOfficialUpdateNotificationId(input.update.id, uid);
-        const notifDoc: Record<string, unknown> = {
-          id: notifId,
-          recipientUid: uid,
-          eventType: 'official_update',
-          title: headline,
-          targetPath,
-          isRead: false,
-          createdAt: serverTimestamp(),
-        };
-        if (bodyExcerpt) {
-          notifDoc.body = bodyExcerpt;
-        }
-        if (targetImageId && isValidFirestoreId(targetImageId)) {
-          notifDoc.targetImageId = targetImageId;
-        }
-        // Only attach public actor metadata for the public admin; NEVER for official_desk/underground admin
-        if (!isOfficialDesk) {
-          notifDoc.actorUid = input.actorUid;
-          notifDoc.actorName = input.update.authorDisplayName.slice(0, 100);
-          if (
-            input.update.authorPhotoImageId &&
-            isValidFirestoreId(input.update.authorPhotoImageId)
-          ) {
-            notifDoc.actorPhotoImageId = input.update.authorPhotoImageId;
-          } else if (input.update.authorPhotoUrl) {
-            notifDoc.actorPhotoUrl = input.update.authorPhotoUrl;
+      const chunkEntries = chunk.map((uid) => ({
+        uid,
+        notifId: buildOfficialUpdateNotificationId(input.update.id, uid),
+      }));
+
+      await commitFreshWriteBatchWithPermissionRetry(
+        () => writeBatch(db),
+        (batch) => {
+          for (const entry of chunkEntries) {
+            const notifDoc: Record<string, unknown> = {
+              id: entry.notifId,
+              recipientUid: entry.uid,
+              eventType: 'official_update',
+              title: headline,
+              targetPath,
+              isRead: false,
+              createdAt: serverTimestamp(),
+            };
+            if (bodyExcerpt) {
+              notifDoc.body = bodyExcerpt;
+            }
+            if (targetImageId && isValidFirestoreId(targetImageId)) {
+              notifDoc.targetImageId = targetImageId;
+            }
+            // Only attach public actor metadata for the public admin; NEVER for official_desk/underground admin
+            if (!isOfficialDesk) {
+              notifDoc.actorUid = input.actorUid;
+              notifDoc.actorName = input.update.authorDisplayName.slice(0, 100);
+              if (
+                input.update.authorPhotoImageId &&
+                isValidFirestoreId(input.update.authorPhotoImageId)
+              ) {
+                notifDoc.actorPhotoImageId = input.update.authorPhotoImageId;
+              } else if (input.update.authorPhotoUrl) {
+                notifDoc.actorPhotoUrl = input.update.authorPhotoUrl;
+              }
+            }
+            batch.set(
+              doc(db, COLLECTION_NAMES.notifications, entry.notifId),
+              notifDoc
+            );
           }
+        },
+        {
+          actorUid: input.actorUid,
+          refreshToken: () => refreshAuthSessionToken(input.actorUid),
         }
-        batch.set(doc(db, COLLECTION_NAMES.notifications, notifId), notifDoc);
-        createdNotificationIds.push(notifId);
+      );
+
+      for (const entry of chunkEntries) {
+        createdNotificationIds.push(entry.notifId);
       }
-      await batch.commit();
     }
 
     if (createdNotificationIds.length > 0) {
@@ -516,7 +539,7 @@ export async function createOfficialUpdateWithMedia(input: {
   const path = `${COLLECTION_NAMES.updates}/${updateId}`;
   let createdPoll: CampusPoll | null = null;
   try {
-    await commitFreshWriteBatchWithRetry(
+    await commitFreshWriteBatchWithPermissionRetry(
       () => writeBatch(db),
       (batch) => {
         if (pollId && input.pollDraft) {
@@ -558,6 +581,10 @@ export async function createOfficialUpdateWithMedia(input: {
           performedByUid: input.actorUid,
           details: `Published ${input.format} official update (${authorMode}).`,
         });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
     );
   } catch (error) {
@@ -712,10 +739,13 @@ export async function updateOfficialUpdateWithMedia(input: {
     }
   }
 
+  const pollCreatorAuthorMode: AdminUpdateAuthorMode =
+    isUndergroundSupremeAdminUser(currentUser) ? 'official_desk' : 'public_admin';
+
   let mutatedPoll: CampusPoll | null = null;
   const path = `${COLLECTION_NAMES.updates}/${input.update.id}`;
   try {
-    await commitFreshWriteBatchWithRetry(
+    await commitFreshWriteBatchWithPermissionRetry(
       () => writeBatch(db),
       (batch) => {
         if (input.pollEdit?.mode === 'upsert') {
@@ -730,7 +760,7 @@ export async function updateOfficialUpdateWithMedia(input: {
             mutatedPoll = attachCreatePollToBatch(batch, {
               pollId: newPollId,
               updateId: input.update.id,
-              authorMode: input.update.authorMode,
+              authorMode: pollCreatorAuthorMode,
               actorUid: input.actorUid,
               draft: input.pollEdit.draft,
             });
@@ -768,6 +798,10 @@ export async function updateOfficialUpdateWithMedia(input: {
           performedByUid: input.actorUid,
           details: `Edited official ${lockedFormat} update.`,
         });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
     );
   } catch (error) {
@@ -834,7 +868,7 @@ export async function toggleOfficialUpdatePin(input: {
   const nextPinned = !input.update.isPinned;
   const path = `${COLLECTION_NAMES.updates}/${input.update.id}`;
   try {
-    await commitFreshWriteBatchWithRetry(
+    await commitFreshWriteBatchWithPermissionRetry(
       () => writeBatch(db),
       (batch) => {
         batch.update(doc(db, COLLECTION_NAMES.updates, input.update.id), {
@@ -849,6 +883,10 @@ export async function toggleOfficialUpdatePin(input: {
           performedByUid: input.actorUid,
           details: nextPinned ? 'Pinned official update.' : 'Unpinned official update.',
         });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
     );
   } catch (error) {
@@ -955,20 +993,28 @@ export async function deleteOfficialUpdateCascading(input: {
   try {
     for (let i = 0; i < refsToDelete.length; i += CHUNK_SIZE) {
       const chunk = refsToDelete.slice(i, i + CHUNK_SIZE);
-      const batch = writeBatch(db);
-      for (const ref of chunk) {
-        batch.delete(ref);
-      }
-      if (i === 0) {
-        attachUpdateAuditLogToBatch(batch, {
-          action: 'update_deleted',
-          updateId: input.updateId,
-          targetLabel: input.targetLabel || input.updateId,
-          performedByUid: input.actorUid,
-          details: 'Deleted official update and cleaned up attached records.',
-        });
-      }
-      await batch.commit();
+      await commitFreshWriteBatchWithPermissionRetry(
+        () => writeBatch(db),
+        (batch) => {
+          for (const ref of chunk) {
+            batch.delete(ref);
+          }
+          if (i === 0) {
+            attachUpdateAuditLogToBatch(batch, {
+              action: 'update_deleted',
+              updateId: input.updateId,
+              targetLabel: input.targetLabel || input.updateId,
+              performedByUid: input.actorUid,
+              details:
+                'Deleted official update and cleaned up attached records.',
+            });
+          }
+        },
+        {
+          actorUid: input.actorUid,
+          refreshToken: () => refreshAuthSessionToken(input.actorUid),
+        }
+      );
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
@@ -1003,8 +1049,9 @@ export async function toggleOfficialUpdateReaction(input: {
   const path = `${COLLECTION_NAMES.updates}/${input.updateId}`;
 
   try {
-    const result = await runWithFirestoreConnectionRetry(() =>
-      runTransaction(db, async (tx) => {
+    const result = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
         const [updateSnap, reactionSnap] = await Promise.all([
           tx.get(updateRef),
           tx.get(reactionRef),
@@ -1056,7 +1103,11 @@ export async function toggleOfficialUpdateReaction(input: {
           snippet,
           imageId,
         };
-      })
+      }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
     );
 
     // Notify ONLY public_admin owner; official_desk has no exposed ownerUID
@@ -1184,26 +1235,31 @@ export async function addOfficialUpdateComment(input: {
   let updateImageId: string | undefined;
 
   try {
-    const commentsCount = await runWithFirestoreConnectionRetry(() =>
-      runTransaction(db, async (tx) => {
-        const updateSnap = await tx.get(updateRef);
-        if (!updateSnap.exists()) {
-          throw new Error('This official update is no longer available.');
-        }
-        const data = updateSnap.data() as AdminUpdate;
-        if (data.status !== 'published') {
-          throw new Error('This official update is no longer available.');
-        }
-        publicAuthorUid =
-          data.authorMode === 'public_admin' ? data.ownerUID ?? null : null;
-        updateTitle = data.title || data.body;
-        updateImageId = data.mediaItems?.[0]?.imageId;
+    const commentsCount = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
+          const updateSnap = await tx.get(updateRef);
+          if (!updateSnap.exists()) {
+            throw new Error('This official update is no longer available.');
+          }
+          const data = updateSnap.data() as AdminUpdate;
+          if (data.status !== 'published') {
+            throw new Error('This official update is no longer available.');
+          }
+          publicAuthorUid =
+            data.authorMode === 'public_admin' ? data.ownerUID ?? null : null;
+          updateTitle = data.title || data.body;
+          updateImageId = data.mediaItems?.[0]?.imageId;
 
-        const nextCount = Math.max(0, Number(data.commentsCount ?? 0)) + 1;
-        tx.set(commentRef, payload);
-        tx.update(updateRef, { commentsCount: nextCount });
-        return nextCount;
-      })
+          const nextCount = Math.max(0, Number(data.commentsCount ?? 0)) + 1;
+          tx.set(commentRef, payload);
+          tx.update(updateRef, { commentsCount: nextCount });
+          return nextCount;
+        }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
     );
 
     const targetPath = `/?view=updates&postId=${input.updateId}&commentId=${commentId}`;
@@ -1339,11 +1395,15 @@ export async function editOfficialUpdateComment(input: {
   }
   const path = `${COLLECTION_NAMES.postComments}/${input.commentId}`;
   try {
-    await runWithFirestoreConnectionRetry(() =>
-      updateDoc(doc(db, COLLECTION_NAMES.postComments, input.commentId), {
-        body: cleanBody,
-        updatedAt: serverTimestamp(),
-      })
+    await runWithPermissionRetry(
+      () =>
+        updateDoc(doc(db, COLLECTION_NAMES.postComments, input.commentId), {
+          body: cleanBody,
+          updatedAt: serverTimestamp(),
+        }),
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
     );
   } catch (error) {
     if (!isFirestoreSdkError(error)) {
@@ -1372,22 +1432,26 @@ export async function deleteOfficialUpdateComment(input: {
   const path = `${COLLECTION_NAMES.postComments}/${input.commentId}`;
 
   try {
-    const nextCount = await runWithFirestoreConnectionRetry(() =>
-      runTransaction(db, async (tx) => {
-        const updateSnap = await tx.get(updateRef);
-        const currentCount = updateSnap.exists()
-          ? Number((updateSnap.data() as AdminUpdate).commentsCount ?? 0)
-          : 0;
-        const computedNextCount = Math.max(0, currentCount - idsToDelete.length);
+    const nextCount = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
+          const updateSnap = await tx.get(updateRef);
+          const currentCount = updateSnap.exists()
+            ? Number((updateSnap.data() as AdminUpdate).commentsCount ?? 0)
+            : 0;
+          const computedNextCount = Math.max(0, currentCount - idsToDelete.length);
 
-        for (const id of idsToDelete) {
-          tx.delete(doc(db, COLLECTION_NAMES.postComments, id));
-        }
-        if (updateSnap.exists() && computedNextCount !== currentCount) {
-          tx.update(updateRef, { commentsCount: computedNextCount });
-        }
-        return computedNextCount;
-      })
+          for (const id of idsToDelete) {
+            tx.delete(doc(db, COLLECTION_NAMES.postComments, id));
+          }
+          if (updateSnap.exists() && computedNextCount !== currentCount) {
+            tx.update(updateRef, { commentsCount: computedNextCount });
+          }
+          return computedNextCount;
+        }),
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
     );
 
     notifyAdminUpdateCommentMutated(input.updateId, nextCount);

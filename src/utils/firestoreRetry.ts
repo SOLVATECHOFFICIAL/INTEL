@@ -132,6 +132,51 @@ export async function runWithFirestoreConnectionRetry<T>(
   throw lastError;
 }
 
+export function isPermissionDeniedError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const maybeCode = (error as { code?: unknown }).code;
+  if (typeof maybeCode === 'string') {
+    const normalized = maybeCode.trim().toLowerCase();
+    if (
+      normalized === 'permission-denied' ||
+      normalized === 'firestore/permission-denied'
+    ) {
+      return true;
+    }
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof (error as { message?: unknown }).message === 'string'
+        ? String((error as { message: string }).message)
+        : '';
+  return /missing or insufficient permissions|permission[- ]denied/i.test(message);
+}
+
+export interface PermissionRetryOptions extends FirestoreRetryOptions {
+  actorUid?: string;
+  refreshToken?: () => Promise<boolean>;
+}
+
+export async function runWithPermissionRetry<T>(
+  operation: () => Promise<T>,
+  options: PermissionRetryOptions = {}
+): Promise<T> {
+  try {
+    return await runWithFirestoreConnectionRetry(operation, options);
+  } catch (error) {
+    if (isPermissionDeniedError(error) && options.refreshToken) {
+      const refreshed = await options.refreshToken().catch(() => false);
+      if (refreshed) {
+        return await runWithFirestoreConnectionRetry(operation, options);
+      }
+    }
+    throw error;
+  }
+}
+
 export async function commitFreshWriteBatchWithRetry<
   TBatch extends { commit: () => Promise<void> },
 >(
@@ -140,6 +185,20 @@ export async function commitFreshWriteBatchWithRetry<
   options: FirestoreRetryOptions = {}
 ): Promise<void> {
   await runWithFirestoreConnectionRetry(async () => {
+    const batch = createBatch();
+    populateBatch(batch);
+    await batch.commit();
+  }, options);
+}
+
+export async function commitFreshWriteBatchWithPermissionRetry<
+  TBatch extends { commit: () => Promise<void> },
+>(
+  createBatch: () => TBatch,
+  populateBatch: (batch: TBatch) => void,
+  options: PermissionRetryOptions = {}
+): Promise<void> {
+  await runWithPermissionRetry(async () => {
     const batch = createBatch();
     populateBatch(batch);
     await batch.commit();

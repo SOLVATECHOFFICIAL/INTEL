@@ -118,7 +118,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-10 shadow-xl"
+        className="max-h-[calc(90dvh-env(safe-area-inset-top))] w-full overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div

@@ -1102,8 +1102,12 @@ export function App() {
         onOpenMobileDrawer={() => setIsMobileDrawerOpen(true)}
         onRequireAuth={handleRequireAuth}
       />
+      <div
+        aria-hidden="true"
+        className="h-[calc(3.5rem+2px+env(safe-area-inset-top))] w-full shrink-0 md:h-[calc(4rem+2px+env(safe-area-inset-top))]"
+      />
 
-      <main className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-6 px-3 pt-4 pb-24 sm:px-6 lg:gap-8 lg:pt-7 lg:pb-8">
+      <main className="mx-auto flex w-full max-w-7xl min-w-0 flex-1 gap-6 px-3 pt-4 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6 lg:gap-8 lg:pt-7 lg:pb-8">
         {showSidebar && (
           <SectionSidebar
             activeRoute={activeRoute}
@@ -1216,7 +1220,7 @@ export function App() {
           role="status"
           aria-live="polite"
           data-testid="foreground-notification-toast"
-          className="fixed right-4 bottom-20 z-50 w-[min(calc(100vw-2rem),24rem)] rounded-2xl border border-[#1E88E5]/30 bg-white p-3.5 shadow-2xl sm:right-6 sm:bottom-6"
+          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-50 w-[min(calc(100vw-2rem),24rem)] rounded-2xl border border-[#1E88E5]/30 bg-white p-3.5 shadow-2xl sm:right-6 sm:bottom-6"
         >
           <div className="flex items-start gap-3">
             <button

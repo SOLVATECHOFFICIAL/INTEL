@@ -979,7 +979,7 @@ service cloud.firestore {
           'status', 'expiresAt', 'createdAt', 'updatedAt'
         ]) &&
         data.keys().hasOnly([
-          'id', 'updateId', 'authorMode', 'ownerUID', 'question', 'options',
+          'id', 'updateId', 'authorMode', 'ownerUID', 'question', 'description', 'options',
           'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
           'allowVoteChange', 'voterScope', 'resultsVisibility',
           'status', 'expiresAt', 'createdAt', 'updatedAt'
@@ -993,6 +993,7 @@ service cloud.firestore {
           (data.authorMode == 'official_desk' && !('ownerUID' in data))
         ) &&
         data.question is string && data.question.size() >= 5 && data.question.size() <= 280 &&
+        isOptionalShortString(data, 'description', 300) &&
         data.options is list && data.options.size() >= 2 && data.options.size() <= 8 &&
         data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 120 &&
         data.options[1] is string && data.options[1].size() >= 1 && data.options[1].size() <= 120 &&
@@ -2403,7 +2404,7 @@ service cloud.firestore {
             isValidCampusPoll(incoming(), pollId) &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'question', 'options', 'status', 'expiresAt',
+              'question', 'description', 'options', 'status', 'expiresAt',
               'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
               'allowVoteChange', 'voterScope', 'resultsVisibility', 'updatedAt'
             ])) ||

@@ -13,7 +13,13 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  handleFirestoreError,
+  OperationType,
+  refreshAuthSessionToken,
+} from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -70,7 +76,10 @@ import {
   fetchPublicProfileProjectionsByUids,
 } from './firestoreFoundation';
 import { triggerBestEffortPushDispatch } from './webPush';
-import { commitFreshWriteBatchWithRetry } from '../utils/firestoreRetry';
+import {
+  commitFreshWriteBatchWithPermissionRetry,
+  runWithPermissionRetry,
+} from '../utils/firestoreRetry';
 import {
   buildMediaImageFirestoreRecord,
   evictMediaImageCache,
@@ -254,7 +263,9 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
   const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
 
   try {
-    const result = await runTransaction(db, async (tx) => {
+    const result = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
       const [userSnap, roleSnap] = await Promise.all([
         tx.get(userRef),
         tx.get(roleRef),
@@ -361,7 +372,12 @@ export async function assignMemberRoleAndBadgeAtomically(input: {
       tx.set(notifRef, notificationPayload);
 
       return { action, nextRole: input.nextRole, nextBadge };
-    });
+    }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     void triggerBestEffortPushDispatch({
       notificationId: notifId,
       recipientUid: input.targetUid,
@@ -402,7 +418,9 @@ export async function toggleModeratorVerifiedStatusAtomically(input: {
   const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
 
   try {
-    const changed = await runTransaction(db, async (tx) => {
+    const changed = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
       const [userSnap, roleSnap] = await Promise.all([
         tx.get(userRef),
         tx.get(roleRef),
@@ -480,7 +498,12 @@ export async function toggleModeratorVerifiedStatusAtomically(input: {
       });
 
       return true;
-    });
+    }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
 
     if (changed) {
       void triggerBestEffortPushDispatch({
@@ -524,7 +547,9 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
   const notifRef = doc(db, COLLECTION_NAMES.notifications, notifId);
 
   try {
-    const statusChanged = await runTransaction(db, async (tx) => {
+    const statusChanged = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
       const [userSnap, roleSnap] = await Promise.all([
         tx.get(userRef),
         tx.get(roleRef),
@@ -608,7 +633,12 @@ export async function toggleMemberAccountSuspensionAtomically(input: {
         createdAt: serverTimestamp(),
       });
       return true;
-    });
+    }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     if (statusChanged) {
       void triggerBestEffortPushDispatch({
         notificationId: notifId,
@@ -845,25 +875,33 @@ export async function createTrustedContactRecord(
   if (record.whatsappLink) firestorePayload.whatsappLink = record.whatsappLink;
   if (record.description) firestorePayload.description = record.description;
 
-  const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION_NAMES.trustedContacts, contactId), firestorePayload);
-
-  if (input.compressedPhoto && photoImageId) {
-    batch.set(
-      doc(db, COLLECTION_NAMES.mediaImages, photoImageId),
-      buildMediaImageFirestoreRecord({
-        imageId: photoImageId,
-        targetCollection: 'trustedContacts',
-        targetId: contactId,
-        ownerUID: input.createdByUid,
-        compressed: input.compressedPhoto,
-        createdAtValue: serverTimestamp(),
-      })
-    );
-  }
-
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.set(
+          doc(db, COLLECTION_NAMES.trustedContacts, contactId),
+          firestorePayload
+        );
+        if (input.compressedPhoto && photoImageId) {
+          batch.set(
+            doc(db, COLLECTION_NAMES.mediaImages, photoImageId),
+            buildMediaImageFirestoreRecord({
+              imageId: photoImageId,
+              targetCollection: 'trustedContacts',
+              targetId: contactId,
+              ownerUID: input.createdByUid,
+              compressed: input.compressedPhoto,
+              createdAtValue: serverTimestamp(),
+            })
+          );
+        }
+      },
+      {
+        actorUid: input.createdByUid,
+        refreshToken: () => refreshAuthSessionToken(input.createdByUid),
+      }
+    );
     if (input.compressedPhoto && photoImageId) {
       primeMediaImageCache(photoImageId, input.compressedPhoto.dataUrl);
     }
@@ -884,12 +922,18 @@ export async function deleteTrustedContactRecord(
 ): Promise<void> {
   if (!isValidFirestoreId(contactId)) return;
   try {
-    const batch = writeBatch(db);
-    batch.delete(doc(db, COLLECTION_NAMES.trustedContacts, contactId));
-    if (photoImageId && isValidFirestoreId(photoImageId)) {
-      batch.delete(doc(db, COLLECTION_NAMES.mediaImages, photoImageId));
-    }
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.delete(doc(db, COLLECTION_NAMES.trustedContacts, contactId));
+        if (photoImageId && isValidFirestoreId(photoImageId)) {
+          batch.delete(doc(db, COLLECTION_NAMES.mediaImages, photoImageId));
+        }
+      },
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
+    );
     if (photoImageId) {
       evictMediaImageCache(photoImageId);
     }
@@ -1110,13 +1154,17 @@ export async function createMarketplaceListingItem(
   });
 
   try {
-    await commitFreshWriteBatchWithRetry(
+    await commitFreshWriteBatchWithPermissionRetry(
       () => writeBatch(db),
       (batch) => {
         for (const item of stagedMediaWrites) {
           batch.set(doc(db, COLLECTION_NAMES.mediaImages, item.imageId), item.record);
         }
         batch.set(doc(db, COLLECTION_NAMES.marketplaceListings, listingId), payload);
+      },
+      {
+        actorUid: input.ownerUID,
+        refreshToken: () => refreshAuthSessionToken(input.ownerUID),
       }
     );
     if (!isUndergroundSupremeAdminUser(auth.currentUser)) {
@@ -1177,7 +1225,9 @@ export async function reviewPendingMarketplaceListing(input: {
   const expiryDate = computeMarketplaceExpiryDate();
 
   try {
-    const updated = await runTransaction(db, async (tx) => {
+    const updated = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
       const snap = await tx.get(listingRef);
       if (!snap.exists()) {
         throw new Error('Marketplace listing no longer exists.');
@@ -1215,7 +1265,12 @@ export async function reviewPendingMarketplaceListing(input: {
         expiresAt: expiryDate.getTime(),
         updatedAt: Date.now(),
       };
-    });
+    }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
 
     if (input.emitNotification !== false) {
       void createSafeMemberNotification({
@@ -1261,16 +1316,22 @@ export async function updateOwnMarketplaceListingQuantity(input: {
   const nextVisibility =
     resolved.status === 'active' ? 'public' : input.listing.visibility;
   const listingRef = doc(db, COLLECTION_NAMES.marketplaceListings, input.listing.id);
-  const batch = writeBatch(db);
-  batch.update(listingRef, {
-    quantity: resolved.quantity,
-    status: resolved.status,
-    visibility: nextVisibility,
-    updatedAt: serverTimestamp(),
-  });
 
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(listingRef, {
+          quantity: resolved.quantity,
+          status: resolved.status,
+          visibility: nextVisibility,
+          updatedAt: serverTimestamp(),
+        });
+      },
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
+    );
     const updatedListing: MarketplaceListing = {
       ...input.listing,
       quantity: resolved.quantity,
@@ -1294,15 +1355,21 @@ export async function renewMarketplaceListing(
 ): Promise<MarketplaceListing> {
   const listingRef = doc(db, COLLECTION_NAMES.marketplaceListings, listing.id);
   const newExpiry = computeMarketplaceExpiryDate(new Date());
-  const batch = writeBatch(db);
-  batch.update(listingRef, {
-    status: 'active',
-    visibility: 'public',
-    expiresAt: Timestamp.fromDate(newExpiry),
-    updatedAt: serverTimestamp(),
-  });
   try {
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.update(listingRef, {
+          status: 'active',
+          visibility: 'public',
+          expiresAt: Timestamp.fromDate(newExpiry),
+          updatedAt: serverTimestamp(),
+        });
+      },
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
+    );
     const renewedListing: MarketplaceListing = {
       ...listing,
       status: 'active',
@@ -1339,12 +1406,18 @@ export async function deleteMarketplaceListing(
       }
     }
 
-    const batch = writeBatch(db);
-    batch.delete(listingRef);
-    for (const imgId of mediaIds) {
-      batch.delete(doc(db, COLLECTION_NAMES.mediaImages, imgId));
-    }
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.delete(listingRef);
+        for (const imgId of mediaIds) {
+          batch.delete(doc(db, COLLECTION_NAMES.mediaImages, imgId));
+        }
+      },
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
+    );
 
     if (mediaIds.length > 0) {
       evictMediaImageCacheBatch(mediaIds);
@@ -1466,9 +1539,16 @@ export async function createMarketplaceUpdateRecord(input: {
   };
 
   try {
-    const batch = writeBatch(db);
-    batch.set(ref, payload);
-    await batch.commit();
+    await commitFreshWriteBatchWithPermissionRetry(
+      () => writeBatch(db),
+      (batch) => {
+        batch.set(ref, payload);
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
+    );
     notifyMarketplaceUpdatesMutated();
     return {
       ...payload,
@@ -1501,13 +1581,19 @@ export async function updateMarketplaceUpdateRecord(input: {
   const ref = doc(db, COLLECTION_NAMES.marketplaceUpdates, input.existing.id);
 
   try {
-    await updateDoc(ref, {
-      title: valid.title,
-      body: valid.body,
-      category: valid.category,
-      published: Boolean(input.published),
-      updatedAt: serverTimestamp(),
-    });
+    await runWithPermissionRetry(
+      () =>
+        updateDoc(ref, {
+          title: valid.title,
+          body: valid.body,
+          category: valid.category,
+          published: Boolean(input.published),
+          updatedAt: serverTimestamp(),
+        }),
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
+    );
     notifyMarketplaceUpdatesMutated();
     return {
       ...input.existing,
@@ -1537,7 +1623,12 @@ export async function deleteMarketplaceUpdateRecord(input: {
   }
   if (!isValidFirestoreId(input.updateId)) return;
   try {
-    await deleteDoc(doc(db, COLLECTION_NAMES.marketplaceUpdates, input.updateId));
+    await runWithPermissionRetry(
+      () => deleteDoc(doc(db, COLLECTION_NAMES.marketplaceUpdates, input.updateId)),
+      {
+        refreshToken: () => refreshAuthSessionToken(),
+      }
+    );
     notifyMarketplaceUpdatesMutated();
   } catch (error) {
     handleFirestoreError(

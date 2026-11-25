@@ -8,7 +8,11 @@ import {
 } from 'react';
 import type { User } from 'firebase/auth';
 import type { DocumentData, QueryDocumentSnapshot } from 'firebase/firestore';
-import { auth, testConnection } from '../lib/firebase';
+import {
+  auth,
+  ensureVerifiedEmailTokenClaim,
+  testConnection,
+} from '../lib/firebase';
 import { clearViewerScopedMediaCache } from '../services/mediaStorage';
 import { notifyViewerSessionReset } from '../services/cacheInvalidation';
 import { clearSearchBundleCache } from '../services/searchDiscovery';
@@ -196,7 +200,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         setPendingFollowUsernames(new Set());
       } else {
         if (isDesignatedSupremeAdminUser(nextUser)) {
-          void ensureDesignatedSupremeAdminAccountState(nextUser);
+          void ensureVerifiedEmailTokenClaim(nextUser).then(() =>
+            ensureDesignatedSupremeAdminAccountState(nextUser)
+          );
         }
         if (previousUid !== nextUser.uid) {
           setRoleSyncedUid(null);

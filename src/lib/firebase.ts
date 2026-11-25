@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, type User } from 'firebase/auth';
 import {
   doc,
   getDocFromServer,
@@ -89,6 +89,41 @@ function createFirestoreClient() {
 
 export const db = createFirestoreClient();
 export const auth = getAuth(app);
+
+export async function refreshAuthSessionToken(
+  expectedUid?: string
+): Promise<boolean> {
+  const activeUser = auth.currentUser;
+  if (!activeUser) {
+    return false;
+  }
+  if (expectedUid && activeUser.uid !== expectedUid) {
+    return false;
+  }
+  try {
+    await activeUser.reload();
+    await activeUser.getIdToken(true);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureVerifiedEmailTokenClaim(
+  user: User | null
+): Promise<void> {
+  if (!user || !user.emailVerified) {
+    return;
+  }
+  try {
+    const tokenResult = await user.getIdTokenResult();
+    if (tokenResult.claims?.email_verified !== true) {
+      await user.getIdToken(true);
+    }
+  } catch {
+    // Best-effort token freshness check
+  }
+}
 
 export const FIREBASE_RUNTIME_INFO = {
   projectId: firebaseConfig.projectId,

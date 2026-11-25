@@ -191,6 +191,7 @@ export const BLUEPRINT_LIMITS = {
   auditReasonMax: 500,
   pollQuestionMin: 5,
   pollQuestionMax: 280,
+  pollDescriptionMax: 300,
   pollOptionsMin: 2,
   pollOptionsMax: 8,
   pollOptionMinLength: 1,
@@ -789,6 +790,7 @@ export interface CampusPoll {
   authorMode: AdminUpdateAuthorMode;
   ownerUID?: string;
   question: string;
+  description?: string;
   options: string[];
   optionCounts: number[];
   totalVotes: number;

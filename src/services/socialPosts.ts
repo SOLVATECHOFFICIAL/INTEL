@@ -882,22 +882,22 @@ export async function removeSingleImageFromPost(input: {
     input.kind === 'posts'
       ? COLLECTION_NAMES.posts
       : COLLECTION_NAMES.anonymousPosts;
-  const batch = writeBatch(db);
-  batch.update(doc(db, collectionName, input.post.id), {
-    mediaItems: remaining.length > 0 ? remaining : deleteField(),
-    updatedAt: serverTimestamp(),
-  });
-
-  for (const id of existingToDelete) {
-    batch.delete(doc(db, COLLECTION_NAMES.mediaImages, id));
-  }
-
   const path = `${collectionName}/${input.post.id}`;
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await commitWriteBatchWithRetry(
+    (batch) => {
+      batch.update(doc(db, collectionName, input.post.id), {
+        mediaItems: remaining.length > 0 ? remaining : deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+
+      for (const id of existingToDelete) {
+        batch.delete(doc(db, COLLECTION_NAMES.mediaImages, id));
+      }
+    },
+    OperationType.UPDATE,
+    path,
+    auth.currentUser?.uid
+  );
 
   evictMediaImageCache(input.imageIdToRemove);
   const updatedPost = {
@@ -1070,22 +1070,29 @@ export async function deletePostCascading(input: {
   const overflowReactionRefs = reactionRefs.slice(remainingPrimaryCapacity);
 
   const path = `${collectionName}/${postId}`;
-  try {
-    const firstBatch = writeBatch(db);
-    for (const ref of chunk0Refs) {
-      firstBatch.delete(ref);
-    }
-    await firstBatch.commit();
-
-    for (let i = 0; i < overflowReactionRefs.length; i += CHUNK_SIZE) {
-      const batch = writeBatch(db);
-      for (const ref of overflowReactionRefs.slice(i, i + CHUNK_SIZE)) {
-        batch.delete(ref);
+  await commitWriteBatchWithRetry(
+    (firstBatch) => {
+      for (const ref of chunk0Refs) {
+        firstBatch.delete(ref);
       }
-      await batch.commit();
-    }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    },
+    OperationType.DELETE,
+    path,
+    input.actorUid
+  );
+
+  for (let i = 0; i < overflowReactionRefs.length; i += CHUNK_SIZE) {
+    const slice = overflowReactionRefs.slice(i, i + CHUNK_SIZE);
+    await commitWriteBatchWithRetry(
+      (batch) => {
+        for (const ref of slice) {
+          batch.delete(ref);
+        }
+      },
+      OperationType.DELETE,
+      path,
+      input.actorUid
+    );
   }
 
   const deletedLikes =
@@ -2141,17 +2148,17 @@ export async function editPostComment(input: {
       : COLLECTION_NAMES.anonymousComments;
   const path = `${commentCollection}/${input.commentId}`;
 
-  const batch = writeBatch(db);
-  batch.update(doc(db, commentCollection, input.commentId), {
-    body: cleanBody,
-    updatedAt: serverTimestamp(),
-  });
-
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  await commitWriteBatchWithRetry(
+    (batch) => {
+      batch.update(doc(db, commentCollection, input.commentId), {
+        body: cleanBody,
+        updatedAt: serverTimestamp(),
+      });
+    },
+    OperationType.UPDATE,
+    path,
+    auth.currentUser?.uid
+  );
 }
 
 export async function deletePostComment(input: {
@@ -2278,24 +2285,20 @@ export async function revealAnonymousEntryAuthor(input: {
   }
 
   const auditId = generateFirestoreDocId(COLLECTION_NAMES.anonymousAuditLogs);
-  const auditBatch = writeBatch(db);
-  auditBatch.set(doc(db, COLLECTION_NAMES.anonymousAuditLogs, auditId), {
-    id: auditId,
-    targetEntryId: input.entryId,
-    revealedByUid: input.revealedByUid,
-    reason: cleanReason,
-    createdAt: serverTimestamp(),
-  });
-
-  try {
-    await auditBatch.commit();
-  } catch (error) {
-    handleFirestoreError(
-      error,
-      OperationType.CREATE,
-      `${COLLECTION_NAMES.anonymousAuditLogs}/${auditId}`
-    );
-  }
+  await commitWriteBatchWithRetry(
+    (auditBatch) => {
+      auditBatch.set(doc(db, COLLECTION_NAMES.anonymousAuditLogs, auditId), {
+        id: auditId,
+        targetEntryId: input.entryId,
+        revealedByUid: input.revealedByUid,
+        reason: cleanReason,
+        createdAt: serverTimestamp(),
+      });
+    },
+    OperationType.CREATE,
+    `${COLLECTION_NAMES.anonymousAuditLogs}/${auditId}`,
+    input.revealedByUid
+  );
 
   return {
     entryId: mapping.entryId,

@@ -64,6 +64,7 @@ test('normalizeAndValidatePollDraft enforces bounds, uniqueness, and single vs m
   const normalized = normalizeAndValidatePollDraft(
     {
       question: '  Preferred exam hall schedule?  ',
+      description: '   Applies across all 200L–400L CBT faculties.   ',
       options: [' Morning ', ' Afternoon ', ''],
       allowMultiple: true,
       maxSelections: 5,
@@ -76,8 +77,26 @@ test('normalizeAndValidatePollDraft enforces bounds, uniqueness, and single vs m
   );
 
   assert.equal(normalized.question, 'Preferred exam hall schedule?');
+  assert.equal(normalized.description, 'Applies across all 200L–400L CBT faculties.');
   assert.deepEqual(normalized.options, ['Morning', 'Afternoon']);
   assert.equal(normalized.maxSelections, 2);
+
+  assert.throws(() =>
+    normalizeAndValidatePollDraft(
+      {
+        question: 'Description cap check?',
+        description: 'x'.repeat(301),
+        options: ['Option A', 'Option B'],
+        allowMultiple: false,
+        maxSelections: 1,
+        allowVoteChange: false,
+        voterScope: 'all_members',
+        resultsVisibility: 'always',
+        expiresAtMs: future,
+      },
+      { nowMs: now }
+    )
+  );
 });
 
 test('canUserVoteInPoll enforces expiry, closed state, scope, suspension, and allowVoteChange', () => {

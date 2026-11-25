@@ -672,7 +672,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/70 p-0 backdrop-blur-xs sm:items-center sm:p-4"
       data-testid="post-composer-modal"
     >
-      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-2xl">
+      <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl">
         <div aria-hidden="true" className="lasued-action-gradient h-1 w-full shrink-0" />
         {/* Modal Header */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-white via-sky-50/40 to-blue-50/50 px-5 py-3.5 sm:py-4">

@@ -50,9 +50,10 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 max-w-full border-b border-slate-200/90 bg-white/95 shadow-[0_2px_14px_-6px_rgba(11,26,46,0.08)] backdrop-blur-md">
+    <header className="fixed top-0 right-0 left-0 z-40 w-full max-w-full border-b border-slate-200/90 bg-white/95 shadow-[0_2px_14px_-6px_rgba(11,26,46,0.08)] backdrop-blur-md">
+      <div aria-hidden="true" className="h-[env(safe-area-inset-top)] w-full bg-[#0B1A2E]" />
       <div aria-hidden="true" className="lasued-action-gradient h-[2px] w-full" />
-      <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center justify-between gap-2 px-3 sm:gap-3 sm:px-5 md:h-16 md:gap-5">
+      <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center justify-between gap-2 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:gap-3 sm:px-5 md:h-16 md:gap-5">
         {/* Left: Brand Logo */}
         <div className="flex min-w-0 flex-1 items-center lg:flex-initial">
           <button

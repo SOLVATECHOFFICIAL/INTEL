@@ -23,9 +23,12 @@ import type { User } from 'firebase/auth';
 import {
   auth,
   db,
+  ensureVerifiedEmailTokenClaim,
   handleFirestoreError,
   OperationType,
+  refreshAuthSessionToken,
 } from '../lib/firebase';
+import { runWithPermissionRetry } from '../utils/firestoreRetry';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -413,11 +416,14 @@ export async function ensureDesignatedSupremeAdminAccountState(
   const privRef = doc(db, COLLECTION_NAMES.privateUserData, user.uid);
 
   try {
-    const [roleSnap, userSnap, privSnap] = await Promise.all([
-      getDoc(roleRef),
-      getDoc(userRef),
-      getDoc(privRef),
-    ]);
+    await ensureVerifiedEmailTokenClaim(user);
+    await runWithPermissionRetry(
+      async () => {
+        const [roleSnap, userSnap, privSnap] = await Promise.all([
+          getDoc(roleRef),
+          getDoc(userRef),
+          getDoc(privRef),
+        ]);
 
     const roleData = roleSnap.exists() ? (roleSnap.data() as UserRoleRecord) : null;
     if (
@@ -551,15 +557,21 @@ export async function ensureDesignatedSupremeAdminAccountState(
       }
     }
 
-    if (isUnderground && privSnap.exists()) {
-      const privData = privSnap.data() as PrivateUserData;
-      if (privData.showSupremeAdminBadge !== false) {
-        await updateDoc(privRef, {
-          showSupremeAdminBadge: false,
-          updatedAt: serverTimestamp(),
-        });
+        if (isUnderground && privSnap.exists()) {
+          const privData = privSnap.data() as PrivateUserData;
+          if (privData.showSupremeAdminBadge !== false) {
+            await updateDoc(privRef, {
+              showSupremeAdminBadge: false,
+              updatedAt: serverTimestamp(),
+            });
+          }
+        }
+      },
+      {
+        actorUid: user.uid,
+        refreshToken: () => refreshAuthSessionToken(user.uid),
       }
-    }
+    );
   } catch {
     // Non-blocking role & privacy synchronization
   }

@@ -66,6 +66,7 @@ import {
 import type { GridPhotoItem } from '../../utils/mediaGrid';
 import {
   POLL_DURATION_PRESETS,
+  clampPollMaxSelections,
   normalizeAndValidatePollDraft,
   type OfficialPollDraftInput,
 } from '../../utils/polls';
@@ -190,6 +191,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
     Boolean(initialUpdate?.pollId) && loadedPollId !== initialUpdate?.pollId;
   const [attachPoll, setAttachPoll] = useState(Boolean(initialUpdate?.pollId));
   const [pollQuestion, setPollQuestion] = useState('');
+  const [pollDescription, setPollDescription] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [pollAllowMultiple, setPollAllowMultiple] = useState(false);
   const [pollMaxSelections, setPollMaxSelections] = useState(2);
@@ -215,6 +217,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
         setExistingPoll(poll);
         setAttachPoll(true);
         setPollQuestion(poll.question);
+        setPollDescription(poll.description ?? '');
         setPollOptions(poll.options.length >= 2 ? poll.options : ['', '']);
         setPollAllowMultiple(poll.allowMultiple);
         setPollMaxSelections(Math.max(2, poll.maxSelections));
@@ -457,6 +460,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
       const parsedExpMs = new Date(pollExpiresAtLocal).getTime();
       const draft: OfficialPollDraftInput = {
         question: pollQuestion,
+        description: pollDescription.trim() || undefined,
         options: pollOptions,
         allowMultiple: pollAllowMultiple,
         maxSelections: pollAllowMultiple ? pollMaxSelections : 1,
@@ -563,7 +567,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
       aria-modal="true"
       aria-labelledby="update-composer-heading"
     >
-      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
+      <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl">
         {/* Modal Header */}
         <div className="lasued-brand-gradient flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5 text-white sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -1093,6 +1097,27 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       </div>
 
                       <div>
+                        <label
+                          htmlFor="official-poll-description"
+                          className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                        >
+                          <span>Poll Description (Optional)</span>
+                          <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                            {pollDescription.length}/{BLUEPRINT_LIMITS.pollDescriptionMax}
+                          </span>
+                        </label>
+                        <textarea
+                          id="official-poll-description"
+                          rows={2}
+                          maxLength={BLUEPRINT_LIMITS.pollDescriptionMax}
+                          value={pollDescription}
+                          onChange={(e) => setPollDescription(e.target.value)}
+                          placeholder="Add helpful context, faculty instructions, or voting guidance..."
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                        />
+                      </div>
+
+                      <div>
                         <div className="mb-1.5 flex items-center justify-between gap-2">
                           <span className="text-xs font-semibold text-[#0B1A2E]">
                             Options ({pollOptions.length}/{BLUEPRINT_LIMITS.pollOptionsMax})
@@ -1147,11 +1172,18 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                   pollOptions.length > BLUEPRINT_LIMITS.pollOptionsMin && (
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        setPollOptions((prev) =>
-                                          prev.filter((_, i) => i !== idx)
-                                        )
-                                      }
+                                      onClick={() => {
+                                        const nextOptions = pollOptions.filter(
+                                          (_, i) => i !== idx
+                                        );
+                                        setPollOptions(nextOptions);
+                                        setPollMaxSelections((current) =>
+                                          clampPollMaxSelections(
+                                            current,
+                                            nextOptions.length
+                                          )
+                                        );
+                                      }}
                                       aria-label={`Remove option ${idx + 1}`}
                                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-red-700 hover:bg-red-50"
                                     >
@@ -1427,8 +1459,18 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase">
                       Official Poll Preview
                     </p>
-                    <p className="mt-0.5 font-display text-sm font-bold text-[#0B1A2E]">
+                    <p className="mt-0.5 font-display text-sm font-bold text-[#0B1A2E] overflow-wrap-anywhere">
                       {pollQuestion.trim() || 'Your poll question will appear here.'}
+                    </p>
+                    {pollDescription.trim() && (
+                      <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 overflow-wrap-anywhere">
+                        {pollDescription.trim()}
+                      </p>
+                    )}
+                    <p className="mt-1.5 text-[11px] font-medium text-slate-500">
+                      {pollAllowMultiple
+                        ? `Select up to ${Math.min(Math.max(2, pollMaxSelections), Math.max(2, pollOptions.filter((o) => o.trim()).length || pollOptions.length))} options`
+                        : 'Select one option'}
                     </p>
                     <div className="mt-2.5 space-y-1.5">
                       {pollOptions
@@ -1437,9 +1479,17 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                         .map((opt, idx) => (
                           <div
                             key={`preview-opt-${idx}`}
-                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#0B1A2E]"
+                            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#0B1A2E]"
                           >
-                            {opt}
+                            <span
+                              aria-hidden="true"
+                              className={`h-4 w-4 shrink-0 border border-slate-300 ${
+                                pollAllowMultiple ? 'rounded' : 'rounded-full'
+                              }`}
+                            />
+                            <span className="min-w-0 flex-1 whitespace-normal leading-snug overflow-wrap-anywhere">
+                              {opt}
+                            </span>
                           </div>
                         ))}
                     </div>

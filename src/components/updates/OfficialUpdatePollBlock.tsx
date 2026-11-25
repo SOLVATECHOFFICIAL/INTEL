@@ -162,75 +162,84 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
   const percentages = computePollPercentages(poll.optionCounts, poll.totalVotes);
   const expiryLabel = formatPollExpirySummary(poll.expiresAt, poll.status, nowMs);
   const maxVotesInOption = Math.max(0, ...poll.optionCounts);
+  const isClosedOrExpired = poll.status === 'closed' || expiryLabel === 'Expired';
+  const selectionRuleLabel = poll.allowMultiple
+    ? canInteractWithOptions
+      ? `Select up to ${poll.maxSelections} options (${selectedIndices.length}/${poll.maxSelections} selected)`
+      : `Select up to ${poll.maxSelections} options`
+    : canInteractWithOptions
+      ? 'Select one option'
+      : 'Single choice';
 
-  const handleOptionToggle = (index: number) => {
+  const normalizedSelected = [...new Set(selectedIndices)].sort((a, b) => a - b);
+  const normalizedVoted = [...new Set(viewerVote?.selectedIndices ?? [])].sort(
+    (a, b) => a - b
+  );
+  const isSelectionChanged =
+    normalizedSelected.length !== normalizedVoted.length ||
+    normalizedSelected.some((val, index) => val !== normalizedVoted[index]);
+
+  const handleOptionToggle = (optionIndex: number) => {
     setErrorMessage(null);
-    setGuestPrompt(false);
-
     if (!viewerUid) {
-      setGuestPrompt(true);
+      if (!isClosedOrExpired) {
+        setGuestPrompt(true);
+      }
       return;
     }
-
-    if (!canInteractWithOptions) {
+    if (!canInteractWithOptions || submittingVote) {
       return;
     }
-
     if (!poll.allowMultiple) {
-      setSelectedIndices([index]);
-      return;
-    }
-
-    if (selectedIndices.includes(index)) {
-      setSelectedIndices(selectedIndices.filter((item) => item !== index));
-      return;
-    }
-    if (selectedIndices.length >= poll.maxSelections) {
-      setErrorMessage(
-        `You can select up to ${poll.maxSelections} options in this poll.`
+      setSelectedIndices((prev) =>
+        prev.length === 1 && prev[0] === optionIndex ? [] : [optionIndex]
       );
       return;
     }
-    setSelectedIndices([...selectedIndices, index].sort((a, b) => a - b));
+    setSelectedIndices((prev) => {
+      if (prev.includes(optionIndex)) {
+        return prev.filter((idx) => idx !== optionIndex);
+      }
+      if (prev.length >= poll.maxSelections) {
+        setErrorMessage(
+          `You can select up to ${poll.maxSelections} options on this poll.`
+        );
+        return prev;
+      }
+      return [...prev, optionIndex].sort((a, b) => a - b);
+    });
   };
 
   const handleSubmitVote = async () => {
-    setErrorMessage(null);
-    setGuestPrompt(false);
-
-    if (!viewerUid) {
-      setGuestPrompt(true);
+    if (
+      !viewerUid ||
+      !canInteractWithOptions ||
+      submittingVote ||
+      voteLockRef.current ||
+      selectedIndices.length === 0
+    ) {
       return;
     }
-    if (!voteEligibility.allowed) {
-      setErrorMessage(
-        voteEligibility.reason || 'You cannot vote on this official poll.'
-      );
+    if (hasVoted && !isSelectionChanged) {
       return;
     }
-    if (selectedIndices.length === 0) {
-      setErrorMessage('Select at least one option to cast your vote.');
-      return;
-    }
-    if (voteLockRef.current || submittingVote) return;
-
     voteLockRef.current = true;
     setSubmittingVote(true);
-
+    setErrorMessage(null);
     try {
-      const res = await castOrChangeOfficialPollVote({
+      const result = await castOrChangeOfficialPollVote({
         pollId: poll.id,
         updateId,
         actorUid: viewerUid,
         selectedIndices,
       });
-      setPoll(res.poll);
-      setViewerVote(res.vote);
-      setSelectedIndices(res.vote.selectedIndices);
+      setPoll(result.poll);
+      setViewerVote(result.vote);
+      setSelectedIndices(result.vote.selectedIndices);
       setEditingVote(false);
-    } catch (err) {
+    } catch (error) {
       setErrorMessage(
-        formatFirestoreOrAppError(err, 'Could not record your vote.')
+        formatFirestoreOrAppError(error, 'Could not submit your poll vote.')
       );
     } finally {
       voteLockRef.current = false;
@@ -239,7 +248,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
   };
 
   const handleTogglePollStatus = async () => {
-    if (!isSupremeAdmin || !viewerUid || togglingStatus) return;
+    if (!viewerUid || !isSupremeAdmin || togglingStatus) return;
     setTogglingStatus(true);
     setErrorMessage(null);
     try {
@@ -249,44 +258,47 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
         actorRole: 'supreme_admin',
       });
       setPoll(updated);
-    } catch (err) {
+    } catch (error) {
       setErrorMessage(
-        formatFirestoreOrAppError(err, 'Could not update poll status.')
+        formatFirestoreOrAppError(
+          error,
+          'Could not change the official poll status.'
+        )
       );
     } finally {
       setTogglingStatus(false);
     }
   };
 
-  const isSelectionChanged =
-    !hasVoted ||
-    selectedIndices.length !== (viewerVote?.selectedIndices.length ?? 0) ||
-    selectedIndices.some((val, i) => val !== viewerVote?.selectedIndices[i]);
-
   return (
     <div
-      className="mt-3.5 rounded-xl border border-[#1E88E5]/25 bg-slate-50/80 p-3.5 sm:p-4"
+      className="mt-3.5 rounded-2xl border border-[#1E88E5]/25 bg-gradient-to-b from-slate-50/90 to-white p-3.5 shadow-xs sm:p-4"
       data-testid={`official-poll-card-${poll.id}`}
     >
       {/* Header Row */}
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex items-start gap-2">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#0B1A2E] text-white">
-            <BarChart3 className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white shadow-xs">
+            <BarChart3 className="h-3.5 w-3.5 text-[#38BDF8]" aria-hidden="true" />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase">
               Official Poll
             </p>
-            <h4 className="mt-0.5 font-display text-sm font-bold leading-snug text-[#0B1A2E]">
+            <h4 className="mt-0.5 font-display text-sm font-bold leading-snug text-[#0B1A2E] overflow-wrap-anywhere sm:text-[15px]">
               {poll.question}
             </h4>
+            {poll.description && (
+              <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 overflow-wrap-anywhere">
+                {poll.description}
+              </p>
+            )}
           </div>
         </div>
 
         <span
-          className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-            poll.status === 'closed' || expiryLabel === 'Expired'
+          className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+            isClosedOrExpired
               ? 'bg-slate-200 text-slate-700'
               : 'bg-[#1E88E5]/10 text-[#0B1A2E]'
           }`}
@@ -296,13 +308,9 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
         </span>
       </div>
 
-      {/* Poll Rule Hints */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-        <span>
-          {poll.allowMultiple
-            ? `Multiple choice (up to ${poll.maxSelections})`
-            : 'Single choice'}
-        </span>
+      {/* WhatsApp-style Rule & Scope Hints */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+        <span className="font-medium text-slate-700">{selectionRuleLabel}</span>
         {poll.voterScope === 'verified_and_above' && (
           <span className="inline-flex items-center gap-1 font-medium text-[#0B1A2E]">
             <ShieldCheck className="h-3 w-3 text-[#1E88E5]" aria-hidden="true" />
@@ -323,11 +331,14 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
         )}
       </div>
 
-      {/* Options */}
+      {/* WhatsApp-style Options */}
       <div className="mt-3 space-y-2">
         {poll.options.map((optionLabel, idx) => {
           const isVotedByUser = viewerVote?.selectedIndices.includes(idx) ?? false;
           const isDraftSelected = selectedIndices.includes(idx);
+          const isActiveVisual = canInteractWithOptions
+            ? isDraftSelected
+            : isVotedByUser;
           const count = poll.optionCounts[idx] ?? 0;
           const pct = percentages[idx] ?? 0;
           const isLeading =
@@ -339,12 +350,12 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
               type="button"
               disabled={submittingVote || (!canInteractWithOptions && Boolean(viewerUid))}
               onClick={() => handleOptionToggle(idx)}
-              aria-pressed={canInteractWithOptions ? isDraftSelected : isVotedByUser}
-              className={`relative w-full overflow-hidden rounded-lg border text-left transition-colors ${
+              aria-pressed={isActiveVisual}
+              className={`relative w-full overflow-hidden rounded-xl border text-left transition-all ${
                 isDraftSelected && canInteractWithOptions
                   ? 'border-[#1E88E5] bg-white ring-1 ring-[#1E88E5]'
                   : isVotedByUser
-                  ? 'border-[#1E88E5]/60 bg-white'
+                  ? 'border-[#1E88E5]/70 bg-white'
                   : 'border-slate-200 bg-white hover:border-slate-300'
               } disabled:cursor-default`}
             >
@@ -353,32 +364,30 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
                   aria-hidden="true"
                   className={`pointer-events-none absolute inset-y-0 left-0 transition-all duration-300 ${
                     isVotedByUser
-                      ? 'bg-[#1E88E5]/16'
+                      ? 'bg-[#1E88E5]/18'
                       : isLeading
-                      ? 'bg-[#0B1A2E]/8'
+                      ? 'bg-[#0B1A2E]/9'
                       : 'bg-slate-200/55'
                   }`}
                   style={{ width: `${pct}%` }}
                 />
               )}
 
-              <div className="relative z-10 flex min-h-[40px] items-center justify-between gap-2 px-3 py-2">
-                <div className="flex min-w-0 items-center gap-2">
+              <div className="relative z-10 flex min-h-[44px] items-center justify-between gap-2.5 px-3 py-2.5">
+                <div className="flex min-w-0 flex-1 items-start gap-2.5">
                   <span
                     aria-hidden="true"
-                    className={`flex h-4 w-4 shrink-0 items-center justify-center border text-[10px] ${
-                      poll.allowMultiple ? 'rounded' : 'rounded-full'
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border text-[10px] transition-colors ${
+                      poll.allowMultiple ? 'rounded-[4px]' : 'rounded-full'
                     } ${
-                      (canInteractWithOptions ? isDraftSelected : isVotedByUser)
+                      isActiveVisual
                         ? 'border-[#1E88E5] bg-[#1E88E5] text-white'
                         : 'border-slate-300 bg-white'
                     }`}
                   >
-                    {(canInteractWithOptions ? isDraftSelected : isVotedByUser) && (
-                      <CheckCircle2 className="h-3 w-3" />
-                    )}
+                    {isActiveVisual && <CheckCircle2 className="h-3 w-3" />}
                   </span>
-                  <span className="truncate text-xs font-semibold text-[#0B1A2E] sm:text-sm">
+                  <span className="min-w-0 flex-1 whitespace-normal text-xs font-semibold leading-snug text-[#0B1A2E] overflow-wrap-anywhere sm:text-sm">
                     {optionLabel}
                   </span>
                 </div>
@@ -407,7 +416,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
             }
             onClick={() => void handleSubmitVote()}
             data-testid={`official-poll-vote-btn-${poll.id}`}
-            className="lasued-action-gradient inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:opacity-50"
+            className="lasued-action-gradient inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold text-white shadow-xs transition-opacity hover:opacity-95 disabled:opacity-50"
           >
             {submittingVote && (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -424,7 +433,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
                 setSelectedIndices(viewerVote?.selectedIndices ?? []);
                 setErrorMessage(null);
               }}
-              className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+              className="inline-flex min-h-[38px] items-center rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
             >
               Cancel
             </button>

@@ -647,6 +647,9 @@ test('Rebuilt rules enforce Supreme Admin self-sync, orphaned reaction cleanup, 
   );
   assert.match(pollsBlock, /incoming\(\)\.ownerUID == existing\(\)\.ownerUID/);
   assert.match(pollsBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'question', 'options', 'status', 'expiresAt'\s*\]\)/);
+  assert.match(pollsBlock, /affectedKeys\(\)\.hasOnly\(\[\s*'question', 'description', 'options', 'status', 'expiresAt'/);
+  assert.match(rulesText, /isOptionalShortString\(data, 'description', 300\)/);
+  assert.equal(blueprint.entities.CampusPoll.properties.description.maxLength, 300);
 
   const settingsBlock = rulesText.slice(
     rulesText.indexOf('match /platformSettings/{settingId}'),

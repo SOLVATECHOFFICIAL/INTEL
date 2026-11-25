@@ -31,7 +31,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       className="fixed right-0 bottom-0 left-0 z-40 max-w-full border-t border-slate-200/90 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_-6px_rgba(11,26,46,0.12)] backdrop-blur-md lg:hidden"
     >
       <div aria-hidden="true" className="lasued-action-gradient h-[2px] w-full" />
-      <div className="grid h-16 min-w-0 grid-cols-5 items-center px-1">
+      <div className="grid h-16 min-w-0 grid-cols-5 items-center pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]">
         <button
           type="button"
           onClick={() => onNavigate('for-you')}

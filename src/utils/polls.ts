@@ -10,6 +10,7 @@ import { extractTimestampMs } from './contextualSearch';
 
 export interface OfficialPollDraftInput {
   question: string;
+  description?: string;
   options: readonly string[];
   allowMultiple: boolean;
   maxSelections: number;
@@ -21,6 +22,7 @@ export interface OfficialPollDraftInput {
 
 export interface NormalizedPollDraft {
   question: string;
+  description?: string;
   options: string[];
   allowMultiple: boolean;
   maxSelections: number;
@@ -28,6 +30,15 @@ export interface NormalizedPollDraft {
   voterScope: PollVoterScope;
   resultsVisibility: PollResultsVisibility;
   expiresAtMs: number;
+}
+
+export function clampPollMaxSelections(
+  maxSelections: number,
+  optionCount: number
+): number {
+  const safeCount = Math.max(BLUEPRINT_LIMITS.pollOptionsMin, Math.floor(optionCount || 2));
+  const raw = Math.floor(Number(maxSelections || 2));
+  return Math.max(2, Math.min(safeCount, raw));
 }
 
 export const POLL_DURATION_PRESETS = [
@@ -52,6 +63,13 @@ export function normalizeAndValidatePollDraft(
   ) {
     throw new Error(
       `Poll question must be ${BLUEPRINT_LIMITS.pollQuestionMin}–${BLUEPRINT_LIMITS.pollQuestionMax} characters.`
+    );
+  }
+
+  const cleanDescription = (draft.description ?? '').trim();
+  if (cleanDescription.length > BLUEPRINT_LIMITS.pollDescriptionMax) {
+    throw new Error(
+      `Poll description must be ${BLUEPRINT_LIMITS.pollDescriptionMax} characters or fewer.`
     );
   }
 
@@ -110,9 +128,12 @@ export function normalizeAndValidatePollDraft(
 
   return {
     question: cleanQuestion,
+    ...(cleanDescription ? { description: cleanDescription } : {}),
     options: cleanOptions,
     allowMultiple,
-    maxSelections,
+    maxSelections: allowMultiple
+      ? clampPollMaxSelections(maxSelections, cleanOptions.length)
+      : 1,
     allowVoteChange: Boolean(draft.allowVoteChange),
     voterScope,
     resultsVisibility,

@@ -2,12 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatFirestoreOrAppError } from './authValidation';
 import {
+  commitFreshWriteBatchWithPermissionRetry,
   commitFreshWriteBatchWithRetry,
   computeNextReactionTransactionState,
   hasValidFirebaseConfig,
   isFirestoreSdkError,
+  isPermissionDeniedError,
   isTransientFirestoreConnectionError,
   runWithFirestoreConnectionRetry,
+  runWithPermissionRetry,
 } from './firestoreRetry';
 
 function makeFirebaseError(code: string, message: string): Error & { code: string } {
@@ -298,4 +301,88 @@ test('commitFreshWriteBatchWithRetry stops immediately on non-transient errors w
   );
 
   assert.equal(batchCount, 1);
+});
+
+test('isPermissionDeniedError and runWithPermissionRetry refresh token once and recover with a fresh batch', async () => {
+  assert.equal(
+    isPermissionDeniedError(makeFirebaseError('permission-denied', 'Denied')),
+    true
+  );
+  assert.equal(
+    isPermissionDeniedError(makeFirebaseError('firestore/permission-denied', 'Denied')),
+    true
+  );
+  assert.equal(
+    isPermissionDeniedError(new Error('Missing or insufficient permissions.')),
+    true
+  );
+  assert.equal(
+    isPermissionDeniedError(makeFirebaseError('unavailable', 'Offline')),
+    false
+  );
+
+  let refreshCalls = 0;
+  let opCalls = 0;
+  const recovered = await runWithPermissionRetry(
+    async () => {
+      opCalls += 1;
+      if (opCalls === 1) {
+        throw makeFirebaseError('permission-denied', 'Missing or insufficient permissions.');
+      }
+      return 'ok';
+    },
+    {
+      refreshToken: async () => {
+        refreshCalls += 1;
+        return true;
+      },
+    }
+  );
+  assert.equal(recovered, 'ok');
+  assert.equal(refreshCalls, 1);
+  assert.equal(opCalls, 2);
+
+  let batchCount = 0;
+  let batchRefreshCalls = 0;
+  await commitFreshWriteBatchWithPermissionRetry(
+    () => {
+      batchCount += 1;
+      let committed = false;
+      return {
+        async commit() {
+          if (committed) {
+            throw new Error('Cannot reuse committed batch');
+          }
+          committed = true;
+          if (batchCount === 1) {
+            throw makeFirebaseError('permission-denied', 'Stale email_verified claim');
+          }
+        },
+      };
+    },
+    () => {},
+    {
+      refreshToken: async () => {
+        batchRefreshCalls += 1;
+        return true;
+      },
+    }
+  );
+  assert.equal(batchRefreshCalls, 1);
+  assert.equal(batchCount, 2);
+
+  let noRefreshOpCalls = 0;
+  await assert.rejects(
+    runWithPermissionRetry(
+      async () => {
+        noRefreshOpCalls += 1;
+        throw makeFirebaseError('permission-denied', 'Rule blocked');
+      },
+      {
+        refreshToken: async () => false,
+      }
+    ),
+    /Rule blocked/
+  );
+  assert.equal(noRefreshOpCalls, 1);
 });

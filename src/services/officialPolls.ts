@@ -1,6 +1,7 @@
 import {
   Timestamp,
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -11,7 +12,13 @@ import {
   writeBatch,
   type WriteBatch,
 } from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  handleFirestoreError,
+  OperationType,
+  refreshAuthSessionToken,
+} from '../lib/firebase';
 import {
   BLUEPRINT_LIMITS,
   COLLECTION_NAMES,
@@ -26,9 +33,9 @@ import {
 import { isDesignatedSupremeAdminUser, isFirebaseErrorCode } from '../utils/authValidation';
 import { extractTimestampMs } from '../utils/contextualSearch';
 import {
-  commitFreshWriteBatchWithRetry,
+  commitFreshWriteBatchWithPermissionRetry,
   isFirestoreSdkError,
-  runWithFirestoreConnectionRetry,
+  runWithPermissionRetry,
 } from '../utils/firestoreRetry';
 import {
   computeNextPollCountsOnVote,
@@ -172,6 +179,10 @@ export function buildNewOfficialPollDocument(input: {
     updatedAt: serverTimestamp(),
   };
 
+  if (normalized.description) {
+    firestoreDoc.description = normalized.description;
+  }
+
   if (input.authorMode === 'public_admin') {
     firestoreDoc.ownerUID = input.actorUid;
   }
@@ -183,6 +194,7 @@ export function buildNewOfficialPollDocument(input: {
     authorMode: input.authorMode,
     ...(input.authorMode === 'public_admin' ? { ownerUID: input.actorUid } : {}),
     question: normalized.question,
+    ...(normalized.description ? { description: normalized.description } : {}),
     options: normalized.options,
     optionCounts: zeroCounts,
     totalVotes: 0,
@@ -259,6 +271,7 @@ export function attachUpdatePollToBatch(
 
   batch.update(doc(db, COLLECTION_NAMES.polls, input.existingPoll.id), {
     question: normalized.question,
+    description: normalized.description ? normalized.description : deleteField(),
     options: normalized.options,
     optionCounts: nextCounts,
     totalVotes: nextTotalVotes,
@@ -282,6 +295,7 @@ export function attachUpdatePollToBatch(
   return {
     ...input.existingPoll,
     question: normalized.question,
+    description: normalized.description || undefined,
     options: normalized.options,
     optionCounts: nextCounts,
     totalVotes: nextTotalVotes,
@@ -329,7 +343,7 @@ export async function toggleOfficialPollStatus(input: {
   const path = `${COLLECTION_NAMES.polls}/${input.poll.id}`;
 
   try {
-    await commitFreshWriteBatchWithRetry(
+    await commitFreshWriteBatchWithPermissionRetry(
       () => writeBatch(db),
       (batch) => {
         batch.update(doc(db, COLLECTION_NAMES.polls, input.poll.id), {
@@ -346,6 +360,10 @@ export async function toggleOfficialPollStatus(input: {
               ? 'Closed official poll manually.'
               : 'Reopened official poll.',
         });
+      },
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
       }
     );
   } catch (error) {
@@ -385,8 +403,9 @@ export async function castOrChangeOfficialPollVote(input: {
   const path = `${COLLECTION_NAMES.polls}/${input.pollId}`;
 
   try {
-    const result = await runWithFirestoreConnectionRetry(() =>
-      runTransaction(db, async (tx) => {
+    const result = await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
         const [pollSnap, voteSnap] = await Promise.all([
           tx.get(pollRef),
           tx.get(voteRef),
@@ -477,7 +496,11 @@ export async function castOrChangeOfficialPollVote(input: {
         };
 
         return { poll: updatedPoll, vote: updatedVote };
-      })
+      }),
+      {
+        actorUid: input.actorUid,
+        refreshToken: () => refreshAuthSessionToken(input.actorUid),
+      }
     );
 
     notifyOfficialPollMutated(result.poll);
