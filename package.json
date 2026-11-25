@@ -39,5 +39,8 @@
     "workbox-precaching": "^7.4.1",
     "workbox-routing": "^7.4.1",
     "workbox-strategies": "^7.4.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0"
   }
 }

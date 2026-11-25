@@ -11,7 +11,8 @@ service cloud.firestore {
     // PART 1: SHARED AUTH, ROLE LOCKS & VALIDATION SCHEMAS
     // =========================================================================
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      let val = id;
+      return val is string && val.size() >= 1 && val.size() <= 128 && val.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -100,25 +101,51 @@ service cloud.firestore {
               : 'member');
     }
 
+    function isValidPublishRoleUserData(uData, rData) {
+      let r = rData.role;
+      let b = rData.badge;
+      return (!('accountStatus' in uData) || uData.accountStatus == 'active') &&
+        (!('isPermanentOwner' in rData) || rData.isPermanentOwner == false) &&
+        r in ['moderator', 'verified'] &&
+        b == r &&
+        (!('badge' in uData) || uData.badge == b);
+    }
+
     function isValidPublishRoleAndBadge(uid) {
       return isDesignatedSupremeAdminEmail() || (
         exists(/databases/$(database)/documents/users/$(uid)) &&
-        (!('accountStatus' in get(/databases/$(database)/documents/users/$(uid)).data) ||
-          get(/databases/$(database)/documents/users/$(uid)).data.accountStatus == 'active') &&
         hasRoleDoc(uid) &&
-        (!('isPermanentOwner' in roleDoc(uid)) || roleDoc(uid).isPermanentOwner == false) &&
-        roleDoc(uid).role in ['moderator', 'verified'] &&
-        roleDoc(uid).badge in ['moderator', 'verified'] &&
-        ((roleDoc(uid).role == 'moderator' && roleDoc(uid).badge == 'moderator') ||
-          (roleDoc(uid).role == 'verified' && roleDoc(uid).badge == 'verified')) &&
-        (!('badge' in get(/databases/$(database)/documents/users/$(uid)).data) ||
-          get(/databases/$(database)/documents/users/$(uid)).data.badge == roleDoc(uid).badge)
+        isValidPublishRoleUserData(
+          get(/databases/$(database)/documents/users/$(uid)).data,
+          roleDoc(uid)
+        )
       );
     }
 
     function canPublishFeed() {
       return isActiveSignedInUser() &&
         isValidPublishRoleAndBadge(request.auth.uid);
+    }
+
+    function canCreateCommunityPostAuth(data) {
+      let uid = request.auth.uid;
+      let isSup = isDesignatedSupremeAdminEmail();
+      return isSignedIn() && (
+        (isSup &&
+          isActiveAccount(uid) &&
+          data.authorRole == 'supreme_admin') ||
+        (!isSup &&
+          data.isOfficial == false &&
+          data.isPinned == false &&
+          data.authorRole in ['moderator', 'verified'] &&
+          exists(/databases/$(database)/documents/users/$(uid)) &&
+          hasRoleDoc(uid) &&
+          isValidPublishRoleUserData(
+            get(/databases/$(database)/documents/users/$(uid)).data,
+            roleDoc(uid)
+          ) &&
+          data.authorRole == roleDoc(uid).role)
+      );
     }
 
     function isReservedUsername(username) {
@@ -158,44 +185,78 @@ service cloud.firestore {
       );
     }
 
-    function isValidMediaItemMap(item) {
-      return item is map &&
-        item.keys().hasAll(['imageId', 'width', 'height', 'byteSize', 'mimeType', 'order']) &&
-        item.keys().hasOnly(['imageId', 'caption', 'width', 'height', 'byteSize', 'mimeType', 'order']) &&
+    function isValidMediaItemValues(item) {
+      let w = item.width;
+      let h = item.height;
+      let b = item.byteSize;
+      let o = item.order;
+      return item.keys().hasOnly(['imageId', 'caption', 'width', 'height', 'byteSize', 'mimeType', 'order']) &&
         isValidId(item.imageId) &&
         isOptionalShortString(item, 'caption', 300) &&
-        item.width is int && item.width >= 1 && item.width <= 4096 &&
-        item.height is int && item.height >= 1 && item.height <= 4096 &&
-        item.byteSize is int && item.byteSize >= 1 && item.byteSize <= 250000 &&
+        w is int && w >= 1 && w <= 4096 &&
+        h is int && h >= 1 && h <= 4096 &&
+        b is int && b >= 1 && b <= 250000 &&
         item.mimeType in ['image/webp', 'image/jpeg'] &&
-        item.order is int && item.order >= 0 && item.order <= 3;
+        o is int && o >= 0 && o <= 3;
+    }
+
+    function isValidMediaItemMap(item) {
+      let m = item;
+      return m is map &&
+        m.keys().hasAll(['imageId', 'width', 'height', 'byteSize', 'mimeType', 'order']) &&
+        isValidMediaItemValues(m);
     }
 
     function isValidMediaItemsArray(data, key) {
-      return !(key in data) || (
-        data[key] is list &&
-        data[key].size() <= 4 &&
-        (data[key].size() < 1 || isValidMediaItemMap(data[key][0])) &&
-        (data[key].size() < 2 || isValidMediaItemMap(data[key][1])) &&
-        (data[key].size() < 3 || isValidMediaItemMap(data[key][2])) &&
-        (data[key].size() < 4 || isValidMediaItemMap(data[key][3]))
-      );
+      return !(key in data) || isValidMediaItemsList(data[key]);
+    }
+
+    function isValidMediaItemsList(items) {
+      let n = items.size();
+      return items is list &&
+        n <= 4 &&
+        (n < 1 || isValidMediaItemMap(items[0])) &&
+        (n < 2 || isValidMediaItemMap(items[1])) &&
+        (n < 3 || isValidMediaItemMap(items[2])) &&
+        (n < 4 || isValidMediaItemMap(items[3]));
+    }
+
+    function isValidPhotoOnlyMediaItemValues(item) {
+      let w = item.width;
+      let h = item.height;
+      let b = item.byteSize;
+      let o = item.order;
+      return item.keys().hasOnly(['imageId', 'caption', 'width', 'height', 'byteSize', 'mimeType', 'order']) &&
+        (!('caption' in item) || item.caption == '') &&
+        isValidId(item.imageId) &&
+        w is int && w >= 1 && w <= 4096 &&
+        h is int && h >= 1 && h <= 4096 &&
+        b is int && b >= 1 && b <= 250000 &&
+        item.mimeType in ['image/webp', 'image/jpeg'] &&
+        o is int && o >= 0 && o <= 3;
     }
 
     function isValidPhotoOnlyMediaItemMap(item) {
-      return isValidMediaItemMap(item) &&
-        (!('caption' in item) || item.caption == '');
+      let m = item;
+      return m is map &&
+        m.keys().hasAll(['imageId', 'width', 'height', 'byteSize', 'mimeType', 'order']) &&
+        isValidPhotoOnlyMediaItemValues(m);
+    }
+
+    function isValidPhotoItemsList(items) {
+      let n = items is list ? items.size() : -1;
+      return items is list &&
+        n >= 1 &&
+        n <= 4 &&
+        (n < 1 || isValidPhotoOnlyMediaItemMap(items[0])) &&
+        (n < 2 || isValidPhotoOnlyMediaItemMap(items[1])) &&
+        (n < 3 || isValidPhotoOnlyMediaItemMap(items[2])) &&
+        (n < 4 || isValidPhotoOnlyMediaItemMap(items[3]));
     }
 
     function isValidPhotoPostMediaItemsArray(data) {
       return 'mediaItems' in data &&
-        data.mediaItems is list &&
-        data.mediaItems.size() >= 1 &&
-        data.mediaItems.size() <= 4 &&
-        (data.mediaItems.size() < 1 || isValidPhotoOnlyMediaItemMap(data.mediaItems[0])) &&
-        (data.mediaItems.size() < 2 || isValidPhotoOnlyMediaItemMap(data.mediaItems[1])) &&
-        (data.mediaItems.size() < 3 || isValidPhotoOnlyMediaItemMap(data.mediaItems[2])) &&
-        (data.mediaItems.size() < 4 || isValidPhotoOnlyMediaItemMap(data.mediaItems[3]));
+        isValidPhotoItemsList(data.mediaItems);
     }
 
     function isValidTextPostBackgroundStyle(style) {
@@ -468,114 +529,123 @@ service cloud.firestore {
         (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
-    function isValidCommunityPost(data, postId) {
-      return data.keys().hasAll([
+    function isValidCommunityPostCommon(data, postId) {
+      let d = data;
+      let k = d.keys();
+      return k.hasAll([
           'id', 'ownerUID', 'authorRole', 'category', 'body',
           'isOfficial', 'isPinned', 'status', 'visibility',
           'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
         ]) &&
-        data.keys().hasOnly([
+        k.hasOnly([
           'id', 'ownerUID', 'authorRole', 'postType', 'category', 'title', 'body',
           'backgroundStyle', 'mediaUrls', 'mediaItems', 'isOfficial', 'isPinned', 'status',
           'visibility', 'likesCount', 'commentsCount', 'viewsCount', 'createdAt', 'updatedAt'
         ]) &&
-        data.id == postId &&
-        isValidId(data.id) &&
-        isValidId(data.ownerUID) &&
-        data.authorRole in ['supreme_admin', 'moderator', 'verified'] &&
-        (!('postType' in data) || data.postType in ['text', 'photo']) &&
-        data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
-        isOptionalShortString(data, 'title', 180) &&
-        data.body is string && data.body.size() <= 5000 &&
-        (!('backgroundStyle' in data) || isValidTextPostBackgroundStyle(data.backgroundStyle)) &&
-        (data.body.size() >= 1 || ('mediaItems' in data && data.mediaItems is list && data.mediaItems.size() >= 1)) &&
-        isValidMediaArray(data, 'mediaUrls') &&
-        isValidMediaItemsArray(data, 'mediaItems') &&
-        data.isOfficial is bool &&
-        data.isPinned is bool &&
-        data.status in ['published', 'deleted'] &&
-        data.visibility == 'public' &&
-        data.likesCount is int && data.likesCount >= 0 &&
-        data.commentsCount is int && data.commentsCount >= 0 &&
-        (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+        d.id == postId &&
+        isValidId(d.id) &&
+        isValidId(d.ownerUID) &&
+        d.authorRole in ['supreme_admin', 'moderator', 'verified'] &&
+        (!('postType' in d) || d.postType in ['text', 'photo']) &&
+        d.category is string && d.category.size() >= 2 && d.category.size() <= 64 &&
+        isOptionalShortString(d, 'title', 180) &&
+        d.body is string && d.body.size() <= 5000 &&
+        (!('backgroundStyle' in d) || isValidTextPostBackgroundStyle(d.backgroundStyle)) &&
+        (d.body.size() >= 1 || ('mediaItems' in d && d.mediaItems is list && d.mediaItems.size() >= 1)) &&
+        isValidMediaArray(d, 'mediaUrls') &&
+        d.isOfficial is bool &&
+        d.isPinned is bool &&
+        d.status in ['published', 'deleted'] &&
+        d.visibility == 'public' &&
+        d.likesCount is int && d.likesCount >= 0 &&
+        d.commentsCount is int && d.commentsCount >= 0 &&
+        (!('viewsCount' in d) || (d.viewsCount is int && d.viewsCount >= 0)) &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp;
+    }
+
+    function isValidCommunityPost(data, postId) {
+      let d = data;
+      return isValidCommunityPostCommon(d, postId) &&
+        isValidMediaItemsArray(d, 'mediaItems');
     }
 
     function isValidTypedCommunityPost(data, postId) {
-      return isValidCommunityPost(data, postId) &&
-        'postType' in data &&
-        data.postType in ['text', 'photo'] && (
-          (data.postType == 'text' &&
-            'backgroundStyle' in data &&
-            isValidTextPostBackgroundStyle(data.backgroundStyle) &&
-            data.body.size() >= 1 &&
-            data.body.size() <= 500 &&
-            (!('mediaItems' in data) || data.mediaItems.size() == 0) &&
-            (!('mediaUrls' in data) || data.mediaUrls.size() == 0)
+      let d = data;
+      return isValidCommunityPostCommon(d, postId) &&
+        'postType' in d &&
+        d.postType in ['text', 'photo'] && (
+          (d.postType == 'text' &&
+            'backgroundStyle' in d &&
+            isValidTextPostBackgroundStyle(d.backgroundStyle) &&
+            d.body.size() >= 1 &&
+            d.body.size() <= 500 &&
+            (!('mediaItems' in d) || (d.mediaItems is list && d.mediaItems.size() == 0)) &&
+            (!('mediaUrls' in d) || d.mediaUrls.size() == 0)
           ) ||
-          (data.postType == 'photo' &&
-            !('backgroundStyle' in data) &&
-            data.body.size() <= 2000 &&
-            isValidPhotoPostMediaItemsArray(data)
+          (d.postType == 'photo' &&
+            !('backgroundStyle' in d) &&
+            d.body.size() <= 2000 &&
+            isValidPhotoPostMediaItemsArray(d)
           )
         );
     }
 
     function isValidAdminUpdate(data, updateId) {
-      return data.keys().hasAll([
+      let d = data;
+      let k = d.keys();
+      return k.hasAll([
           'id', 'format', 'authorMode', 'authorDisplayName', 'authorBadge',
           'category', 'body', 'isPinned', 'status', 'visibility',
           'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
         ]) &&
-        data.keys().hasOnly([
+        k.hasOnly([
           'id', 'format', 'authorMode', 'ownerUID', 'authorDisplayName',
           'authorBadge', 'authorPhotoUrl', 'authorPhotoImageId', 'category',
           'title', 'body', 'backgroundStyle', 'mediaItems', 'pollId', 'isPinned',
           'status', 'visibility', 'likesCount', 'commentsCount', 'viewsCount',
           'createdAt', 'updatedAt'
         ]) &&
-        data.id == updateId &&
-        isValidId(data.id) &&
-        data.format in ['photo', 'text'] &&
-        data.authorMode in ['public_admin', 'official_desk'] &&
-        data.authorDisplayName is string && data.authorDisplayName.size() >= 2 && data.authorDisplayName.size() <= 100 &&
-        data.authorBadge in ['supreme_admin', 'verified'] &&
-        isOptionalShortString(data, 'authorPhotoUrl', 512) &&
-        isOptionalValidImageId(data, 'authorPhotoImageId') &&
-        isOptionalValidId(data, 'pollId') &&
-        data.category in ['announcement', 'academic', 'campus_life', 'security', 'urgent'] &&
-        isOptionalShortString(data, 'title', 180) &&
-        data.body is string && data.body.size() <= 5000 &&
-        (!('backgroundStyle' in data) || isValidTextPostBackgroundStyle(data.backgroundStyle)) &&
-        isValidMediaItemsArray(data, 'mediaItems') &&
-        data.isPinned is bool &&
-        data.status in ['published', 'deleted'] &&
-        data.visibility == 'public' &&
-        data.likesCount is int && data.likesCount >= 0 &&
-        data.commentsCount is int && data.commentsCount >= 0 &&
-        (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp && (
-          (data.authorMode == 'public_admin' &&
-            'ownerUID' in data &&
-            isValidId(data.ownerUID) &&
-            data.authorBadge == 'supreme_admin') ||
-          (data.authorMode == 'official_desk' &&
-            !('ownerUID' in data) &&
-            data.authorDisplayName == 'LASUED Intel Official' &&
-            data.authorBadge == 'verified')
+        d.id == updateId &&
+        isValidId(d.id) &&
+        d.format in ['photo', 'text'] &&
+        d.authorMode in ['public_admin', 'official_desk'] &&
+        d.authorDisplayName is string && d.authorDisplayName.size() >= 2 && d.authorDisplayName.size() <= 100 &&
+        d.authorBadge in ['supreme_admin', 'verified'] &&
+        isOptionalShortString(d, 'authorPhotoUrl', 512) &&
+        isOptionalValidImageId(d, 'authorPhotoImageId') &&
+        isOptionalValidId(d, 'pollId') &&
+        d.category in ['announcement', 'academic', 'campus_life', 'security', 'urgent'] &&
+        isOptionalShortString(d, 'title', 180) &&
+        d.body is string && d.body.size() <= 5000 &&
+        (!('backgroundStyle' in d) || isValidTextPostBackgroundStyle(d.backgroundStyle)) &&
+        d.isPinned is bool &&
+        d.status in ['published', 'deleted'] &&
+        d.visibility == 'public' &&
+        d.likesCount is int && d.likesCount >= 0 &&
+        d.commentsCount is int && d.commentsCount >= 0 &&
+        (!('viewsCount' in d) || (d.viewsCount is int && d.viewsCount >= 0)) &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp && (
+          (d.authorMode == 'public_admin' &&
+            'ownerUID' in d &&
+            isValidId(d.ownerUID) &&
+            d.authorBadge == 'supreme_admin') ||
+          (d.authorMode == 'official_desk' &&
+            !('ownerUID' in d) &&
+            d.authorDisplayName == 'LASUED Intel Official' &&
+            d.authorBadge == 'verified')
         ) && (
-          (data.format == 'text' &&
-            'backgroundStyle' in data &&
-            isValidTextPostBackgroundStyle(data.backgroundStyle) &&
-            data.body.size() >= 1 &&
-            data.body.size() <= 500 &&
-            (!('mediaItems' in data) || data.mediaItems.size() == 0)) ||
-          (data.format == 'photo' &&
-            !('backgroundStyle' in data) &&
-            data.body.size() <= 2000 &&
-            isValidPhotoPostMediaItemsArray(data))
+          (d.format == 'text' &&
+            'backgroundStyle' in d &&
+            isValidTextPostBackgroundStyle(d.backgroundStyle) &&
+            d.body.size() >= 1 &&
+            d.body.size() <= 500 &&
+            (!('mediaItems' in d) || (d.mediaItems is list && d.mediaItems.size() == 0))) ||
+          (d.format == 'photo' &&
+            !('backgroundStyle' in d) &&
+            d.body.size() <= 2000 &&
+            isValidPhotoPostMediaItemsArray(d))
         );
     }
 
@@ -590,68 +660,76 @@ service cloud.firestore {
     }
 
     function isValidPostComment(data, commentId) {
-      return data.keys().hasAll(['id', 'postId', 'ownerUID', 'body', 'status', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'postId', 'targetCollection', 'parentCommentId', 'ownerUID', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
-        data.id == commentId &&
-        isValidId(data.id) &&
-        isValidId(data.postId) &&
-        (!('targetCollection' in data) || data.targetCollection in ['posts', 'events', 'marketplaceListings', 'updates']) &&
-        isOptionalShortString(data, 'parentCommentId', 128) &&
-        isValidId(data.ownerUID) &&
-        data.body is string && data.body.size() >= 1 && data.body.size() <= 1500 &&
-        data.status in ['published', 'deleted'] &&
-        (!('likesCount' in data) || (data.likesCount is int && data.likesCount >= 0)) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+      let d = data;
+      return d.keys().hasAll(['id', 'postId', 'ownerUID', 'body', 'status', 'createdAt', 'updatedAt']) &&
+        d.keys().hasOnly(['id', 'postId', 'targetCollection', 'parentCommentId', 'ownerUID', 'body', 'status', 'likesCount', 'createdAt', 'updatedAt']) &&
+        d.id == commentId &&
+        isValidId(d.id) &&
+        isValidId(d.postId) &&
+        (!('targetCollection' in d) || d.targetCollection in ['posts', 'events', 'marketplaceListings', 'updates']) &&
+        isOptionalShortString(d, 'parentCommentId', 128) &&
+        isValidId(d.ownerUID) &&
+        d.body is string && d.body.size() >= 1 && d.body.size() <= 1500 &&
+        d.status in ['published', 'deleted'] &&
+        (!('likesCount' in d) || (d.likesCount is int && d.likesCount >= 0)) &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp;
     }
 
-    function isValidAnonymousPost(data, postId) {
-      return data.keys().hasAll([
+    function isValidAnonymousPostCommon(data, postId) {
+      let d = data;
+      return d.keys().hasAll([
           'id', 'category', 'body', 'status', 'visibility',
           'likesCount', 'commentsCount', 'createdAt', 'updatedAt'
         ]) &&
-        data.keys().hasOnly([
+        d.keys().hasOnly([
           'id', 'postType', 'category', 'body', 'backgroundStyle', 'mediaItems',
           'status', 'visibility', 'likesCount', 'commentsCount', 'viewsCount',
           'createdAt', 'updatedAt'
         ]) &&
-        data.id == postId &&
-        isValidId(data.id) &&
-        (!('postType' in data) || data.postType in ['text', 'photo']) &&
-        data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
-        (!('backgroundStyle' in data) || data.backgroundStyle in [
+        d.id == postId &&
+        isValidId(d.id) &&
+        (!('postType' in d) || d.postType in ['text', 'photo']) &&
+        d.category is string && d.category.size() >= 2 && d.category.size() <= 64 &&
+        (!('backgroundStyle' in d) || d.backgroundStyle in [
           'plain', 'navy_slate', 'ocean_blue', 'cobalt_indigo',
           'midnight_emerald', 'sunset_amber', 'crimson_rose', 'royal_plum', 'warm_charcoal'
         ]) &&
-        isValidMediaItemsArray(data, 'mediaItems') &&
-        data.body is string && data.body.size() <= 3000 &&
-        (data.body.size() >= 1 || ('mediaItems' in data && data.mediaItems is list && data.mediaItems.size() >= 1)) &&
-        data.status in ['published', 'deleted'] &&
-        data.visibility == 'public' &&
-        data.likesCount is int && data.likesCount >= 0 &&
-        data.commentsCount is int && data.commentsCount >= 0 &&
-        (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+        d.body is string && d.body.size() <= 3000 &&
+        (d.body.size() >= 1 || ('mediaItems' in d && d.mediaItems is list && d.mediaItems.size() >= 1)) &&
+        d.status in ['published', 'deleted'] &&
+        d.visibility == 'public' &&
+        d.likesCount is int && d.likesCount >= 0 &&
+        d.commentsCount is int && d.commentsCount >= 0 &&
+        (!('viewsCount' in d) || (d.viewsCount is int && d.viewsCount >= 0)) &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp;
+    }
+
+    function isValidAnonymousPost(data, postId) {
+      let d = data;
+      return isValidAnonymousPostCommon(d, postId) &&
+        isValidMediaItemsArray(d, 'mediaItems');
     }
 
     function isValidTypedAnonymousPost(data, postId) {
-      return isValidAnonymousPost(data, postId) &&
-        'postType' in data &&
-        data.postType in ['text', 'photo'] && (
-          (data.postType == 'text' &&
-            (!('backgroundStyle' in data) || data.backgroundStyle in [
+      let d = data;
+      return isValidAnonymousPostCommon(d, postId) &&
+        'postType' in d &&
+        d.postType in ['text', 'photo'] && (
+          (d.postType == 'text' &&
+            (!('backgroundStyle' in d) || d.backgroundStyle in [
               'plain', 'navy_slate', 'ocean_blue', 'cobalt_indigo',
               'midnight_emerald', 'sunset_amber', 'crimson_rose', 'royal_plum', 'warm_charcoal'
             ]) &&
-            data.body.size() >= 1 &&
-            data.body.size() <= 3000 &&
-            (!('mediaItems' in data) || data.mediaItems.size() == 0)
+            d.body.size() >= 1 &&
+            d.body.size() <= 3000 &&
+            (!('mediaItems' in d) || (d.mediaItems is list && d.mediaItems.size() == 0))
           ) ||
-          (data.postType == 'photo' &&
-            !('backgroundStyle' in data) &&
-            data.body.size() <= 2000 &&
-            isValidPhotoPostMediaItemsArray(data)
+          (d.postType == 'photo' &&
+            !('backgroundStyle' in d) &&
+            d.body.size() <= 2000 &&
+            isValidPhotoPostMediaItemsArray(d)
           )
         );
     }
@@ -741,39 +819,46 @@ service cloud.firestore {
     }
 
     function isValidMarketplaceListing(data, listingId) {
-      return data.keys().hasAll([
+      let d = data;
+      let k = d.keys();
+      return k.hasAll([
           'id', 'ownerUID', 'listingKind', 'title', 'description',
           'category', 'price', 'quantity', 'whatsappNumber',
           'approvalStatus', 'status', 'visibility', 'createdAt',
           'updatedAt', 'expiresAt'
         ]) &&
-        data.keys().hasOnly([
+        k.hasOnly([
           'id', 'ownerUID', 'listingKind', 'title', 'description',
           'category', 'price', 'quantity', 'mediaUrls', 'mediaItems', 'whatsappNumber',
           'approvalStatus', 'status', 'approvedByUid', 'approvedAt',
           'visibility', 'commentsCount', 'createdAt', 'updatedAt', 'expiresAt'
         ]) &&
-        data.id == listingId &&
-        isValidId(data.id) &&
-        isValidId(data.ownerUID) &&
-        data.listingKind in ['product', 'service', 'accommodation'] &&
-        data.title is string && data.title.size() >= 3 && data.title.size() <= 140 &&
-        data.description is string && data.description.size() >= 5 && data.description.size() <= 3000 &&
-        data.category is string && data.category.size() >= 2 && data.category.size() <= 64 &&
-        (data.price is int || data.price is float) && data.price >= 0 &&
-        data.quantity is int && data.quantity >= 0 &&
-        isValidMediaArray(data, 'mediaUrls') &&
-        isValidMediaItemsArray(data, 'mediaItems') &&
-        data.whatsappNumber is string && data.whatsappNumber.size() >= 7 && data.whatsappNumber.size() <= 24 &&
-        data.approvalStatus in ['pending_approval', 'approved', 'rejected'] &&
-        data.status in ['pending_approval', 'active', 'sold', 'expired', 'rejected'] &&
-        isOptionalShortString(data, 'approvedByUid', 128) &&
-        (!('approvedAt' in data) || data.approvedAt is timestamp) &&
-        data.visibility in ['public', 'owner_and_admins'] &&
-        (!('commentsCount' in data) || (data.commentsCount is int && data.commentsCount >= 0)) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp &&
-        data.expiresAt is timestamp;
+        d.id == listingId &&
+        isValidId(d.id) &&
+        isValidId(d.ownerUID) &&
+        d.listingKind in ['product', 'service', 'accommodation'] &&
+        d.title is string && d.title.size() >= 3 && d.title.size() <= 140 &&
+        d.description is string && d.description.size() >= 5 && d.description.size() <= 3000 &&
+        d.category is string && d.category.size() >= 2 && d.category.size() <= 64 &&
+        (d.price is int || d.price is float) && d.price >= 0 &&
+        d.quantity is int && d.quantity >= 0 &&
+        isValidMediaArray(d, 'mediaUrls') &&
+        isValidMediaItemsArray(d, 'mediaItems') &&
+        d.whatsappNumber is string && d.whatsappNumber.size() >= 7 && d.whatsappNumber.size() <= 24 &&
+        d.approvalStatus in ['pending_approval', 'approved', 'rejected'] &&
+        d.status in ['pending_approval', 'active', 'sold', 'expired', 'rejected'] &&
+        isOptionalShortString(d, 'approvedByUid', 128) &&
+        (!('approvedAt' in d) || d.approvedAt is timestamp) &&
+        d.visibility in ['public', 'owner_and_admins'] &&
+        (!('commentsCount' in d) || (d.commentsCount is int && d.commentsCount >= 0)) &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp &&
+        d.expiresAt is timestamp;
+    }
+
+    function isValidMarketplaceCreateApproval(data, canDirectPublish) {
+      return (canDirectPublish && data.approvalStatus == 'approved' && data.status == 'active' && data.visibility == 'public') ||
+        (!canDirectPublish && data.approvalStatus == 'pending_approval' && data.status == 'pending_approval' && data.visibility == 'owner_and_admins');
     }
 
     function isValidMarketplaceUpdate(data, updateId) {
@@ -945,101 +1030,115 @@ service cloud.firestore {
     }
 
     function isValidIntCountsArray(counts, expectedSize) {
-      return counts is list &&
-        counts.size() == expectedSize &&
-        counts.size() >= 2 &&
-        counts.size() <= 8 &&
-        counts[0] is int && counts[0] >= 0 &&
-        counts[1] is int && counts[1] >= 0 &&
-        (counts.size() < 3 || (counts[2] is int && counts[2] >= 0)) &&
-        (counts.size() < 4 || (counts[3] is int && counts[3] >= 0)) &&
-        (counts.size() < 5 || (counts[4] is int && counts[4] >= 0)) &&
-        (counts.size() < 6 || (counts[5] is int && counts[5] >= 0)) &&
-        (counts.size() < 7 || (counts[6] is int && counts[6] >= 0)) &&
-        (counts.size() < 8 || (counts[7] is int && counts[7] >= 0));
+      let c = counts;
+      let n = c.size();
+      return c is list &&
+        n == expectedSize &&
+        n >= 2 &&
+        n <= 8 &&
+        c[0] is int && c[0] >= 0 &&
+        c[1] is int && c[1] >= 0 &&
+        (n < 3 || (c[2] is int && c[2] >= 0)) &&
+        (n < 4 || (c[3] is int && c[3] >= 0)) &&
+        (n < 5 || (c[4] is int && c[4] >= 0)) &&
+        (n < 6 || (c[5] is int && c[5] >= 0)) &&
+        (n < 7 || (c[6] is int && c[6] >= 0)) &&
+        (n < 8 || (c[7] is int && c[7] >= 0));
     }
 
     function isZeroedCountsArray(counts, expectedSize) {
-      return isValidIntCountsArray(counts, expectedSize) &&
-        counts[0] == 0 &&
-        counts[1] == 0 &&
-        (counts.size() < 3 || counts[2] == 0) &&
-        (counts.size() < 4 || counts[3] == 0) &&
-        (counts.size() < 5 || counts[4] == 0) &&
-        (counts.size() < 6 || counts[5] == 0) &&
-        (counts.size() < 7 || counts[6] == 0) &&
-        (counts.size() < 8 || counts[7] == 0);
+      let c = counts;
+      let n = c.size();
+      return c is list &&
+        n == expectedSize &&
+        n >= 2 &&
+        n <= 8 &&
+        c[0] == 0 &&
+        c[1] == 0 &&
+        (n < 3 || c[2] == 0) &&
+        (n < 4 || c[3] == 0) &&
+        (n < 5 || c[4] == 0) &&
+        (n < 6 || c[5] == 0) &&
+        (n < 7 || c[6] == 0) &&
+        (n < 8 || c[7] == 0);
     }
 
     function isValidCampusPoll(data, pollId) {
-      return data.keys().hasAll([
+      let d = data;
+      let k = d.keys();
+      let opts = d.options;
+      let optCount = opts.size();
+      return k.hasAll([
           'id', 'updateId', 'authorMode', 'question', 'options',
           'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
           'allowVoteChange', 'voterScope', 'resultsVisibility',
           'status', 'expiresAt', 'createdAt', 'updatedAt'
         ]) &&
-        data.keys().hasOnly([
+        k.hasOnly([
           'id', 'updateId', 'authorMode', 'ownerUID', 'question', 'description', 'options',
           'optionCounts', 'totalVotes', 'allowMultiple', 'maxSelections',
           'allowVoteChange', 'voterScope', 'resultsVisibility',
           'status', 'expiresAt', 'createdAt', 'updatedAt'
         ]) &&
-        data.id == pollId &&
-        isValidId(data.id) &&
-        isValidId(data.updateId) &&
-        data.authorMode in ['public_admin', 'official_desk'] &&
+        d.id == pollId &&
+        isValidId(d.id) &&
+        isValidId(d.updateId) &&
+        d.authorMode in ['public_admin', 'official_desk'] &&
         (
-          (data.authorMode == 'public_admin' && 'ownerUID' in data && isValidId(data.ownerUID)) ||
-          (data.authorMode == 'official_desk' && !('ownerUID' in data))
+          (d.authorMode == 'public_admin' && 'ownerUID' in d && isValidId(d.ownerUID)) ||
+          (d.authorMode == 'official_desk' && !('ownerUID' in d))
         ) &&
-        data.question is string && data.question.size() >= 5 && data.question.size() <= 280 &&
-        isOptionalShortString(data, 'description', 300) &&
-        data.options is list && data.options.size() >= 2 && data.options.size() <= 8 &&
-        data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 120 &&
-        data.options[1] is string && data.options[1].size() >= 1 && data.options[1].size() <= 120 &&
-        (data.options.size() < 3 || (data.options[2] is string && data.options[2].size() >= 1 && data.options[2].size() <= 120)) &&
-        (data.options.size() < 4 || (data.options[3] is string && data.options[3].size() >= 1 && data.options[3].size() <= 120)) &&
-        (data.options.size() < 5 || (data.options[4] is string && data.options[4].size() >= 1 && data.options[4].size() <= 120)) &&
-        (data.options.size() < 6 || (data.options[5] is string && data.options[5].size() >= 1 && data.options[5].size() <= 120)) &&
-        (data.options.size() < 7 || (data.options[6] is string && data.options[6].size() >= 1 && data.options[6].size() <= 120)) &&
-        (data.options.size() < 8 || (data.options[7] is string && data.options[7].size() >= 1 && data.options[7].size() <= 120)) &&
-        isValidIntCountsArray(data.optionCounts, data.options.size()) &&
-        data.totalVotes is int && data.totalVotes >= 0 &&
-        data.allowMultiple is bool &&
-        data.maxSelections is int && data.maxSelections >= 1 && data.maxSelections <= data.options.size() &&
-        (data.allowMultiple || data.maxSelections == 1) &&
-        data.allowVoteChange is bool &&
-        data.voterScope in ['all_members', 'verified_and_above'] &&
-        data.resultsVisibility in ['always', 'after_vote', 'after_close'] &&
-        data.status in ['open', 'closed'] &&
-        data.expiresAt is timestamp &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+        d.question is string && d.question.size() >= 5 && d.question.size() <= 280 &&
+        isOptionalShortString(d, 'description', 300) &&
+        opts is list && optCount >= 2 && optCount <= 8 &&
+        opts[0] is string && opts[0].size() >= 1 && opts[0].size() <= 120 &&
+        opts[1] is string && opts[1].size() >= 1 && opts[1].size() <= 120 &&
+        (optCount < 3 || (opts[2] is string && opts[2].size() >= 1 && opts[2].size() <= 120)) &&
+        (optCount < 4 || (opts[3] is string && opts[3].size() >= 1 && opts[3].size() <= 120)) &&
+        (optCount < 5 || (opts[4] is string && opts[4].size() >= 1 && opts[4].size() <= 120)) &&
+        (optCount < 6 || (opts[5] is string && opts[5].size() >= 1 && opts[5].size() <= 120)) &&
+        (optCount < 7 || (opts[6] is string && opts[6].size() >= 1 && opts[6].size() <= 120)) &&
+        (optCount < 8 || (opts[7] is string && opts[7].size() >= 1 && opts[7].size() <= 120)) &&
+        isValidIntCountsArray(d.optionCounts, optCount) &&
+        d.totalVotes is int && d.totalVotes >= 0 &&
+        d.allowMultiple is bool &&
+        d.maxSelections is int && d.maxSelections >= 1 && d.maxSelections <= optCount &&
+        (d.allowMultiple || d.maxSelections == 1) &&
+        d.allowVoteChange is bool &&
+        d.voterScope in ['all_members', 'verified_and_above'] &&
+        d.resultsVisibility in ['always', 'after_vote', 'after_close'] &&
+        d.status in ['open', 'closed'] &&
+        d.expiresAt is timestamp &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp;
     }
 
     function isValidPollVote(data, voteId, pollId, optionCount, maxSelections) {
-      return data.keys().hasAll(['id', 'pollId', 'voterUid', 'selectedIndices', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'pollId', 'voterUid', 'selectedIndices', 'createdAt', 'updatedAt']) &&
-        data.id == voteId &&
-        isValidId(data.id) &&
-        data.pollId == pollId &&
-        isValidId(data.pollId) &&
-        data.voterUid == voteId &&
-        isValidId(data.voterUid) &&
-        data.selectedIndices is list &&
-        data.selectedIndices.size() >= 1 &&
-        data.selectedIndices.size() <= maxSelections &&
-        data.selectedIndices.size() <= optionCount &&
-        data.selectedIndices[0] is int && data.selectedIndices[0] >= 0 && data.selectedIndices[0] < optionCount &&
-        (data.selectedIndices.size() < 2 || (data.selectedIndices[1] is int && data.selectedIndices[1] > data.selectedIndices[0] && data.selectedIndices[1] < optionCount)) &&
-        (data.selectedIndices.size() < 3 || (data.selectedIndices[2] is int && data.selectedIndices[2] > data.selectedIndices[1] && data.selectedIndices[2] < optionCount)) &&
-        (data.selectedIndices.size() < 4 || (data.selectedIndices[3] is int && data.selectedIndices[3] > data.selectedIndices[2] && data.selectedIndices[3] < optionCount)) &&
-        (data.selectedIndices.size() < 5 || (data.selectedIndices[4] is int && data.selectedIndices[4] > data.selectedIndices[3] && data.selectedIndices[4] < optionCount)) &&
-        (data.selectedIndices.size() < 6 || (data.selectedIndices[5] is int && data.selectedIndices[5] > data.selectedIndices[4] && data.selectedIndices[5] < optionCount)) &&
-        (data.selectedIndices.size() < 7 || (data.selectedIndices[6] is int && data.selectedIndices[6] > data.selectedIndices[5] && data.selectedIndices[6] < optionCount)) &&
-        (data.selectedIndices.size() < 8 || (data.selectedIndices[7] is int && data.selectedIndices[7] > data.selectedIndices[6] && data.selectedIndices[7] < optionCount)) &&
-        data.createdAt is timestamp &&
-        data.updatedAt is timestamp;
+      let d = data;
+      let idx = d.selectedIndices;
+      let n = idx.size();
+      return d.keys().hasAll(['id', 'pollId', 'voterUid', 'selectedIndices', 'createdAt', 'updatedAt']) &&
+        d.keys().hasOnly(['id', 'pollId', 'voterUid', 'selectedIndices', 'createdAt', 'updatedAt']) &&
+        d.id == voteId &&
+        isValidId(d.id) &&
+        d.pollId == pollId &&
+        isValidId(d.pollId) &&
+        d.voterUid == voteId &&
+        isValidId(d.voterUid) &&
+        idx is list &&
+        n >= 1 &&
+        n <= maxSelections &&
+        n <= optionCount &&
+        idx[0] is int && idx[0] >= 0 && idx[0] < optionCount &&
+        (n < 2 || (idx[1] is int && idx[1] > idx[0] && idx[1] < optionCount)) &&
+        (n < 3 || (idx[2] is int && idx[2] > idx[1] && idx[2] < optionCount)) &&
+        (n < 4 || (idx[3] is int && idx[3] > idx[2] && idx[3] < optionCount)) &&
+        (n < 5 || (idx[4] is int && idx[4] > idx[3] && idx[4] < optionCount)) &&
+        (n < 6 || (idx[5] is int && idx[5] > idx[4] && idx[5] < optionCount)) &&
+        (n < 7 || (idx[6] is int && idx[6] > idx[5] && idx[6] < optionCount)) &&
+        (n < 8 || (idx[7] is int && idx[7] > idx[6] && idx[7] < optionCount)) &&
+        d.createdAt is timestamp &&
+        d.updatedAt is timestamp;
     }
 
     function isValidPollOptionCountDelta(prevCount, nextCount, idx, prevIndices, nextIndices) {
@@ -1052,15 +1151,19 @@ service cloud.firestore {
     }
 
     function isValidPollCountsTransition(prevCounts, nextCounts, optionCount, prevIndices, nextIndices) {
-      return isValidIntCountsArray(nextCounts, optionCount) &&
-        isValidPollOptionCountDelta(prevCounts[0], nextCounts[0], 0, prevIndices, nextIndices) &&
-        isValidPollOptionCountDelta(prevCounts[1], nextCounts[1], 1, prevIndices, nextIndices) &&
-        (optionCount < 3 || isValidPollOptionCountDelta(prevCounts[2], nextCounts[2], 2, prevIndices, nextIndices)) &&
-        (optionCount < 4 || isValidPollOptionCountDelta(prevCounts[3], nextCounts[3], 3, prevIndices, nextIndices)) &&
-        (optionCount < 5 || isValidPollOptionCountDelta(prevCounts[4], nextCounts[4], 4, prevIndices, nextIndices)) &&
-        (optionCount < 6 || isValidPollOptionCountDelta(prevCounts[5], nextCounts[5], 5, prevIndices, nextIndices)) &&
-        (optionCount < 7 || isValidPollOptionCountDelta(prevCounts[6], nextCounts[6], 6, prevIndices, nextIndices)) &&
-        (optionCount < 8 || isValidPollOptionCountDelta(prevCounts[7], nextCounts[7], 7, prevIndices, nextIndices));
+      let pc = prevCounts;
+      let nc = nextCounts;
+      let pIdx = prevIndices;
+      let nIdx = nextIndices;
+      return isValidIntCountsArray(nc, optionCount) &&
+        isValidPollOptionCountDelta(pc[0], nc[0], 0, pIdx, nIdx) &&
+        isValidPollOptionCountDelta(pc[1], nc[1], 1, pIdx, nIdx) &&
+        (optionCount < 3 || isValidPollOptionCountDelta(pc[2], nc[2], 2, pIdx, nIdx)) &&
+        (optionCount < 4 || isValidPollOptionCountDelta(pc[3], nc[3], 3, pIdx, nIdx)) &&
+        (optionCount < 5 || isValidPollOptionCountDelta(pc[4], nc[4], 4, pIdx, nIdx)) &&
+        (optionCount < 6 || isValidPollOptionCountDelta(pc[5], nc[5], 5, pIdx, nIdx)) &&
+        (optionCount < 7 || isValidPollOptionCountDelta(pc[6], nc[6], 6, pIdx, nIdx)) &&
+        (optionCount < 8 || isValidPollOptionCountDelta(pc[7], nc[7], 7, pIdx, nIdx));
     }
 
     function isEligiblePollVoter(scope) {
@@ -1445,16 +1548,14 @@ service cloud.firestore {
       );
       allow list: if existing().status == 'published' || isSupremeAdmin();
       allow create: if isValidId(postId) &&
-        canPublishFeed() &&
+        canCreateCommunityPostAuth(incoming()) &&
         isValidTypedCommunityPost(incoming(), postId) &&
         incoming().ownerUID == request.auth.uid &&
-        incoming().authorRole == currentRoleString() &&
         incoming().status == 'published' &&
         incoming().visibility == 'public' &&
         incoming().likesCount == 0 &&
         incoming().commentsCount == 0 &&
         (!('viewsCount' in incoming()) || incoming().viewsCount == 0) &&
-        (isSupremeAdmin() || (incoming().isOfficial == false && incoming().isPinned == false)) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isValidId(postId) &&
@@ -1490,8 +1591,8 @@ service cloud.firestore {
             incoming().commentsCount >= 0 &&
             incoming().diff(existing()).affectedKeys().hasOnly(['commentsCount']) && (
               ((!('commentsCount' in existing()) || !(existing().commentsCount is int)) && incoming().commentsCount == 1) ||
-              ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount == existing().commentsCount + 1) ||
-              ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount < existing().commentsCount)
+                ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount == existing().commentsCount + 1) ||
+                ('commentsCount' in existing() && existing().commentsCount is int && incoming().commentsCount < existing().commentsCount)
             )
           ) ||
           // [VIEW RULE] Deduplicated view count sync (+1 bound to postViews marker per signed-in account or guest visitor)
@@ -1508,8 +1609,9 @@ service cloud.firestore {
           // [MEMBER/AUTHOR RULE] Author edits post content / format-specific media or background
           (canPublishFeed() &&
             existing().ownerUID == request.auth.uid &&
-            isValidCommunityPost(incoming(), postId) &&
-            (!('postType' in incoming()) || isValidTypedCommunityPost(incoming(), postId)) &&
+            ('postType' in incoming()
+              ? isValidTypedCommunityPost(incoming(), postId)
+              : isValidCommunityPost(incoming(), postId)) &&
             incoming().updatedAt == request.time &&
             incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'category', 'backgroundStyle', 'mediaUrls', 'mediaItems', 'updatedAt'])
           ) ||
@@ -2077,10 +2179,8 @@ service cloud.firestore {
         isValidMarketplaceListing(incoming(), listingId) &&
         incoming().ownerUID == request.auth.uid &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time && (
-          (canPublishFeed() && incoming().approvalStatus == 'approved' && incoming().status == 'active' && incoming().visibility == 'public') ||
-          (!canPublishFeed() && incoming().approvalStatus == 'pending_approval' && incoming().status == 'pending_approval' && incoming().visibility == 'owner_and_admins')
-        );
+        incoming().updatedAt == request.time &&
+        isValidMarketplaceCreateApproval(incoming(), canPublishFeed());
       allow update: if isValidId(listingId) &&
         isActiveSignedInUser() &&
         (!('id' in existing()) || incoming().id == existing().id) &&
