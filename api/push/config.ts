@@ -4,7 +4,7 @@ import {
   sendJson,
   type VercelLikeRequest,
   type VercelLikeResponse,
-} from '../_lib/pushServer.js';
+} from '../_lib/pushConfig.js';
 
 export default async function handler(
   req: VercelLikeRequest,

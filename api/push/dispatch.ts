@@ -30,7 +30,7 @@ export default async function handler(
 
   const config = getServerPushConfigStatus(req.headers);
   const clients = getAdminClients();
-  if (!clients || !config.vapidConfigured || !ensureWebPushConfigured()) {
+  if (!clients || !config.vapidConfigured || !(await ensureWebPushConfigured())) {
     sendJson(res, 200, {
       ok: false,
       configured: false,

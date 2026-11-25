@@ -12,7 +12,7 @@ import {
 import {
   getServerPushConfigDiagnostics,
   parseServiceAccountJson,
-} from './api/_lib/pushServer.ts';
+} from './api/_lib/pushConfig.ts';
 import {
   buildRobotsTxt,
   buildSitemapXml,

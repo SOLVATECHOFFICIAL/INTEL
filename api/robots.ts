@@ -2,7 +2,7 @@ import {
   buildRobotsTxt,
   resolveServerPublicOrigin,
 } from './_lib/siteOrigin.js';
-import type { VercelLikeRequest, VercelLikeResponse } from './_lib/pushServer.js';
+import type { VercelLikeRequest, VercelLikeResponse } from './_lib/pushConfig.js';
 
 export default async function handler(
   req: VercelLikeRequest,
