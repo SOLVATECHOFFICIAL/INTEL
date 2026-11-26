@@ -25,6 +25,7 @@ import { mediaMetaToGridItems, type GridPhotoItem } from '../../../utils/mediaGr
 import { GuestPromptCard } from '../../auth/GuestPromptCard';
 import { FullScreenImageLightbox } from '../../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../../media/SquareImageGrid';
+import { LinkifiedText } from '../../shared/LinkifiedText';
 import { EventCommentsSection } from './EventCommentsSection';
 import { EventShareButton } from './EventShareButton';
 
@@ -256,9 +257,10 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
                 <Mail className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
                 Contact Information
               </p>
-              <p className="mt-1 text-xs font-semibold text-[#0B1A2E]">
-                {event.contactInfo}
-              </p>
+              <LinkifiedText
+                text={event.contactInfo}
+                className="mt-1 text-xs font-semibold text-[#0B1A2E]"
+              />
             </div>
           )}
         </div>
@@ -268,9 +270,10 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
           <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
             About This Event
           </h3>
-          <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
-            {event.description}
-          </p>
+          <LinkifiedText
+            text={event.description}
+            className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700"
+          />
         </div>
 
         {/* Attendance Instructions */}
@@ -280,9 +283,10 @@ export const EventDetailsView: React.FC<EventDetailsViewProps> = ({
               <Info className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
               Attendance Instructions
             </h3>
-            <p className="mt-1.5 whitespace-pre-line text-xs leading-relaxed text-slate-700">
-              {event.instructions}
-            </p>
+            <LinkifiedText
+              text={event.instructions}
+              className="mt-1.5 whitespace-pre-line text-xs leading-relaxed text-slate-700"
+            />
           </div>
         )}
 

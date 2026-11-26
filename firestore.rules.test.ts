@@ -133,7 +133,10 @@ test('mediaImages rules enforce 4-image post cap, strict Base64 size bounds, and
   assert.match(rulesText, /data\.base64Data\.size\(\) <= 340000/);
   assert.match(rulesText, /data\.byteSize <= 250000/);
   assert.match(rulesText, /data\.targetCollection == 'anonymousPosts' && !\('ownerUID' in data\)/);
-  assert.match(rulesText, /data\.mimeType in \['image\/webp', 'image\/jpeg'\]/);
+  assert.match(rulesText, /isAllowedImageMimeType\(data\.mimeType\)/);
+  assert.match(rulesText, /'image\/png'/);
+  assert.match(rulesText, /'image\/gif'/);
+  assert.match(rulesText, /'image\/heic'/);
   assert.match(rulesText, /!existsAfter\(\/databases\/\$\(database\)\/documents\/posts\/\$\(existing\(\)\.postId\)\)/);
   assert.match(rulesText, /!existsAfter\(\/databases\/\$\(database\)\/documents\/anonymousPosts\/\$\(existing\(\)\.postId\)\)/);
 });
@@ -1049,5 +1052,34 @@ test('Self-profile field patch preserves unchanged usernames/Supreme Admin handl
   assert.match(postViewsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/posts\/\$\(incoming\(\)\.targetId\)\)\.data\.viewsCount/);
   assert.match(postViewsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/anonymousPosts\/\$\(incoming\(\)\.targetId\)\)\.data\.viewsCount/);
   assert.match(postViewsBlock, /getAfter\(\/databases\/\$\(database\)\/documents\/updates\/\$\(incoming\(\)\.targetId\)\)\.data\.viewsCount/);
+});
+
+test('Supreme Admins can save reserved usernames and profile/media edits even with legacy privacy/activity flags', () => {
+  const usersBlock = rulesText.slice(
+    rulesText.indexOf('match /users/{userId}'),
+    rulesText.indexOf('match /privateUserData/{userId}')
+  );
+  assert.match(
+    usersBlock,
+    /!incoming\(\)\.diff\(existing\(\)\)\.affectedKeys\(\)\.hasAny\(\['hasPublicActivity'\]\)/
+  );
+
+  const privateBlock = rulesText.slice(
+    rulesText.indexOf('match /privateUserData/{userId}'),
+    rulesText.indexOf('match /anonymousHistory/{postId}')
+  );
+  assert.match(
+    privateBlock,
+    /!incoming\(\)\.diff\(existing\(\)\)\.affectedKeys\(\)\.hasAny\(\['showSupremeAdminBadge'\]\)/
+  );
+
+  const mediaBlock = rulesText.slice(
+    rulesText.indexOf('match /mediaImages/{imageId}'),
+    rulesText.indexOf('match /savedPosts/{savedId}')
+  );
+  assert.match(
+    mediaBlock,
+    /\(existing\(\)\.targetCollection in \['users_avatar', 'users_cover'\] && existing\(\)\.targetId == request\.auth\.uid\)/
+  );
 });
 

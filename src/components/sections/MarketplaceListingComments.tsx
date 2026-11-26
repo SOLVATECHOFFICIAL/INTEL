@@ -52,6 +52,7 @@ import {
   restoreCommentEntriesOrdered,
 } from '../../utils/optimisticInteractions';
 import { ProfileBadgesRow } from '../RoleBadge';
+import { LinkifiedText } from '../shared/LinkifiedText';
 
 interface MarketplaceListingCommentsProps {
   listingId: string;
@@ -827,9 +828,10 @@ export const MarketplaceListingComments: React.FC<
                     </button>
                   </div>
                 ) : (
-                  <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                    {comment.body}
-                  </p>
+                  <LinkifiedText
+                    text={comment.body}
+                    className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700"
+                  />
                 )}
 
                 {replyingToId === comment.id && (
@@ -1059,9 +1061,10 @@ export const MarketplaceListingComments: React.FC<
                               </button>
                             </div>
                           ) : (
-                            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
-                              {reply.body}
-                            </p>
+                            <LinkifiedText
+                              text={reply.body}
+                              className="mt-1 whitespace-pre-wrap text-xs text-slate-700"
+                            />
                           )}
                         </div>
                       );

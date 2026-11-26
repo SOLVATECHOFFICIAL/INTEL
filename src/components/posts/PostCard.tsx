@@ -94,6 +94,7 @@ import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
+import { LinkifiedText } from '../shared/LinkifiedText';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
 
 interface PostCardProps {
@@ -1609,11 +1610,11 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                 </h2>
               )}
               {post.body.trim().length > 0 && (
-                <p
+                <LinkifiedText
+                  text={post.body}
+                  tone={ordinaryTextTheme.isDark ? 'on-dark' : 'on-light-card'}
                   className={`overflow-wrap-anywhere max-w-full whitespace-pre-wrap text-base font-semibold leading-relaxed sm:text-lg ${ordinaryTextTheme.textColorClass}`}
-                >
-                  {post.body}
-                </p>
+                />
               )}
             </div>
           ) : (
@@ -1624,9 +1625,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                 </h2>
               )}
               {post.body.trim().length > 0 && (
-                <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                  {post.body}
-                </p>
+                <LinkifiedText
+                  text={post.body}
+                  className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                />
               )}
             </div>
           )
@@ -1641,9 +1643,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                   </h2>
                 )}
                 {post.body.trim().length > 0 && (
-                  <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                    {post.body}
-                  </p>
+                  <LinkifiedText
+                    text={post.body}
+                    className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                  />
                 )}
               </div>
             ) : null}
@@ -1667,9 +1670,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
         /* Anonymous Photo Post: Shared Caption ABOVE Photos, Zero Coloured Backgrounds */
         <div className="mt-3 space-y-3" data-testid="anon-photo-post-body">
           {post.body.trim().length > 0 && (
-            <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-              {post.body}
-            </p>
+            <LinkifiedText
+              text={post.body}
+              className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+            />
           )}
           {gridItems.length > 0 && (
             <SquareImageGrid
@@ -1693,19 +1697,20 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           style={{ background: anonTheme.backgroundCss }}
           data-testid={`anon-styled-card-${anonTheme.id}`}
         >
-          <p
+          <LinkifiedText
+            text={post.body}
+            tone={anonTheme.isDark ? 'on-dark' : 'on-light-card'}
             className={`overflow-wrap-anywhere max-w-full whitespace-pre-wrap text-base font-semibold leading-relaxed sm:text-lg ${anonTheme.textColorClass}`}
-          >
-            {post.body}
-          </p>
+          />
         </div>
       ) : (
         /* Anonymous Text-Only Post (Plain / Default) */
         <div className="mt-3 space-y-1.5">
           {post.body.trim().length > 0 && (
-            <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-              {post.body}
-            </p>
+            <LinkifiedText
+              text={post.body}
+              className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+            />
           )}
         </div>
       )}
@@ -2034,9 +2039,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                        {comment.body}
-                      </p>
+                      <LinkifiedText
+                        text={comment.body}
+                        className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700"
+                      />
                     )}
 
                     {/* Reply Input */}
@@ -2303,9 +2309,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
-                                    {reply.body}
-                                  </p>
+                                  <LinkifiedText
+                                    text={reply.body}
+                                    className="mt-1 whitespace-pre-wrap text-xs text-slate-700"
+                                  />
                                 )}
                               </div>
                             );

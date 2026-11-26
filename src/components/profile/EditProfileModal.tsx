@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { useFirebase } from '../../context/firebaseContext';
 import {
   checkUsernameAvailability,
   updateMemberAccountProfileAndUsername,
@@ -9,13 +10,17 @@ import {
   ACCOUNT_CATEGORY_OPTIONS,
   CAMPUS_STATUS_OPTIONS,
   formatFirestoreOrAppError,
+  isDesignatedSupremeAdminUser,
   normalizeUsername,
   validateProfileSettingsForm,
   validateUsernameCandidate,
   type ProfileSettingsFormInput,
   type ProfileSettingsValidationErrors,
 } from '../../utils/authValidation';
-import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
+import {
+  ProfileMediaUploaders,
+  type ProfileMediaUploadersHandle,
+} from '../media/ProfileMediaUploaders';
 
 interface EditProfileModalProps {
   uid: string;
@@ -36,6 +41,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   onSaved,
   onClose,
 }) => {
+  const { user } = useFirebase();
+  const allowReservedUsername = isDesignatedSupremeAdminUser(user);
+  const mediaUploadersRef = useRef<ProfileMediaUploadersHandle | null>(null);
   const currentUsername = profile?.username ?? '';
 
   const [fullName, setFullName] = useState(profile?.fullName ?? '');
@@ -63,13 +71,19 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   useEffect(() => {
     const candidate = normalizeUsername(username);
     const current = normalizeUsername(currentUsername);
-    if (!candidate || candidate === current || validateUsernameCandidate(candidate)) {
+    if (
+      !candidate ||
+      candidate === current ||
+      validateUsernameCandidate(candidate, { allowReserved: allowReservedUsername })
+    ) {
       return;
     }
 
     let active = true;
     const timer = window.setTimeout(() => {
-      checkUsernameAvailability(candidate, uid)
+      checkUsernameAvailability(candidate, uid, {
+        allowReserved: allowReservedUsername,
+      })
         .then((result) => {
           if (!active) return;
           setUsernameStatus({
@@ -91,7 +105,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [username, currentUsername, uid]);
+  }, [username, currentUsername, uid, allowReservedUsername]);
 
   const handleUsernameChange = (raw: string) => {
     const lower = raw.toLowerCase();
@@ -104,7 +118,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       return;
     }
 
-    const syncErr = validateUsernameCandidate(candidate);
+    const syncErr = validateUsernameCandidate(candidate, {
+      allowReserved: allowReservedUsername,
+    });
     if (syncErr) {
       setUsernameStatus({ state: 'taken', message: syncErr });
     } else {
@@ -148,6 +164,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     const validationErrors = validateProfileSettingsForm(payload, {
       currentUsername,
+      allowReserved: allowReservedUsername,
     });
     const firstValidationError = Object.values(validationErrors)[0];
     if (firstValidationError) {
@@ -159,6 +176,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     setErrors({});
     setSaving(true);
     try {
+      await mediaUploadersRef.current?.flushPendingMedia();
       const result = await updateMemberAccountProfileAndUsername(
         uid,
         currentUsername,
@@ -234,6 +252,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
           {profile && (
             <ProfileMediaUploaders
+              ref={mediaUploadersRef}
               uid={uid}
               username={currentUsername || undefined}
               fullName={fullName || profile.fullName || 'LASUED Member'}

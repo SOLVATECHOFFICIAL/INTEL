@@ -21,7 +21,30 @@ export type MediaTargetCollection =
   | 'trustedContacts'
   | 'events';
 
-export type SupportedImageMimeType = 'image/webp' | 'image/jpeg';
+export const SUPPORTED_IMAGE_MIME_TYPES = [
+  'image/webp',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/avif',
+  'image/bmp',
+  'image/tiff',
+  'image/svg+xml',
+  'image/x-icon',
+  'image/vnd.microsoft.icon',
+  'image/heic',
+  'image/heif',
+] as const;
+
+export type SupportedImageMimeType =
+  (typeof SUPPORTED_IMAGE_MIME_TYPES)[number];
+
+export function isSupportedImageMimeType(
+  mimeType: string
+): mimeType is SupportedImageMimeType {
+  return (SUPPORTED_IMAGE_MIME_TYPES as readonly string[]).includes(mimeType);
+}
 
 export type OrdinaryPostType = 'text' | 'photo';
 
@@ -983,10 +1006,7 @@ export function validatePostMediaItems(items: PostMediaMeta[] | undefined): void
     if (!isValidFirestoreId(item.imageId)) {
       throw new Error(`Invalid image reference at position ${index + 1}.`);
     }
-    if (
-      item.mimeType !== 'image/webp' &&
-      item.mimeType !== 'image/jpeg'
-    ) {
+    if (!isSupportedImageMimeType(item.mimeType)) {
       throw new Error(`Unsupported image format at position ${index + 1}.`);
     }
     if (
@@ -1042,8 +1062,8 @@ export function validateMediaImagePayload(
       'Anonymous image documents must never store ownerUID or filename metadata.'
     );
   }
-  if (mimeType !== 'image/webp' && mimeType !== 'image/jpeg') {
-    throw new Error('Only WebP and JPEG compressed images are accepted.');
+  if (!isSupportedImageMimeType(mimeType)) {
+    throw new Error('Unsupported image format selected.');
   }
   if (
     !Number.isInteger(width) ||

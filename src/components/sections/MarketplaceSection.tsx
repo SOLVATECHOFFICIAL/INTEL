@@ -96,6 +96,7 @@ import { AvatarMedia, FirestoreImage } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
+import { LinkifiedText } from '../shared/LinkifiedText';
 import { MarketplaceListingComments } from './MarketplaceListingComments';
 import { MarketplaceListingCard } from './marketplace/MarketplaceListingCard';
 
@@ -1704,9 +1705,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <h4 className="mt-2 font-display text-lg font-bold text-[#0B1A2E]">
                   {title || 'Untitled Listing'}
                 </h4>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                  {description || 'No description provided.'}
-                </p>
+                <LinkifiedText
+                  text={description || 'No description provided.'}
+                  className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                />
                 {formAttachments.length > 0 && (
                   <div className="mt-4 max-w-md">
                     <SquareImageGrid
@@ -2264,9 +2266,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     <h4 className="mt-2 font-display text-base font-bold text-[#0B1A2E]">
                       {up.title}
                     </h4>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                      {up.body}
-                    </p>
+                    <LinkifiedText
+                      text={up.body}
+                      className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                    />
                     {confirmingDelete && isSupremeAdminOrOwner && (
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900">
                         <span>Delete this marketplace notice?</span>
@@ -2332,7 +2335,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   <h3 className="font-display text-base font-bold text-[#0B1A2E]">
                     {item.title} — ₦{item.price.toLocaleString()}
                   </h3>
-                  <p className="text-xs text-slate-600">{item.description}</p>
+                  <LinkifiedText
+                    text={item.description}
+                    className="text-xs text-slate-600"
+                  />
                 </div>
 
                 {canReviewItem ? (
@@ -2539,9 +2545,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <h4 className="text-xs font-bold text-slate-500 uppercase">
                   Description
                 </h4>
-                <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                  {selectedProduct.description}
-                </p>
+                <LinkifiedText
+                  text={selectedProduct.description}
+                  className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                />
               </div>
 
               <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">

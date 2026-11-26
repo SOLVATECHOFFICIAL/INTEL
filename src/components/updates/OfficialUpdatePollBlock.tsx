@@ -29,6 +29,7 @@ import {
   computePollPercentages,
   formatPollExpirySummary,
 } from '../../utils/polls';
+import { LinkifiedText } from '../shared/LinkifiedText';
 
 export interface OfficialUpdatePollBlockProps {
   updateId: string;
@@ -289,9 +290,10 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
               {poll.question}
             </h4>
             {poll.description && (
-              <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 overflow-wrap-anywhere">
-                {poll.description}
-              </p>
+              <LinkifiedText
+                text={poll.description}
+                className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 overflow-wrap-anywhere"
+              />
             )}
           </div>
         </div>

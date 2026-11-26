@@ -161,7 +161,7 @@ export function normalizeUsername(value: string): string {
 
 export function validateUsernameCandidate(
   value: string,
-  options?: { currentUsername?: string }
+  options?: { currentUsername?: string; allowReserved?: boolean }
 ): string | null {
   const normalized = normalizeUsername(value);
   if (!isValidUsername(normalized)) {
@@ -170,7 +170,11 @@ export function validateUsernameCandidate(
   const current = options?.currentUsername
     ? normalizeUsername(options.currentUsername)
     : '';
-  if (isReservedUsername(normalized) && normalized !== current) {
+  if (
+    !options?.allowReserved &&
+    isReservedUsername(normalized) &&
+    normalized !== current
+  ) {
     return 'This username is reserved by LASUED Intel. Please choose another.';
   }
   return null;
@@ -255,7 +259,7 @@ export function validateRegistrationForm(
 
 export function validateProfileSettingsForm(
   input: ProfileSettingsFormInput,
-  options?: { currentUsername?: string }
+  options?: { currentUsername?: string; allowReserved?: boolean }
 ): ProfileSettingsValidationErrors {
   const errors: ProfileSettingsValidationErrors = {};
 
@@ -269,6 +273,7 @@ export function validateProfileSettingsForm(
 
   const usernameError = validateUsernameCandidate(input.username, {
     currentUsername: options?.currentUsername,
+    allowReserved: options?.allowReserved,
   });
   if (usernameError) {
     errors.username = usernameError;

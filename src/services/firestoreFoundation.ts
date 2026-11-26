@@ -179,10 +179,15 @@ function sortCommunityPosts(items: CommunityPost[]): CommunityPost[] {
 
 export async function checkUsernameAvailability(
   username: string,
-  currentUid?: string
+  currentUid?: string,
+  options?: { allowReserved?: boolean }
 ): Promise<UsernameAvailabilityResult> {
   const normalized = normalizeUsername(username);
-  const validationError = validateUsernameCandidate(normalized);
+  const allowReserved =
+    options?.allowReserved ?? isDesignatedSupremeAdminUser(auth.currentUser);
+  const validationError = validateUsernameCandidate(normalized, {
+    allowReserved,
+  });
   if (validationError) {
     return { available: false, normalized, reason: validationError };
   }
@@ -761,8 +766,10 @@ export async function updateMemberAccountProfileAndUsername(
     throw new DomainValidationError('Invalid user UID.');
   }
 
+  const isAdminAllowReserved = isDesignatedSupremeAdminUser(auth.currentUser);
   const validationErrors = validateProfileSettingsForm(input, {
     currentUsername,
+    allowReserved: isAdminAllowReserved,
   });
   const firstError = Object.values(validationErrors)[0];
   if (firstError) {
@@ -799,13 +806,16 @@ export async function updateMemberAccountProfileAndUsername(
   const txPath = `${COLLECTION_NAMES.users}/${uid}`;
 
   try {
-    await runTransaction(db, async (tx) => {
-      // Perform all Firestore transaction reads before any writes.
-      const [publicSnap, privateSnap, newUsernameSnap] = await Promise.all([
-        tx.get(publicRef),
-        tx.get(privateRef),
-        tx.get(newUsernameRef),
-      ]);
+    await ensureVerifiedEmailTokenClaim(auth.currentUser);
+    await runWithPermissionRetry(
+      () =>
+        runTransaction(db, async (tx) => {
+          // Perform all Firestore transaction reads before any writes.
+          const [publicSnap, privateSnap, newUsernameSnap] = await Promise.all([
+            tx.get(publicRef),
+            tx.get(privateRef),
+            tx.get(newUsernameRef),
+          ]);
 
       const existingPublic = publicSnap.exists()
         ? (publicSnap.data() as PublicUserProfile)
@@ -931,6 +941,7 @@ export async function updateMemberAccountProfileAndUsername(
           updatedAt: serverTimestamp(),
         });
       } else if (cleanAuthEmail.length >= 3) {
+        const currentAuthUser = auth.currentUser?.uid === uid ? auth.currentUser : null;
         const ownedSet = new Set<string>();
         if (existingUsername) ownedSet.add(existingUsername);
         ownedSet.add(cleanUsername);
@@ -940,10 +951,18 @@ export async function updateMemberAccountProfileAndUsername(
           whatsappNumber: cleanWhatsapp,
           ownedUsernames: Array.from(ownedSet).slice(0, 20),
           notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
+          ...(isUndergroundSupremeAdminUser(currentAuthUser)
+            ? { showSupremeAdminBadge: false }
+            : {}),
           updatedAt: serverTimestamp(),
         });
       }
-    });
+        }),
+      {
+        actorUid: uid,
+        refreshToken: () => refreshAuthSessionToken(uid),
+      }
+    );
 
     notifyProfileUpdated({
       uid,
@@ -987,12 +1006,21 @@ export async function updateMemberPrivacySettings(
   const path = `${COLLECTION_NAMES.users}/${uid}`;
 
   try {
-    const batch = writeBatch(db);
-    batch.update(publicRef, {
-      showWhatsappPublicly: Boolean(input.showWhatsappPublicly),
-      updatedAt: serverTimestamp(),
-    });
-    await batch.commit();
+    await ensureVerifiedEmailTokenClaim(auth.currentUser);
+    await runWithPermissionRetry(
+      async () => {
+        const batch = writeBatch(db);
+        batch.update(publicRef, {
+          showWhatsappPublicly: Boolean(input.showWhatsappPublicly),
+          updatedAt: serverTimestamp(),
+        });
+        await batch.commit();
+      },
+      {
+        actorUid: uid,
+        refreshToken: () => refreshAuthSessionToken(uid),
+      }
+    );
     notifyProfileUpdated({
       uid,
       patch: { showWhatsappPublicly: Boolean(input.showWhatsappPublicly) },

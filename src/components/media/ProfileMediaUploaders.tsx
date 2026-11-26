@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useImperativeHandle, useRef, useState } from 'react';
 import {
   Camera,
   Check,
@@ -21,6 +21,11 @@ import {
 } from '../../utils/imageCompression';
 import { FirestoreImage } from './FirestoreImage';
 
+export interface ProfileMediaUploadersHandle {
+  hasPendingMedia: () => boolean;
+  flushPendingMedia: () => Promise<boolean>;
+}
+
 interface ProfileMediaUploadersProps {
   uid: string;
   username?: string;
@@ -35,19 +40,26 @@ interface ProfileMediaUploadersProps {
   onError: (message: string) => void;
 }
 
-export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
-  uid,
-  username,
-  fullName,
-  currentPhotoImageId,
-  currentPhotoUrl,
-  currentCoverImageId,
-  currentCoverUrl,
-  isSuspended,
-  onUpdated,
-  onStatus,
-  onError,
-}) => {
+export const ProfileMediaUploaders = React.forwardRef<
+  ProfileMediaUploadersHandle,
+  ProfileMediaUploadersProps
+>(
+  (
+    {
+      uid,
+      username,
+      fullName,
+      currentPhotoImageId,
+      currentPhotoUrl,
+      currentCoverImageId,
+      currentCoverUrl,
+      isSuspended,
+      onUpdated,
+      onStatus,
+      onError,
+    },
+    ref
+  ) => {
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -244,6 +256,88 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
       setCoverBusy(false);
     }
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      hasPendingMedia: () => Boolean(pendingAvatar || pendingCover),
+      flushPendingMedia: async () => {
+        if (isSuspended) return false;
+        let savedAny = false;
+        if (pendingCover && !coverBusy) {
+          setCoverBusy(true);
+          try {
+            await saveProfileMediaImage({
+              uid,
+              username,
+              slot: 'cover',
+              compressed: pendingCover,
+              previousImageId: currentCoverImageId,
+              onProgress: setCoverProgress,
+            });
+            setPendingCover(null);
+            setCoverProgress(null);
+            savedAny = true;
+          } catch (error) {
+            setCoverProgress(null);
+            onError(
+              formatFirestoreOrAppError(
+                error,
+                'Firebase could not save your cover photograph. Please try again.'
+              )
+            );
+            throw error;
+          } finally {
+            setCoverBusy(false);
+          }
+        }
+        if (pendingAvatar && !avatarBusy) {
+          setAvatarBusy(true);
+          try {
+            await saveProfileMediaImage({
+              uid,
+              username,
+              slot: 'avatar',
+              compressed: pendingAvatar,
+              previousImageId: currentPhotoImageId,
+              onProgress: setAvatarProgress,
+            });
+            setPendingAvatar(null);
+            setAvatarProgress(null);
+            savedAny = true;
+          } catch (error) {
+            setAvatarProgress(null);
+            onError(
+              formatFirestoreOrAppError(
+                error,
+                'Firebase could not save your profile picture. Please try again.'
+              )
+            );
+            throw error;
+          } finally {
+            setAvatarBusy(false);
+          }
+        }
+        if (savedAny) {
+          await onUpdated();
+        }
+        return savedAny;
+      },
+    }),
+    [
+      avatarBusy,
+      coverBusy,
+      currentCoverImageId,
+      currentPhotoImageId,
+      isSuspended,
+      onError,
+      onUpdated,
+      pendingAvatar,
+      pendingCover,
+      uid,
+      username,
+    ]
+  );
 
   return (
     <div className="space-y-6 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 sm:p-5">
@@ -519,4 +613,6 @@ export const ProfileMediaUploaders: React.FC<ProfileMediaUploadersProps> = ({
       </div>
     </div>
   );
-};
+});
+
+ProfileMediaUploaders.displayName = 'ProfileMediaUploaders';

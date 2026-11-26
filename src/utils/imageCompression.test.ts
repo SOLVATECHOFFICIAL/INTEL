@@ -6,6 +6,7 @@ import {
   computeTargetDimensions,
   estimateBase64DecodedBytes,
   formatByteSize,
+  inferSupportedImageMimeType,
   validateImageFileCandidate,
   validatePostImageCountAfterAdd,
 } from './imageCompression';
@@ -143,3 +144,31 @@ test('estimateBase64DecodedBytes, buildMediaDataUrl, and formatByteSize calculat
   assert.equal(formatByteSize(102400), '100.0 KB');
   assert.equal(formatByteSize(1572864), '1.50 MB');
 });
+
+test('inferSupportedImageMimeType resolves direct MIMEs and file extensions reliably', () => {
+  assert.equal(
+    inferSupportedImageMimeType({ type: 'image/png', name: 'avatar.png' }),
+    'image/png'
+  );
+  assert.equal(
+    inferSupportedImageMimeType({ type: 'image/x-png', name: 'photo' }),
+    'image/png'
+  );
+  assert.equal(
+    inferSupportedImageMimeType({ type: '', name: 'IMG_2048.HEIC' }),
+    'image/heic'
+  );
+  assert.equal(
+    inferSupportedImageMimeType({ type: 'application/octet-stream', name: 'anim.gif' }),
+    'image/gif'
+  );
+  assert.equal(
+    inferSupportedImageMimeType({ type: '', name: 'crest.svg' }),
+    'image/svg+xml'
+  );
+  assert.equal(
+    inferSupportedImageMimeType({ type: 'application/pdf', name: 'doc.pdf' }),
+    null
+  );
+});
+

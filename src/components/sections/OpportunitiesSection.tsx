@@ -54,6 +54,7 @@ import {
   reuseSetIfUnchanged,
 } from '../../utils/cacheSync';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { LinkifiedText } from '../shared/LinkifiedText';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
 import { OpportunityCard } from './opportunities/OpportunityCard';
 
@@ -719,9 +720,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
             <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
               Overview
             </h3>
-            <p className="mt-1.5 text-sm leading-relaxed whitespace-pre-line text-slate-700">
-              {selectedOpportunity.description}
-            </p>
+            <LinkifiedText
+              text={selectedOpportunity.description}
+              className="mt-1.5 text-sm leading-relaxed whitespace-pre-line text-slate-700"
+            />
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -731,9 +733,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
                   <Users className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
                   Who Can Apply
                 </h3>
-                <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm">
-                  {selectedOpportunity.whoCanApply}
-                </p>
+                <LinkifiedText
+                  text={selectedOpportunity.whoCanApply}
+                  className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm"
+                />
               </div>
             )}
 
@@ -746,9 +749,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
                   />
                   Eligibility Requirements
                 </h3>
-                <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm">
-                  {selectedOpportunity.eligibility}
-                </p>
+                <LinkifiedText
+                  text={selectedOpportunity.eligibility}
+                  className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm"
+                />
               </div>
             )}
 
@@ -758,9 +762,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
                   <Gift className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
                   Benefits
                 </h3>
-                <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm">
-                  {selectedOpportunity.benefits}
-                </p>
+                <LinkifiedText
+                  text={selectedOpportunity.benefits}
+                  className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm"
+                />
               </div>
             )}
 
@@ -773,9 +778,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
                   />
                   Required Documents
                 </h3>
-                <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm">
-                  {selectedOpportunity.requiredDocuments}
-                </p>
+                <LinkifiedText
+                  text={selectedOpportunity.requiredDocuments}
+                  className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm"
+                />
               </div>
             )}
           </div>
@@ -785,9 +791,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
               <h3 className="font-display text-xs font-bold tracking-wide text-[#0B1A2E] uppercase">
                 Application Instructions
               </h3>
-              <p className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm">
-                {selectedOpportunity.applicationInstructions}
-              </p>
+              <LinkifiedText
+                text={selectedOpportunity.applicationInstructions}
+                className="mt-1.5 text-xs leading-relaxed whitespace-pre-line text-slate-700 sm:text-sm"
+              />
             </div>
           )}
 
@@ -801,7 +808,10 @@ export const OpportunitiesSection: React.FC<OpportunitiesSectionProps> = ({
                 <span className="font-semibold text-[#0B1A2E]">
                   Contact Information:
                 </span>{' '}
-                <span>{selectedOpportunity.contactInfo}</span>
+                <LinkifiedText
+                  as="span"
+                  text={selectedOpportunity.contactInfo}
+                />
               </div>
             </div>
           )}

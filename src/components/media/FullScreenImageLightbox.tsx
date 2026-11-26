@@ -23,6 +23,7 @@ import {
   computePinchDistance,
 } from '../../utils/lightboxGestures';
 import type { GridPhotoItem } from '../../utils/mediaGrid';
+import { LinkifiedText } from '../shared/LinkifiedText';
 import { FirestoreImage } from './FirestoreImage';
 
 interface FullScreenImageLightboxProps {
@@ -393,10 +394,12 @@ export const FullScreenImageLightbox: React.FC<
           className="border-b border-white/10 bg-[#0B1A2E]/90 px-4 py-3 sm:px-6"
           data-testid="lightbox-shared-caption"
         >
-          <div className="mx-auto max-w-3xl">
-            <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-100 sm:text-sm">
-              {postCaption}
-            </p>
+          <div className="mx-auto max-h-24 max-w-3xl overflow-y-auto">
+            <LinkifiedText
+              text={postCaption}
+              tone="on-dark"
+              className="whitespace-pre-wrap text-xs leading-relaxed text-slate-100 sm:text-sm"
+            />
           </div>
         </div>
       )}
@@ -542,7 +545,12 @@ export const FullScreenImageLightbox: React.FC<
               <span className="text-[#64B5F6]">
                 Photo {currentIndex + 1}:
               </span>{' '}
-              {activeItem.caption}
+              <LinkifiedText
+                as="span"
+                text={activeItem.caption}
+                tone="on-dark"
+                className="text-sm font-semibold text-white"
+              />
             </p>
           </div>
         </div>

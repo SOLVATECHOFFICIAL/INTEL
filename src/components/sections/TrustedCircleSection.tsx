@@ -53,6 +53,7 @@ import {
 import { ProfileBadgesRow, RoleBadge } from '../RoleBadge';
 import { TikTokFollowButton } from '../TikTokFollowButton';
 import { AvatarMedia } from '../media/FirestoreImage';
+import { LinkifiedText } from '../shared/LinkifiedText';
 
 interface TrustedCircleSectionProps {
   onNavigate: (
@@ -625,9 +626,10 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
         )}
 
         {contact.description && (
-          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-600">
-            {contact.description}
-          </p>
+          <LinkifiedText
+            text={contact.description}
+            className="mt-1.5 text-xs leading-relaxed text-slate-600"
+          />
         )}
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1159,9 +1161,10 @@ export const TrustedCircleSection: React.FC<TrustedCircleSectionProps> = ({
             )}
 
             {selectedTrustContact.description && (
-              <p className="mt-2.5 text-xs leading-relaxed text-slate-700">
-                {selectedTrustContact.description}
-              </p>
+              <LinkifiedText
+                text={selectedTrustContact.description}
+                className="mt-2.5 text-xs leading-relaxed text-slate-700"
+              />
             )}
 
             <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">

@@ -451,6 +451,28 @@ test('mediaImages and 4-image post metadata validators enforce Firestore size an
     })
   );
 
+  for (const extraMime of [
+    'image/png',
+    'image/gif',
+    'image/avif',
+    'image/heic',
+    'image/svg+xml',
+  ] as const) {
+    assert.doesNotThrow(() =>
+      validateMediaImagePayload({
+        id: 'img_avatar_any',
+        targetCollection: 'users_avatar',
+        targetId: 'uid_1',
+        ownerUID: 'uid_1',
+        mimeType: extraMime,
+        width: 512,
+        height: 512,
+        byteSize: 64000,
+        base64Data: 'A'.repeat(64),
+      })
+    );
+  }
+
   assert.throws(
     () =>
       validateMediaImagePayload({

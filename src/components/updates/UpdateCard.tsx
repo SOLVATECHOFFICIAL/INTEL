@@ -76,6 +76,7 @@ import { AvatarMedia } from '../media/FirestoreImage';
 import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
+import { LinkifiedText } from '../shared/LinkifiedText';
 import { OfficialUpdatePollBlock } from './OfficialUpdatePollBlock';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -1064,9 +1065,10 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                 </h3>
               )}
               {update.body.trim() && (
-                <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                  {update.body}
-                </p>
+                <LinkifiedText
+                  text={update.body}
+                  className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                />
               )}
             </div>
           )}
@@ -1093,11 +1095,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
               {update.title}
             </h3>
           )}
-          <p
+          <LinkifiedText
+            text={update.body}
+            tone={textTheme.isDark ? 'on-dark' : 'on-light-card'}
             className={`overflow-wrap-anywhere max-w-full whitespace-pre-wrap text-base font-semibold leading-relaxed sm:text-lg ${textTheme.textColorClass}`}
-          >
-            {update.body}
-          </p>
+          />
         </div>
       ) : (
         <div className="mt-3 space-y-1.5">
@@ -1106,9 +1108,10 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
               {update.title}
             </h3>
           )}
-          <p className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-            {update.body}
-          </p>
+          <LinkifiedText
+            text={update.body}
+            className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+          />
         </div>
       )}
 
@@ -1404,9 +1407,10 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                         </button>
                       </div>
                     ) : (
-                      <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">
-                        {postCmt.body}
-                      </p>
+                      <LinkifiedText
+                        text={postCmt.body}
+                        className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700"
+                      />
                     )}
 
                     {replyingToId === postCmt.id && (
@@ -1604,9 +1608,10 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                       )}
                                   </div>
                                 </div>
-                                <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
-                                  {replyCmt.body}
-                                </p>
+                                <LinkifiedText
+                                  text={replyCmt.body}
+                                  className="mt-1 whitespace-pre-wrap text-xs text-slate-700"
+                                />
                               </div>
                             );
                           }

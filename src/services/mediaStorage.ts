@@ -8,7 +8,14 @@ import {
   writeBatch,
   type UpdateData,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import {
+  auth,
+  db,
+  ensureVerifiedEmailTokenClaim,
+  handleFirestoreError,
+  OperationType,
+  refreshAuthSessionToken,
+} from '../lib/firebase';
 import {
   COLLECTION_NAMES,
   isValidFirestoreId,
@@ -27,6 +34,7 @@ import { BoundedLruMap, perfMetrics } from '../utils/cacheSync';
 import {
   commitFreshWriteBatchWithRetry,
   runWithFirestoreConnectionRetry,
+  runWithPermissionRetry,
 } from '../utils/firestoreRetry';
 import {
   buildMediaDataUrl,
@@ -829,11 +837,19 @@ export async function saveProfileMediaImage(input: {
 
   const writePath = `${COLLECTION_NAMES.mediaImages}/${newImageId}`;
   try {
-    await commitFreshWriteBatchWithRetry(
-      () => writeBatch(db),
-      (batch) => {
-        batch.set(doc(db, COLLECTION_NAMES.mediaImages, newImageId), mediaPayload);
-        batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
+    await ensureVerifiedEmailTokenClaim(auth.currentUser);
+    await runWithPermissionRetry(
+      () =>
+        commitFreshWriteBatchWithRetry(
+          () => writeBatch(db),
+          (batch) => {
+            batch.set(doc(db, COLLECTION_NAMES.mediaImages, newImageId), mediaPayload);
+            batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
+          }
+        ),
+      {
+        actorUid: input.uid,
+        refreshToken: () => refreshAuthSessionToken(input.uid),
       }
     );
   } catch (error) {
@@ -891,10 +907,18 @@ export async function removeProfileMediaImage(input: {
 
   const path = `${COLLECTION_NAMES.users}/${input.uid}`;
   try {
-    await commitFreshWriteBatchWithRetry(
-      () => writeBatch(db),
-      (batch) => {
-        batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
+    await ensureVerifiedEmailTokenClaim(auth.currentUser);
+    await runWithPermissionRetry(
+      () =>
+        commitFreshWriteBatchWithRetry(
+          () => writeBatch(db),
+          (batch) => {
+            batch.update(doc(db, COLLECTION_NAMES.users, input.uid), userUpdate);
+          }
+        ),
+      {
+        actorUid: input.uid,
+        refreshToken: () => refreshAuthSessionToken(input.uid),
       }
     );
   } catch (error) {

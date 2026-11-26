@@ -1,5 +1,6 @@
 import {
   BLUEPRINT_LIMITS,
+  isSupportedImageMimeType,
   type SupportedImageMimeType,
 } from '../types/database';
 import { computeFileSelectionFingerprint } from './mediaCache';
@@ -49,6 +50,51 @@ const VIDEO_EXT_RE = /\.(mp4|mov|webm|mkv|avi|3gp|m4v|flv|wmv)$/i;
 const AUDIO_EXT_RE = /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i;
 const IMAGE_EXT_RE =
   /\.(jpe?g|jfif|pjpeg|pjp|a?png|webp|gif|bmp|avif|heic|heif|svg|ico|cur|tiff?|dng|cr2|nef|arw|orf|rw2)$/i;
+
+export function inferSupportedImageMimeType(candidate: {
+  type?: string;
+  name?: string;
+}): SupportedImageMimeType | null {
+  const rawMime = (candidate.type ?? '').trim().toLowerCase();
+  if (rawMime === 'image/jpg' || rawMime === 'image/pjpeg') {
+    return 'image/jpeg';
+  }
+  if (rawMime === 'image/apng' || rawMime === 'image/x-png') {
+    return 'image/png';
+  }
+  if (rawMime === 'image/x-ms-bmp') {
+    return 'image/bmp';
+  }
+  if (rawMime === 'image/svg') {
+    return 'image/svg+xml';
+  }
+  if (rawMime === 'image/ico') {
+    return 'image/x-icon';
+  }
+  if (rawMime === 'image/heic-sequence') {
+    return 'image/heic';
+  }
+  if (rawMime === 'image/heif-sequence') {
+    return 'image/heif';
+  }
+  if (isSupportedImageMimeType(rawMime)) {
+    return rawMime;
+  }
+
+  const name = (candidate.name ?? '').trim().toLowerCase();
+  if (/\.(jpe?g|jfif|pjpeg|pjp)$/i.test(name)) return 'image/jpeg';
+  if (/\.(png|apng)$/i.test(name)) return 'image/png';
+  if (/\.webp$/i.test(name)) return 'image/webp';
+  if (/\.gif$/i.test(name)) return 'image/gif';
+  if (/\.avif$/i.test(name)) return 'image/avif';
+  if (/\.bmp$/i.test(name)) return 'image/bmp';
+  if (/\.tiff?$/i.test(name)) return 'image/tiff';
+  if (/\.svg$/i.test(name)) return 'image/svg+xml';
+  if (/\.ico$/i.test(name) || /\.cur$/i.test(name)) return 'image/x-icon';
+  if (/\.heic$/i.test(name)) return 'image/heic';
+  if (/\.heif$/i.test(name)) return 'image/heif';
+  return null;
+}
 
 export function validateImageFileCandidate(candidate: {
   type?: string;
@@ -293,7 +339,7 @@ async function decodeImageSource(file: File): Promise<DecodedImageSource> {
       return await loadHtmlImageFromUrl(dataUrl, false);
     } catch {
       throw new Error(
-        'This file format could not be decoded on your device browser. If it is a camera RAW/HEIC file not natively supported by this browser, convert or screenshot it and try again.'
+        'This file format could not be decoded on your device browser. If it is a large camera RAW/HEIC file, convert or screenshot it and try again.'
       );
     }
   }
@@ -317,6 +363,11 @@ function encodeCanvasSync(
     dataUrl = canvas.toDataURL(activeMime, quality);
     prefix = `data:${activeMime};base64,`;
   }
+  if (!dataUrl.startsWith(prefix) && activeMime !== 'image/png') {
+    activeMime = 'image/png';
+    dataUrl = canvas.toDataURL(activeMime);
+    prefix = `data:${activeMime};base64,`;
+  }
   if (!dataUrl.startsWith(prefix)) {
     throw new Error('Browser canvas failed to export compressed image data.');
   }
@@ -329,6 +380,56 @@ function encodeCanvasSync(
   };
 }
 
+async function tryDirectImagePassthrough(
+  file: File,
+  fingerprint: string,
+  preset: ImageCompressionPreset
+): Promise<CompressedImageResult | null> {
+  if (file.size <= 0 || file.size > BLUEPRINT_LIMITS.mediaMaxBytes) {
+    return null;
+  }
+  const resolvedMime = inferSupportedImageMimeType(file);
+  if (!resolvedMime) {
+    return null;
+  }
+  if (resolvedMime === 'image/svg+xml') {
+    const rawSvg = await file.text().catch(() => '');
+    if (
+      !rawSvg ||
+      /<script\b|<foreignObject\b|\bon[a-z]+\s*=|javascript:/i.test(rawSvg)
+    ) {
+      return null;
+    }
+  }
+  const rawDataUrl = await readFileAsDataUrl(file).catch(() => '');
+  const commaIndex = rawDataUrl.indexOf(',');
+  if (commaIndex === -1) return null;
+  const header = rawDataUrl.slice(0, commaIndex).toLowerCase();
+  if (!header.includes(';base64')) return null;
+  const base64Data = rawDataUrl.slice(commaIndex + 1).replace(/[\r\n\s]/g, '');
+  if (
+    base64Data.length < BLUEPRINT_LIMITS.mediaBase64MinChars ||
+    base64Data.length > BLUEPRINT_LIMITS.mediaBase64MaxChars
+  ) {
+    return null;
+  }
+  const byteSize = estimateBase64DecodedBytes(base64Data);
+  if (byteSize < 1 || byteSize > BLUEPRINT_LIMITS.mediaMaxBytes) {
+    return null;
+  }
+  const defaultDim = preset === 'avatar' ? 480 : 1080;
+  return {
+    base64Data,
+    dataUrl: buildMediaDataUrl(resolvedMime, base64Data),
+    mimeType: resolvedMime,
+    width: defaultDim,
+    height: defaultDim,
+    byteSize,
+    originalBytes: file.size,
+    fingerprint,
+  };
+}
+
 function yieldToMainThread(): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, 0);
@@ -337,10 +438,10 @@ function yieldToMainThread(): Promise<void> {
 
 /**
  * Compresses any gallery/camera photograph on the client cleanly & rapidly:
- * - Accepts any browser-decodable photo format (JPEG, PNG, WebP, GIF, AVIF, BMP, SVG, HEIC/HEIF where supported)
+ * - Accepts any image format (JPEG, PNG, WebP, GIF, AVIF, BMP, TIFF, SVG, ICO, HEIC/HEIF)
  * - Strips all EXIF/GPS/filename metadata by rasterizing onto a fresh 2D canvas
- * - Targets compact WebP/JPEG payloads (55–90 KB) so feed & profile images load fast
- * - Guarantees compliance with Firestore safety ceilings (<250 KB / <280k Base64 chars)
+ * - Falls back safely to validated direct passthrough for animated GIFs or valid small files (<250 KB)
+ * - Guarantees compliance with Firestore safety ceilings (<250 KB / <340k Base64 chars)
  */
 export async function compressImageFile(
   file: File,
@@ -352,7 +453,24 @@ export async function compressImageFile(
   }
 
   const fingerprint = computeFileSelectionFingerprint(file);
-  const decoded = await decodeImageSource(file);
+  const inferredMime = inferSupportedImageMimeType(file);
+  if (inferredMime === 'image/gif' && file.size <= BLUEPRINT_LIMITS.mediaMaxBytes) {
+    const gifPassthrough = await tryDirectImagePassthrough(file, fingerprint, preset);
+    if (gifPassthrough) {
+      return gifPassthrough;
+    }
+  }
+
+  let decoded: DecodedImageSource;
+  try {
+    decoded = await decodeImageSource(file);
+  } catch (decodeErr) {
+    const passthrough = await tryDirectImagePassthrough(file, fingerprint, preset);
+    if (passthrough) {
+      return passthrough;
+    }
+    throw decodeErr;
+  }
   try {
     const preferredMime: SupportedImageMimeType = detectWebpEncodingSupport()
       ? 'image/webp'

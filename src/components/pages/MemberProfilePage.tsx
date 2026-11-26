@@ -56,6 +56,7 @@ import {
   fetchViewerSavedPostIds,
   type SavedContentBundle,
 } from '../../services/socialPosts';
+import { LinkifiedText } from '../shared/LinkifiedText';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
 import type {
   AnonymousPost,
@@ -1903,9 +1904,10 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
             {/* Bio */}
             {profile.bio?.trim() && (
-              <p className="mt-3.5 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                {profile.bio}
-              </p>
+              <LinkifiedText
+                text={profile.bio}
+                className="mt-3.5 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+              />
             )}
 
             {/* Academic & Category Details (Zero Private Email / Zero UID) */}
@@ -2451,18 +2453,19 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                             className="mt-3 flex min-h-[128px] items-center justify-center rounded-xl p-5 text-center"
                             style={{ background: theme.backgroundCss }}
                           >
-                            <p
+                            <LinkifiedText
+                              text={anonPost.body}
+                              tone={theme.isDark ? 'on-dark' : 'on-light-card'}
                               className={`whitespace-pre-wrap text-sm font-semibold sm:text-base ${theme.textColorClass}`}
-                            >
-                              {anonPost.body}
-                            </p>
+                            />
                           </div>
                         ) : (
                           <>
                             {anonPost.body.trim().length > 0 && (
-                              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                                {anonPost.body}
-                              </p>
+                              <LinkifiedText
+                                text={anonPost.body}
+                                className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                              />
                             )}
                             {gridItems.length > 0 && (
                               <div className="mt-3">

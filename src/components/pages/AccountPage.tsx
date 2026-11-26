@@ -79,7 +79,10 @@ import {
 import { ProfileBadgesRow } from '../RoleBadge';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
-import { ProfileMediaUploaders } from '../media/ProfileMediaUploaders';
+import {
+  ProfileMediaUploaders,
+  type ProfileMediaUploadersHandle,
+} from '../media/ProfileMediaUploaders';
 import { PWAInstallControl } from '../pwa/PWAInstallControl';
 import { PushTestControls } from '../pwa/PushTestControls';
 import { WebPushNotificationButton } from '../pwa/WebPushNotificationButton';
@@ -1440,6 +1443,10 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
     initialValues.publicWhatsapp
   );
 
+  const { user: activeAuthUser } = useFirebase();
+  const allowReservedUsername = isDesignatedSupremeAdminUser(activeAuthUser);
+  const mediaUploadersRef = React.useRef<ProfileMediaUploadersHandle | null>(null);
+
   const [profileErrors, setProfileErrors] =
     useState<ProfileSettingsValidationErrors>({});
   const [usernameStatus, setUsernameStatus] = useState<{
@@ -1451,13 +1458,19 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
   useEffect(() => {
     const candidate = normalizeUsername(editUsername);
     const current = normalizeUsername(currentUsername);
-    if (!candidate || candidate === current || validateUsernameCandidate(candidate)) {
+    if (
+      !candidate ||
+      candidate === current ||
+      validateUsernameCandidate(candidate, { allowReserved: allowReservedUsername })
+    ) {
       return;
     }
 
     let active = true;
     const timer = window.setTimeout(() => {
-      checkUsernameAvailability(candidate, uid)
+      checkUsernameAvailability(candidate, uid, {
+        allowReserved: allowReservedUsername,
+      })
         .then((result) => {
           if (!active) return;
           setUsernameStatus({
@@ -1479,7 +1492,7 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
       active = false;
       window.clearTimeout(timer);
     };
-  }, [editUsername, currentUsername, uid]);
+  }, [editUsername, currentUsername, uid, allowReservedUsername]);
 
   const handleUsernameChange = (raw: string) => {
     const lower = raw.toLowerCase();
@@ -1492,7 +1505,9 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
       return;
     }
 
-    const syncError = validateUsernameCandidate(candidate);
+    const syncError = validateUsernameCandidate(candidate, {
+      allowReserved: allowReservedUsername,
+    });
     if (syncError) {
       setUsernameStatus({ state: 'taken', message: syncError });
     } else {
@@ -1533,6 +1548,7 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
 
     const validationErrors = validateProfileSettingsForm(payload, {
       currentUsername,
+      allowReserved: allowReservedUsername,
     });
     const firstValidationError = Object.values(validationErrors)[0];
     if (firstValidationError) {
@@ -1544,6 +1560,7 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
     setProfileErrors({});
     setIsSavingProfile(true);
     try {
+      await mediaUploadersRef.current?.flushPendingMedia();
       const result = await updateMemberAccountProfileAndUsername(
         uid,
         currentUsername,
@@ -1585,6 +1602,7 @@ const ProfileInformationForm: React.FC<ProfileInformationFormProps> = ({
 
       {hasInitializedProfile ? (
         <ProfileMediaUploaders
+          ref={mediaUploadersRef}
           uid={uid}
           username={currentUsername || undefined}
           fullName={editFullName || 'LASUED Member'}

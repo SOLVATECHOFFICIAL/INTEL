@@ -185,6 +185,15 @@ service cloud.firestore {
       );
     }
 
+    function isAllowedImageMimeType(mime) {
+      return mime in [
+        'image/webp', 'image/jpeg', 'image/jpg', 'image/png',
+        'image/gif', 'image/avif', 'image/bmp', 'image/tiff',
+        'image/svg+xml', 'image/x-icon', 'image/vnd.microsoft.icon',
+        'image/heic', 'image/heif'
+      ];
+    }
+
     function isValidMediaItemValues(item) {
       let w = item.width;
       let h = item.height;
@@ -196,7 +205,7 @@ service cloud.firestore {
         w is int && w >= 1 && w <= 4096 &&
         h is int && h >= 1 && h <= 4096 &&
         b is int && b >= 1 && b <= 250000 &&
-        item.mimeType in ['image/webp', 'image/jpeg'] &&
+        isAllowedImageMimeType(item.mimeType) &&
         o is int && o >= 0 && o <= 3;
     }
 
@@ -232,7 +241,7 @@ service cloud.firestore {
         w is int && w >= 1 && w <= 4096 &&
         h is int && h >= 1 && h <= 4096 &&
         b is int && b >= 1 && b <= 250000 &&
-        item.mimeType in ['image/webp', 'image/jpeg'] &&
+        isAllowedImageMimeType(item.mimeType) &&
         o is int && o >= 0 && o <= 3;
     }
 
@@ -290,7 +299,7 @@ service cloud.firestore {
         isValidId(data.memberId) &&
         data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100 &&
         data.username is string && data.username.size() >= 3 && data.username.size() <= 32 && data.username.matches('^[a-z0-9_]+$') &&
-        !isReservedUsername(data.username) &&
+        (!isReservedUsername(data.username) || isDesignatedSupremeAdminEmail()) &&
         isOptionalShortString(data, 'bio', 500) &&
         isOptionalShortString(data, 'department', 120) &&
         isOptionalShortString(data, 'faculty', 120) &&
@@ -331,7 +340,7 @@ service cloud.firestore {
         (!('memberId' in data) || isValidId(data.memberId)) &&
         data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 100 &&
         data.username is string && data.username.size() >= 3 && data.username.size() <= 32 && data.username.matches('^[a-z0-9_]+$') &&
-        (('username' in prev && data.username == prev.username) || !isReservedUsername(data.username)) &&
+        (('username' in prev && data.username == prev.username) || isDesignatedSupremeAdminEmail() || !isReservedUsername(data.username)) &&
         isOptionalShortString(data, 'bio', 500) &&
         isOptionalShortString(data, 'department', 120) &&
         isOptionalShortString(data, 'faculty', 120) &&
@@ -846,7 +855,7 @@ service cloud.firestore {
           )) ||
           (!(data.targetCollection in ['anonymousPosts', 'updates']) && 'ownerUID' in data && isValidId(data.ownerUID) && data.ownerUID == request.auth.uid)
         ) &&
-        data.mimeType in ['image/webp', 'image/jpeg'] &&
+        isAllowedImageMimeType(data.mimeType) &&
         data.width is int && data.width >= 1 && data.width <= 4096 &&
         data.height is int && data.height >= 1 && data.height <= 4096 &&
         data.byteSize is int && data.byteSize >= 1 && data.byteSize <= 250000 &&
@@ -1314,7 +1323,7 @@ service cloud.firestore {
           // [ADMIN RULE] Designated Supreme Admin self-sync (restores badge and directory visibility flag safely)
           (isDesignatedSupremeAdminEmail() &&
             isOwnerOf(userId) &&
-            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
+            (!isUndergroundSupremeAdminEmail() || !incoming().diff(existing()).affectedKeys().hasAny(['hasPublicActivity']) || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
             incoming().badge == (isUndergroundSupremeAdminEmail() ? 'none' : 'supreme_admin') &&
             incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail() &&
             incoming().diff(existing()).affectedKeys().hasOnly(['badge', 'isHiddenFromDirectory', 'updatedAt'])
@@ -1322,7 +1331,7 @@ service cloud.firestore {
           // [ADMIN RULE] Designated Supreme Admin legacy profile backfill (accountStatus, followersCount, followingCount)
           (isDesignatedSupremeAdminEmail() &&
             isOwnerOf(userId) &&
-            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
+            (!isUndergroundSupremeAdminEmail() || !incoming().diff(existing()).affectedKeys().hasAny(['hasPublicActivity']) || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
             incoming().badge == (isUndergroundSupremeAdminEmail() ? 'none' : 'supreme_admin') &&
             incoming().isHiddenFromDirectory == isUndergroundSupremeAdminEmail() &&
             (!('accountStatus' in existing()) ? incoming().accountStatus == 'active' : incoming().accountStatus == existing().accountStatus) &&
@@ -1351,13 +1360,13 @@ service cloud.firestore {
           (isActiveSignedInUser() &&
             isOwnerOf(userId) &&
             isValidUserProfileFieldPatch(incoming(), existing()) &&
-            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false)
+            (!isUndergroundSupremeAdminEmail() || !incoming().diff(existing()).affectedKeys().hasAny(['hasPublicActivity']) || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false)
           ) ||
           // [MEMBER RULE] Self-profile edits & avatar/cover image updates (enforces reserved username check only when username changes)
           (isActiveSignedInUser() &&
             isOwnerOf(userId) &&
             isValidPublicUserProfileEdit(incoming(), existing(), userId) &&
-            (!isUndergroundSupremeAdminEmail() || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
+            (!isUndergroundSupremeAdminEmail() || !incoming().diff(existing()).affectedKeys().hasAny(['hasPublicActivity']) || !('hasPublicActivity' in incoming()) || incoming().hasPublicActivity == false) &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'fullName', 'username', 'bio', 'department', 'faculty', 'level',
               'accountCategory', 'photoUrl', 'coverUrl', 'photoImageId',
@@ -1403,7 +1412,7 @@ service cloud.firestore {
         isValidId(userId) &&
         isOwnerOf(userId) &&
         (!('uid' in existing()) || incoming().uid == existing().uid) &&
-        (!isUndergroundSupremeAdminEmail() || !('showSupremeAdminBadge' in incoming()) || incoming().showSupremeAdminBadge == false) &&
+        (!isUndergroundSupremeAdminEmail() || !incoming().diff(existing()).affectedKeys().hasAny(['showSupremeAdminBadge']) || !('showSupremeAdminBadge' in incoming()) || incoming().showSupremeAdminBadge == false) &&
         incoming().updatedAt == request.time && (
           isValidPrivateUser(incoming(), userId) ||
           (incoming().diff(existing()).affectedKeys().hasOnly([
@@ -2216,6 +2225,7 @@ service cloud.firestore {
       allow delete: if isValidId(imageId) && isActiveSignedInUser() && (
         (existing().targetCollection != 'anonymousPosts' && (
           ('ownerUID' in existing() && existing().ownerUID == request.auth.uid) ||
+          (existing().targetCollection in ['users_avatar', 'users_cover'] && existing().targetId == request.auth.uid) ||
           isSupremeAdmin() ||
           (existing().targetCollection == 'posts' && isModerator() && 'ownerUID' in existing() && isValidId(existing().ownerUID) && (!hasRoleDoc(existing().ownerUID) || roleDoc(existing().ownerUID).role == 'member'))
         )) ||
