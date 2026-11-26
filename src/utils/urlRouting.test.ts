@@ -8,11 +8,12 @@ import {
 
 test('parseLocationSearch extracts deep-link postId, commentId, listingId, eventId, and opportunityId', () => {
   const postParsed = parseLocationSearch(
-    '?view=for-you&postId=post_123&commentId=cmt_456'
+    '?view=for-you&postId=post_123&commentId=cmt_456&notifId=rx_p_1'
   );
   assert.equal(postParsed.route, 'for-you');
   assert.equal(postParsed.postId, 'post_123');
   assert.equal(postParsed.commentId, 'cmt_456');
+  assert.equal(postParsed.notifId, 'rx_p_1');
 
   const listingParsed = parseLocationSearch(
     '?view=marketplace&listingId=mkt_99&commentId=cmt_77'

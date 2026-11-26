@@ -134,6 +134,10 @@ export default async function handler(
     typeof body.replyToCommentId === 'string' && isValidFirestoreId(body.replyToCommentId)
       ? body.replyToCommentId
       : undefined;
+  const nonce =
+    typeof body.nonce === 'string' && /^[a-zA-Z0-9_-]{1,16}$/.test(body.nonce)
+      ? body.nonce
+      : undefined;
 
   if (action === 'comment' && (!isValidFirestoreId(postId) || !isValidFirestoreId(commentId))) {
     sendJson(res, 400, { error: 'Valid postId and commentId are required.' });
@@ -305,7 +309,8 @@ export default async function handler(
       return;
     }
 
-    const notifId = `anon_rx_p_${sanitizeIdPart(postId, 44)}_${hashActorUid(caller.uid)}`;
+    const baseNotifId = `anon_rx_p_${sanitizeIdPart(postId, 40)}_${hashActorUid(caller.uid)}`;
+    const notifId = nonce ? `${baseNotifId}_${nonce}` : baseNotifId;
     const excerpt = summarizeExcerpt(postSnap.data()?.body, 120);
     await createAndDeliverAnonymousNotification(db, {
       notifId,
@@ -343,7 +348,8 @@ export default async function handler(
     typeof commentData.postId === 'string' && isValidFirestoreId(commentData.postId)
       ? commentData.postId
       : postId;
-  const notifId = `anon_rx_c_${sanitizeIdPart(commentId, 44)}_${hashActorUid(caller.uid)}`;
+  const baseNotifId = `anon_rx_c_${sanitizeIdPart(commentId, 40)}_${hashActorUid(caller.uid)}`;
+  const notifId = nonce ? `${baseNotifId}_${nonce}` : baseNotifId;
   const excerpt = summarizeExcerpt(commentData.body, 120);
   const targetPath = isValidFirestoreId(targetPostId)
     ? `/?view=anonymous&postId=${targetPostId}&commentId=${commentId}`

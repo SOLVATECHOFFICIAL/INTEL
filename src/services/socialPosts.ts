@@ -104,9 +104,12 @@ import {
   buildReplyNotificationId,
   extractMentionedUsernames,
   shouldEmitActivityNotification,
+  shouldThrottleReactionNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
 import { triggerBestEffortAnonymousPush } from './webPush';
+
+const postReactionNotifCooldowns = new Map<string, number>();
 import {
   notifyAdminUpdateSavedChanged,
   notifyAnonymousPostCreated,
@@ -1371,21 +1374,29 @@ export async function togglePostReaction(input: {
         recipientUid: result.postOwnerUid,
       })
     ) {
-      void createSafeMemberNotification({
-        id: buildReactionNotificationId('posts', input.postId, input.actorUid),
-        recipientUid: result.postOwnerUid,
-        eventType: 'reaction',
-        title: 'Someone liked your post',
-        body: result.postSnippet || undefined,
-        targetPath: `/?view=for-you&postId=${input.postId}`,
-        actorUid: input.actorUid,
-        targetImageId: result.postImageId,
-      });
+      const cooldownKey = `p:${input.postId}:${input.actorUid}`;
+      if (!shouldThrottleReactionNotification(postReactionNotifCooldowns, cooldownKey)) {
+        const nonce = Date.now().toString(36);
+        void createSafeMemberNotification({
+          id: buildReactionNotificationId('posts', input.postId, input.actorUid, nonce),
+          recipientUid: result.postOwnerUid,
+          eventType: 'reaction',
+          title: 'Someone liked your post',
+          body: result.postSnippet || undefined,
+          targetPath: `/?view=for-you&postId=${input.postId}`,
+          actorUid: input.actorUid,
+          targetImageId: result.postImageId,
+        });
+      }
     } else if (input.kind === 'anonymousPosts' && result.liked) {
-      void triggerBestEffortAnonymousPush({
-        action: 'post_like',
-        postId: input.postId,
-      });
+      const cooldownKey = `ap:${input.postId}:${input.actorUid}`;
+      if (!shouldThrottleReactionNotification(postReactionNotifCooldowns, cooldownKey)) {
+        void triggerBestEffortAnonymousPush({
+          action: 'post_like',
+          postId: input.postId,
+          nonce: Date.now().toString(36),
+        });
+      }
     }
 
     if (input.kind === 'posts') {
@@ -1500,10 +1511,14 @@ export async function toggleAnonymousCommentReaction(input: {
     );
 
     if (result.liked) {
-      void triggerBestEffortAnonymousPush({
-        action: 'comment_like',
-        commentId: input.commentId,
-      });
+      const cooldownKey = `ac:${input.commentId}:${input.actorUid}`;
+      if (!shouldThrottleReactionNotification(postReactionNotifCooldowns, cooldownKey)) {
+        void triggerBestEffortAnonymousPush({
+          action: 'comment_like',
+          commentId: input.commentId,
+          nonce: Date.now().toString(36),
+        });
+      }
     }
 
     return result;

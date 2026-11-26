@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bell,
   BellOff,
@@ -9,6 +9,10 @@ import {
   X,
 } from 'lucide-react';
 import { useWebPushNotifications } from '../../hooks/useWebPushNotifications';
+import {
+  fetchPushConfigDiagnostics,
+  type ServerPushDiagnostics,
+} from '../../services/webPush';
 import { PWAInstallControl } from './PWAInstallControl';
 
 export type WebPushButtonVariant = 'inline' | 'compact' | 'full' | 'banner';
@@ -63,6 +67,24 @@ export const WebPushNotificationButton: React.FC<
   const [dismissed, setDismissed] = useState<boolean>(() =>
     dismissible ? readBannerDismissed() : false
   );
+  const [diagnostics, setDiagnostics] = useState<ServerPushDiagnostics | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (status !== 'server_unconfigured' || variant === 'compact') {
+      return;
+    }
+    let active = true;
+    void fetchPushConfigDiagnostics().then((res) => {
+      if (active && res) {
+        setDiagnostics(res);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [status, variant]);
 
   if (dismissible && dismissed) {
     return null;
@@ -210,6 +232,14 @@ export const WebPushNotificationButton: React.FC<
               automatically once VAPID keys and Firebase Admin credentials are
               configured.
             </p>
+            {diagnostics && diagnostics.missingItems.length > 0 && (
+              <p className="mt-1 text-[11px] font-medium text-amber-950">
+                Missing or invalid server env on this deployment:{' '}
+                <span className="font-mono">
+                  {diagnostics.missingItems.join(', ')}
+                </span>
+              </p>
+            )}
           </div>
         </div>
 

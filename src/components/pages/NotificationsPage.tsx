@@ -362,7 +362,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({
                 : 'text-slate-600 hover:text-[#0B1A2E]'
             }`}
           >
-            Unread ({unreadNotificationsCount})
+            Unread ({formatUnreadBadgeCount(unreadNotificationsCount) ?? '0'})
           </button>
         </div>
 

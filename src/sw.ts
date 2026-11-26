@@ -34,6 +34,10 @@ interface SwRegistration {
       badge?: string;
       tag?: string;
       renotify?: boolean;
+      silent?: boolean;
+      vibrate?: number[];
+      timestamp?: number;
+      requireInteraction?: boolean;
       data?: Record<string, unknown>;
       actions?: SwNotificationAction[];
     }
@@ -281,13 +285,50 @@ sw.addEventListener('push', (rawEvent: unknown) => {
     sw.location.origin
   );
 
+  const notifyClientsPromise = (async () => {
+    const payload = {
+      type: 'LASUED_PUSH_RECEIVED',
+      notificationId: normalized.notificationId,
+      tag: normalized.tag ?? null,
+      targetPath: normalized.targetPath,
+      eventType: normalized.eventType,
+    };
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('lasued-push-events');
+        channel.postMessage(payload);
+        channel.close();
+      }
+    } catch {
+      // BroadcastChannel unavailable in older runtimes
+    }
+    try {
+      const windowClients = await sw.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const client of windowClients) {
+        if (client.url.startsWith(sw.location.origin)) {
+          client.postMessage(payload);
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+  })();
+
   const notificationPromise = Promise.all([
     applyAppBadgeSafely(normalized.unreadCount),
+    notifyClientsPromise,
     sw.registration.showNotification(normalized.title, {
       body: normalized.body,
       icon: normalized.icon,
       badge: normalized.badge,
-      ...(normalized.tag ? { tag: normalized.tag, renotify: true } : {}),
+      ...(normalized.tag ? { tag: normalized.tag, renotify: true } : { renotify: true }),
+      silent: false,
+      vibrate: [200, 90, 200],
+      timestamp: Date.now(),
+      requireInteraction: false,
       data: {
         targetPath: normalized.targetPath,
         notificationId: normalized.notificationId,
@@ -307,10 +348,15 @@ sw.addEventListener('notificationclick', (rawEvent: unknown) => {
     event.notification.data?.targetPath
   );
   const notificationId =
-    typeof event.notification.data?.notificationId === 'string'
+    typeof event.notification.data?.notificationId === 'string' &&
+    /^[a-zA-Z0-9_-]{1,128}$/.test(event.notification.data.notificationId)
       ? event.notification.data.notificationId
       : null;
-  const targetUrl = new URL(targetPath, sw.location.origin).toString();
+  const targetUrlObj = new URL(targetPath, sw.location.origin);
+  if (notificationId && !targetUrlObj.searchParams.has('notifId')) {
+    targetUrlObj.searchParams.set('notifId', notificationId);
+  }
+  const coldStartTargetUrl = targetUrlObj.toString();
 
   const focusOrOpen = (async () => {
     const windowClients = await sw.clients.matchAll({
@@ -340,10 +386,10 @@ sw.addEventListener('notificationclick', (rawEvent: unknown) => {
       }
       if (sameOriginClient.url.includes('/offline.html')) {
         if (typeof sameOriginClient.navigate === 'function') {
-          await sameOriginClient.navigate(targetUrl).catch(() => undefined);
+          await sameOriginClient.navigate(coldStartTargetUrl).catch(() => undefined);
           return;
         }
-        await sw.clients.openWindow(targetUrl);
+        await sw.clients.openWindow(coldStartTargetUrl);
         return;
       }
       sameOriginClient.postMessage({
@@ -354,7 +400,7 @@ sw.addEventListener('notificationclick', (rawEvent: unknown) => {
       return;
     }
 
-    await sw.clients.openWindow(targetUrl);
+    await sw.clients.openWindow(coldStartTargetUrl);
   })();
 
   event.waitUntil(focusOrOpen);

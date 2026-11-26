@@ -285,7 +285,8 @@ export function buildReactionNotificationId(
     | 'postComments'
     | 'marketplaceListings',
   targetId: string,
-  actorUid: string
+  actorUid: string,
+  nonce?: string
 ): string {
   const shortCol =
     targetCollection === 'posts'
@@ -297,7 +298,30 @@ export function buildReactionNotificationId(
           : targetCollection === 'marketplaceListings'
             ? 'm'
             : 'pc';
-  return `rx_${shortCol}_${sanitizeIdPart(targetId, 44)}_${sanitizeIdPart(actorUid, 44)}`;
+  if (!nonce) {
+    return `rx_${shortCol}_${sanitizeIdPart(targetId, 44)}_${sanitizeIdPart(actorUid, 44)}`;
+  }
+  const cleanNonce = sanitizeIdPart(nonce, 16);
+  const base = `rx_${shortCol}_${sanitizeIdPart(targetId, 40)}_${sanitizeIdPart(actorUid, 40)}`;
+  return cleanNonce ? `${base}_${cleanNonce}` : base;
+}
+
+export function shouldThrottleReactionNotification(
+  cooldownMap: Map<string, number>,
+  key: string,
+  nowMs: number = Date.now(),
+  cooldownMs: number = 4000
+): boolean {
+  const lastMs = cooldownMap.get(key);
+  if (typeof lastMs === 'number' && nowMs - lastMs < cooldownMs) {
+    return true;
+  }
+  cooldownMap.set(key, nowMs);
+  if (cooldownMap.size > 300) {
+    const oldestKey = cooldownMap.keys().next().value;
+    if (oldestKey) cooldownMap.delete(oldestKey);
+  }
+  return false;
 }
 
 export function buildCommentNotificationId(commentId: string): string {

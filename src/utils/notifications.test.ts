@@ -32,6 +32,7 @@ import {
   rollbackOptimisticMarkReadIds,
   rollbackOptimisticMarkUnreadIds,
   shouldEmitActivityNotification,
+  shouldThrottleReactionNotification,
 } from './notifications';
 
 function makeNotification(
@@ -54,9 +55,20 @@ test('deterministic notification ID builders prevent duplicates and enforce Fire
   assert.equal(rx1, rx2);
   assert.match(rx1, /^[a-zA-Z0-9_-]{1,128}$/);
 
+  const rxRepeatA = buildReactionNotificationId('posts', 'post_abc', 'actor_1', 'm1abc');
+  const rxRepeatB = buildReactionNotificationId('posts', 'post_abc', 'actor_1', 'm1abd');
+  assert.notEqual(rxRepeatA, rxRepeatB);
+  assert.match(rxRepeatA, /^[a-zA-Z0-9_-]{1,128}$/);
+
+  const cooldownMap = new Map<string, number>();
+  assert.equal(shouldThrottleReactionNotification(cooldownMap, 'p:1:a', 1000, 4000), false);
+  assert.equal(shouldThrottleReactionNotification(cooldownMap, 'p:1:a', 2500, 4000), true);
+  assert.equal(shouldThrottleReactionNotification(cooldownMap, 'p:1:a', 5500, 4000), false);
+
   const longId = 'a'.repeat(160);
   for (const id of [
     buildReactionNotificationId('postComments', longId, longId),
+    buildReactionNotificationId('postComments', longId, longId, 'nonce_12345'),
     buildReactionNotificationId('updates', longId, longId),
     buildCommentNotificationId(longId),
     buildReplyNotificationId(longId),

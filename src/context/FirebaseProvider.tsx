@@ -20,6 +20,7 @@ import { clearSearchBundleCache } from '../services/searchDiscovery';
 import { subscribeToAuthChanges } from '../services/auth';
 import {
   dispatchLocalAllowedNotificationsBatch,
+  markPushReceivedFromServiceWorker,
   syncAppBadgeWithServiceWorker,
   verifyStoredPushSubscriptionForUser,
 } from '../services/webPush';
@@ -35,6 +36,7 @@ import {
   markNotificationAsRead,
   markNotificationAsUnread,
   subscribePublicMemberProfile,
+  subscribeUnreadNotificationsSummary,
   subscribeUserNotifications,
   subscribeUserRoleRecord,
   subscribeViewerFollowUsernames,
@@ -43,12 +45,15 @@ import {
   unfollowMemberByUsername,
   updateNotificationPreferences,
   updatePrivateUserInterests,
+  type UnreadNotificationSummaryItem,
 } from '../services/firestoreFoundation';
 import { syncOwnAnonymousLikesReceivedCount } from '../services/socialPosts';
-import type {
-  NotificationItem,
-  PublicUserProfile,
-  UserRoleRecord,
+import {
+  isValidFirestoreId,
+  type NotificationEventType,
+  type NotificationItem,
+  type PublicUserProfile,
+  type UserRoleRecord,
 } from '../types/database';
 import {
   formatFirestoreOrAppError,
@@ -77,6 +82,10 @@ import {
   rollbackOptimisticMarkUnreadIds,
   type NotificationPreferences,
 } from '../utils/notifications';
+import {
+  playNotificationSound,
+  unlockNotificationAudio,
+} from '../utils/notificationSound';
 import { normalizeInterestList } from '../utils/feedRanking';
 import {
   FirebaseContext,
@@ -138,6 +147,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   );
   const profileRef = useRef<PublicUserProfile | null>(null);
   const liveNotificationsRef = useRef<NotificationItem[]>([]);
+  const [unreadNotificationRefs, setUnreadNotificationRefs] = useState<
+    UnreadNotificationSummaryItem[] | null
+  >(null);
   const [foregroundNotificationToast, setForegroundNotificationToast] =
     useState<NotificationItem | null>(null);
 
@@ -158,10 +170,18 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     [liveNotifications, olderNotifications]
   );
 
-  const unreadNotificationsCount = useMemo(
-    () => computeUnreadNotificationsCount(notifications, notificationPrefs),
-    [notifications, notificationPrefs]
-  );
+  const unreadNotificationsCount = useMemo(() => {
+    if (unreadNotificationRefs !== null) {
+      let count = 0;
+      for (const item of unreadNotificationRefs) {
+        if (isNotificationAllowedByPrefs(item, notificationPrefs)) {
+          count += 1;
+        }
+      }
+      return count;
+    }
+    return computeUnreadNotificationsCount(notifications, notificationPrefs);
+  }, [unreadNotificationRefs, notifications, notificationPrefs]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -186,6 +206,15 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       void reconnectFirestoreNetwork().then((result) => {
         applyConnectionResult(result.connected);
       });
+      const currentUid = auth.currentUser?.uid;
+      if (
+        currentUid &&
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
+        void verifyStoredPushSubscriptionForUser(currentUid);
+      }
     };
     const handleOffline = () => {
       applyConnectionResult(false);
@@ -202,6 +231,64 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         });
       }
     };
+
+    const handleUserAudioUnlock = () => {
+      unlockNotificationAudio();
+    };
+    window.addEventListener('pointerdown', handleUserAudioUnlock, {
+      once: true,
+      passive: true,
+    });
+    window.addEventListener('keydown', handleUserAudioUnlock, {
+      once: true,
+      passive: true,
+    });
+
+    const handlePushReceiptMessage = (rawData: unknown) => {
+      if (!rawData || typeof rawData !== 'object') return;
+      const data = rawData as Record<string, unknown>;
+      if (data.type !== 'LASUED_PUSH_RECEIVED') return;
+      const notificationId =
+        typeof data.notificationId === 'string' ? data.notificationId : null;
+      const tag = typeof data.tag === 'string' ? data.tag : null;
+      markPushReceivedFromServiceWorker({ notificationId, tag });
+
+      if (
+        auth.currentUser &&
+        !isAccountSuspended(profileRef.current) &&
+        document.visibilityState === 'visible'
+      ) {
+        const eventType =
+          typeof data.eventType === 'string'
+            ? (data.eventType as NotificationEventType)
+            : null;
+        if (
+          !eventType ||
+          isNotificationAllowedByPrefs({ eventType }, notificationPrefsRef.current)
+        ) {
+          playNotificationSound(notificationId);
+        }
+      }
+    };
+
+    let pushBroadcastChannel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        pushBroadcastChannel = new BroadcastChannel('lasued-push-events');
+        pushBroadcastChannel.onmessage = (event) => {
+          handlePushReceiptMessage(event.data);
+        };
+      } catch {
+        pushBroadcastChannel = null;
+      }
+    }
+
+    const handleSwMessage = (event: MessageEvent) => {
+      handlePushReceiptMessage(event.data);
+    };
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -229,6 +316,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         setProfileSyncedUid(null);
         setLiveNotifications([]);
         setOlderNotifications([]);
+        setUnreadNotificationRefs(null);
         setNotificationsStatus('ready');
         setHasMoreNotifications(false);
         setLoadingOlderNotifications(false);
@@ -253,6 +341,7 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         if (previousUid !== nextUser.uid) {
           setRoleSyncedUid(null);
           setProfileSyncedUid(null);
+          setUnreadNotificationRefs(null);
           seenLiveNotifIdsRef.current = new Set();
           notifBaselineReadyForUidRef.current = null;
           setForegroundNotificationToast(null);
@@ -269,19 +358,27 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
     return () => {
       active = false;
       unsubscribeAuth();
+      pushBroadcastChannel?.close();
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+      window.removeEventListener('pointerdown', handleUserAudioUnlock);
+      window.removeEventListener('keydown', handleUserAudioUnlock);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
+  const activeUid = user?.uid ?? null;
+
   useEffect(() => {
-    if (!authReady || !user) {
+    if (!authReady || !activeUid) {
       return;
     }
 
     let cancelled = false;
-    void fetchPrivateUserData(user.uid)
+    void fetchPrivateUserData(activeUid)
       .then((priv) => {
         if (cancelled || !priv) return;
         if (priv.notificationPrefs) {
@@ -296,21 +393,21 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       .catch(() => undefined);
 
     const unsubscribeRole = subscribeUserRoleRecord(
-      user.uid,
+      activeUid,
       (record) => {
         setRoleRecord(record);
-        setRoleSyncedUid(user.uid);
+        setRoleSyncedUid(activeUid);
       },
       () => {
-        setRoleSyncedUid(user.uid);
+        setRoleSyncedUid(activeUid);
       }
     );
 
     const unsubscribeProfile = subscribePublicMemberProfile(
-      user.uid,
+      activeUid,
       (nextProfile) => {
         setProfile(nextProfile);
-        setProfileSyncedUid(user.uid);
+        setProfileSyncedUid(activeUid);
         if (nextProfile?.username) {
           uidToUsernameCacheRef.current.set(
             nextProfile.uid,
@@ -319,18 +416,18 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         }
       },
       () => {
-        setProfileSyncedUid(user.uid);
+        setProfileSyncedUid(activeUid);
       }
     );
 
     const unsubscribeNotifications = subscribeUserNotifications(
-      user.uid,
+      activeUid,
       (snapshot) => {
-        if (notifBaselineReadyForUidRef.current !== user.uid) {
+        if (notifBaselineReadyForUidRef.current !== activeUid) {
           seenLiveNotifIdsRef.current = new Set(
             snapshot.items.map((item) => item.id)
           );
-          notifBaselineReadyForUidRef.current = user.uid;
+          notifBaselineReadyForUidRef.current = activeUid;
         } else {
           const incomingAllowed = snapshot.items.filter(
             (item) =>
@@ -344,8 +441,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
           if (incomingAllowed.length > 0) {
             setForegroundNotificationToast(incomingAllowed[0]);
             if (!isAccountSuspended(profileRef.current)) {
+              playNotificationSound(incomingAllowed[0].id);
               void dispatchLocalAllowedNotificationsBatch(incomingAllowed, {
-                uid: user.uid,
+                uid: activeUid,
                 prefs: notificationPrefsRef.current,
               });
             }
@@ -370,8 +468,17 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       }
     );
 
+    const unsubscribeUnreadSummary = subscribeUnreadNotificationsSummary(
+      activeUid,
+      (summary) => {
+        if (!cancelled) {
+          setUnreadNotificationRefs(summary);
+        }
+      }
+    );
+
     const unsubscribeFollows = subscribeViewerFollowUsernames(
-      user.uid,
+      activeUid,
       uidToUsernameCacheRef.current,
       ({ followingUsernames: nextFollowing, followerUsernames: nextFollowers }) => {
         setFollowingUsernames(nextFollowing);
@@ -384,9 +491,10 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       unsubscribeRole();
       unsubscribeProfile();
       unsubscribeNotifications();
+      unsubscribeUnreadSummary();
       unsubscribeFollows();
     };
-  }, [authReady, user]);
+  }, [authReady, activeUid]);
 
   useEffect(() => {
     if (
@@ -546,7 +654,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
 
   const markNotificationReadOptimistic = useCallback(
     async (notificationId: string) => {
-      if (!user || isAccountSuspended(profile)) return;
+      if (!user || isAccountSuspended(profile) || !isValidFirestoreId(notificationId)) {
+        return;
+      }
       const liveApplied = applyOptimisticMarkRead(
         liveNotifications,
         notificationId
@@ -555,8 +665,12 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         olderNotifications,
         notificationId
       );
+      const alreadyMarkedRead =
+        (!liveApplied.changed && !olderApplied.changed) &&
+        (liveNotifications.some((n) => n.id === notificationId && n.isRead) ||
+          olderNotifications.some((n) => n.id === notificationId && n.isRead));
 
-      if (!liveApplied.changed && !olderApplied.changed) {
+      if (alreadyMarkedRead) {
         return;
       }
 
@@ -566,6 +680,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       if (olderApplied.changed) {
         setOlderNotifications(olderApplied.nextItems);
       }
+      setUnreadNotificationRefs((prev) =>
+        prev ? prev.filter((entry) => entry.id !== notificationId) : prev
+      );
       setNotificationError(null);
 
       try {
@@ -617,6 +734,16 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       if (olderApplied.changed) {
         setOlderNotifications(olderApplied.nextItems);
       }
+      const targetNotif =
+        liveNotifications.find((n) => n.id === notificationId) ??
+        olderNotifications.find((n) => n.id === notificationId);
+      if (targetNotif) {
+        setUnreadNotificationRefs((prev) => {
+          if (!prev) return prev;
+          if (prev.some((entry) => entry.id === notificationId)) return prev;
+          return [...prev, { id: notificationId, eventType: targetNotif.eventType }];
+        });
+      }
       setNotificationError(null);
 
       try {
@@ -646,17 +773,19 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
   const markAllNotificationsReadOptimistic = useCallback(async () => {
     if (!user || isAccountSuspended(profile)) return;
     const unreadTargets = notifications.filter((item) => !item.isRead);
-    if (unreadTargets.length === 0) return;
+    const extraUnreadIds = (unreadNotificationRefs ?? []).map((entry) => entry.id);
+    if (unreadTargets.length === 0 && extraUnreadIds.length === 0) return;
 
     const liveApplied = applyOptimisticMarkAllRead(liveNotifications);
     const olderApplied = applyOptimisticMarkAllRead(olderNotifications);
 
     setLiveNotifications(liveApplied.nextItems);
     setOlderNotifications(olderApplied.nextItems);
+    setUnreadNotificationRefs((prev) => (prev ? [] : prev));
     setNotificationError(null);
 
     try {
-      await markAllNotificationsAsRead(unreadTargets);
+      await markAllNotificationsAsRead(unreadTargets, extraUnreadIds);
     } catch (err) {
       if (liveApplied.changedIds.length > 0) {
         setLiveNotifications((prev) =>
@@ -675,7 +804,14 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
         )
       );
     }
-  }, [user, profile, notifications, liveNotifications, olderNotifications]);
+  }, [
+    user,
+    profile,
+    notifications,
+    unreadNotificationRefs,
+    liveNotifications,
+    olderNotifications,
+  ]);
 
   const deleteNotificationOptimistic = useCallback(
     async (notificationId: string) => {
@@ -699,6 +835,9 @@ export function FirebaseProvider({ children }: FirebaseProviderProps) {
       if (olderRemoved.removedItem) {
         setOlderNotifications(olderRemoved.nextItems);
       }
+      setUnreadNotificationRefs((prev) =>
+        prev ? prev.filter((entry) => entry.id !== notificationId) : prev
+      );
       setNotificationError(null);
 
       try {

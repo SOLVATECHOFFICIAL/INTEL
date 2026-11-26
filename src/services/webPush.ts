@@ -32,8 +32,20 @@ import {
 } from '../utils/pwa';
 
 let cachedServerVapidKey: string | null | undefined;
+let cachedVapidNullUntilMs = 0;
+const VAPID_NULL_CACHE_TTL_MS = 15_000;
 const PUSH_ENDPOINT_MARKER_PREFIX = 'lasued_intel_push_synced_';
 const PUSH_OPT_OUT_KEY_PREFIX = 'lasued_intel_push_opt_out_';
+
+export interface ServerPushDiagnostics {
+  configured: boolean;
+  missingItems: string[];
+  details?: {
+    vapidPublicKeyValid?: boolean;
+    vapidPrivateKeyValid?: boolean;
+    firebaseServiceAccountValid?: boolean;
+  };
+}
 
 function arrayBufferToBase64Url(buffer: ArrayBuffer | null): string {
   if (!buffer) return '';
@@ -67,8 +79,11 @@ function extractSubscriptionKeys(sub: PushSubscription): {
 }
 
 export async function fetchConfiguredVapidPublicKey(): Promise<string | null> {
-  if (cachedServerVapidKey !== undefined) {
+  if (typeof cachedServerVapidKey === 'string') {
     return cachedServerVapidKey;
+  }
+  if (cachedServerVapidKey === null && Date.now() < cachedVapidNullUntilMs) {
+    return null;
   }
 
   let buildEnvKey: string | null = null;
@@ -92,10 +107,14 @@ export async function fetchConfiguredVapidPublicKey(): Promise<string | null> {
       cache: 'no-store',
     });
     if (!response.ok) {
+      cachedServerVapidKey = null;
+      cachedVapidNullUntilMs = Date.now() + VAPID_NULL_CACHE_TTL_MS;
       return null;
     }
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
+      cachedServerVapidKey = null;
+      cachedVapidNullUntilMs = Date.now() + VAPID_NULL_CACHE_TTL_MS;
       return null;
     }
     const data = (await response.json()) as {
@@ -108,11 +127,55 @@ export async function fetchConfiguredVapidPublicKey(): Promise<string | null> {
         : buildEnvKey;
       if (serverKey) {
         cachedServerVapidKey = serverKey;
+        cachedVapidNullUntilMs = 0;
         return cachedServerVapidKey;
       }
     }
     cachedServerVapidKey = null;
+    cachedVapidNullUntilMs = Date.now() + VAPID_NULL_CACHE_TTL_MS;
     return null;
+  } catch {
+    cachedServerVapidKey = null;
+    cachedVapidNullUntilMs = Date.now() + VAPID_NULL_CACHE_TTL_MS;
+    return null;
+  }
+}
+
+export async function fetchPushConfigDiagnostics(): Promise<ServerPushDiagnostics | null> {
+  if (typeof fetch !== 'function') return null;
+  try {
+    const response = await fetch('/api/push/config?diagnostics=1', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
+    const data = (await response.json()) as {
+      configured?: boolean;
+      diagnostics?: {
+        vapidPublicKeyValid?: boolean;
+        vapidPrivateKeyValid?: boolean;
+        firebaseServiceAccountValid?: boolean;
+      };
+    };
+    const missingItems: string[] = [];
+    if (data.diagnostics) {
+      if (!data.diagnostics.vapidPublicKeyValid) {
+        missingItems.push('WEB_PUSH_VAPID_PUBLIC_KEY');
+      }
+      if (!data.diagnostics.vapidPrivateKeyValid) {
+        missingItems.push('WEB_PUSH_VAPID_PRIVATE_KEY');
+      }
+      if (!data.diagnostics.firebaseServiceAccountValid) {
+        missingItems.push('FIREBASE_SERVICE_ACCOUNT_JSON');
+      }
+    }
+    return {
+      configured: Boolean(data.configured),
+      missingItems,
+      details: data.diagnostics,
+    };
   } catch {
     return null;
   }
@@ -120,6 +183,7 @@ export async function fetchConfiguredVapidPublicKey(): Promise<string | null> {
 
 export function clearCachedVapidKey(): void {
   cachedServerVapidKey = undefined;
+  cachedVapidNullUntilMs = 0;
 }
 
 function writeSyncedPushMarker(uid: string, endpoint: string | null): void {
@@ -314,12 +378,20 @@ export async function verifyStoredPushSubscriptionForUser(
     return false;
   }
 
-  const sub = await getActiveBrowserPushSubscription();
-  if (!sub) return false;
-
   const configuredVapidKey = await fetchConfiguredVapidPublicKey().catch(
     () => null
   );
+  const sub = await getActiveBrowserPushSubscription();
+  if (!sub) {
+    if (!configuredVapidKey) return false;
+    try {
+      const created = await subscribeDeviceToWebPush(uid, configuredVapidKey);
+      return Boolean(created.endpoint);
+    } catch {
+      return false;
+    }
+  }
+
   const existingServerKey = sub.options?.applicationServerKey ?? null;
   if (
     configuredVapidKey &&
@@ -587,6 +659,7 @@ async function postPushJsonWithRetry(
   const sendOnce = () =>
     fetch(url, {
       method: 'POST',
+      keepalive: true,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
@@ -638,6 +711,7 @@ export async function triggerBestEffortAnonymousPush(input: {
   commentId?: string;
   parentCommentId?: string;
   replyToCommentId?: string;
+  nonce?: string;
 }): Promise<void> {
   if (typeof fetch !== 'function') return;
   await runQueuedPushTask(async () => {
@@ -661,6 +735,9 @@ export async function triggerBestEffortAnonymousPush(input: {
         ...(input.replyToCommentId && isValidFirestoreId(input.replyToCommentId)
           ? { replyToCommentId: input.replyToCommentId }
           : {}),
+        ...(input.nonce && /^[a-zA-Z0-9_-]{1,16}$/.test(input.nonce)
+          ? { nonce: input.nonce }
+          : {}),
       });
     } catch {
       // Non-blocking best-effort anonymous push delivery
@@ -669,6 +746,37 @@ export async function triggerBestEffortAnonymousPush(input: {
 }
 
 const deliveredLocalAlertTags = new Set<string>();
+const receivedServerPushMarkers = new Set<string>();
+
+function addBoundedPushMarker(set: Set<string>, marker: string, max = 600): void {
+  set.add(marker);
+  if (set.size > max) {
+    const firstKey = set.values().next().value;
+    if (firstKey) set.delete(firstKey);
+  }
+}
+
+export function markPushReceivedFromServiceWorker(input?: {
+  notificationId?: string | null;
+  tag?: string | null;
+}): void {
+  if (input?.notificationId) {
+    addBoundedPushMarker(receivedServerPushMarkers, `id:${input.notificationId}`);
+  }
+  if (input?.tag) {
+    addBoundedPushMarker(receivedServerPushMarkers, `tag:${input.tag}`);
+  }
+}
+
+function hasReceivedServerPushForItem(
+  item: NotificationItem,
+  tag: string
+): boolean {
+  return (
+    receivedServerPushMarkers.has(`id:${item.id}`) ||
+    receivedServerPushMarkers.has(`tag:${tag}`)
+  );
+}
 
 export async function dispatchLocalAllowedNotificationsBatch(
   items: readonly NotificationItem[],
@@ -706,11 +814,32 @@ export async function dispatchLocalAllowedNotificationsBatch(
     : null;
   const serverPushActive = Boolean(vapidKey && activeSub);
 
-  // When active Web Push subscription is present, server /api/push/* handles tray alerts
-  // except client-synthesized offline fallback notifications (e.g. anon_lcnt_*).
-  const toShow = serverPushActive
+  // Give active Web Push ~1600ms to arrive via the Service Worker so we never double-notify,
+  // while still guaranteeing a local tray notification if server dispatch failed or wasn't sent.
+  const immediateItems = serverPushActive
     ? allowedItems.filter((item) => item.id.startsWith('anon_lcnt_'))
     : allowedItems;
+  const fallbackCandidates = serverPushActive
+    ? allowedItems.filter((item) => !item.id.startsWith('anon_lcnt_'))
+    : [];
+
+  let toShow = immediateItems;
+  if (fallbackCandidates.length > 0) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1600));
+    if (readDevicePushOptOut(options.uid) || Notification.permission !== 'granted') {
+      return 0;
+    }
+    const missedByServerPush = fallbackCandidates.filter((item) => {
+      const isAnon =
+        item.eventType === 'anonymous_reply' ||
+        item.eventType === 'anonymous_reaction';
+      const tag = isAnon
+        ? `anon_${item.id.slice(0, 48)}`
+        : `notif_${item.id.slice(0, 60)}`;
+      return !hasReceivedServerPushForItem(item, tag);
+    });
+    toShow = [...immediateItems, ...missedByServerPush];
+  }
 
   if (toShow.length === 0) return 0;
 
@@ -725,12 +854,10 @@ export async function dispatchLocalAllowedNotificationsBatch(
     const tag = isAnon
       ? `anon_${item.id.slice(0, 48)}`
       : `notif_${item.id.slice(0, 60)}`;
-    if (deliveredLocalAlertTags.has(tag)) continue;
-    deliveredLocalAlertTags.add(tag);
-    if (deliveredLocalAlertTags.size > 600) {
-      const firstKey = deliveredLocalAlertTags.values().next().value;
-      if (firstKey) deliveredLocalAlertTags.delete(firstKey);
+    if (deliveredLocalAlertTags.has(tag) || hasReceivedServerPushForItem(item, tag)) {
+      continue;
     }
+    addBoundedPushMarker(deliveredLocalAlertTags, tag);
 
     const title = item.title?.trim() || 'LASUED Intel Update';
     const body =
@@ -746,6 +873,9 @@ export async function dispatchLocalAllowedNotificationsBatch(
           badge: '/pwa-192x192.png',
           tag,
           renotify: true,
+          silent: false,
+          vibrate: [200, 90, 200],
+          timestamp: Date.now(),
           data: {
             targetPath,
             notificationId: item.id,
@@ -757,6 +887,7 @@ export async function dispatchLocalAllowedNotificationsBatch(
           body,
           icon: '/pwa-192x192.png',
           tag,
+          silent: false,
         });
       }
       shown += 1;
@@ -791,6 +922,7 @@ export async function triggerBestEffortPushBroadcast(input: {
 
     await fetch('/api/push/broadcast', {
       method: 'POST',
+      keepalive: true,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
@@ -873,13 +1005,18 @@ async function triggerLocalNotificationPreview(input: {
           icon: '/pwa-192x192.png',
           badge: '/pwa-192x192.png',
           tag,
+          renotify: true,
+          silent: false,
+          vibrate: [200, 90, 200],
+          timestamp: Date.now(),
           data: { targetPath: sample.targetPath },
-        });
+        } as NotificationOptions);
       } else {
         new Notification(sample.title, {
           body: sample.body,
           icon: '/pwa-192x192.png',
           tag,
+          silent: false,
         });
       }
       shown += 1;

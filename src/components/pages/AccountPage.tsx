@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
   User as UserIcon,
+  Volume2,
 } from 'lucide-react';
 import { useFirebase } from '../../context/firebaseContext';
 import {
@@ -70,6 +71,11 @@ import {
   NOTIFICATION_PREFERENCE_OPTIONS,
   type NotificationPrefKey,
 } from '../../utils/notifications';
+import {
+  isNotificationSoundEnabled,
+  playNotificationSound,
+  setNotificationSoundEnabled,
+} from '../../utils/notificationSound';
 import { ProfileBadgesRow } from '../RoleBadge';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
 import { AvatarMedia } from '../media/FirestoreImage';
@@ -169,6 +175,9 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   const [togglingWhatsapp, setTogglingWhatsapp] = useState(false);
   const isUndergroundAdmin = isUndergroundSupremeAdminUser(user);
   const isProtectedAdmin = isDesignatedSupremeAdminUser(user);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() =>
+    isNotificationSoundEnabled()
+  );
 
   // Section D: Account Deletion state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1100,6 +1109,56 @@ export const AccountPage: React.FC<AccountPageProps> = ({
                         </div>
                       );
                     })}
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-3">
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-1.5 text-xs font-bold text-[#0B1A2E]">
+                          <Volume2 className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                          In-App Alert Sound &amp; Vibration
+                        </p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
+                          Play a chime and gentle vibration when new likes, replies, or followers arrive.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            playNotificationSound(null, { force: true });
+                          }}
+                          className="inline-flex min-h-[34px] items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] transition-colors hover:bg-slate-50"
+                        >
+                          Test chime
+                        </button>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={soundEnabled}
+                          aria-label="Toggle notification sound and vibration"
+                          data-testid="toggle-notification-sound"
+                          onClick={() => {
+                            const next = !soundEnabled;
+                            setSoundEnabled(next);
+                            setNotificationSoundEnabled(next);
+                            if (next) {
+                              playNotificationSound(null, { force: true });
+                            }
+                          }}
+                          className={`inline-flex min-h-[34px] shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
+                            soundEnabled
+                              ? 'border-[#1E88E5]/40 bg-[#1E88E5]/10 text-[#0B1A2E]'
+                              : 'border-slate-300 bg-white text-slate-600'
+                          }`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`inline-block h-2 w-2 rounded-full ${
+                              soundEnabled ? 'bg-[#1E88E5]' : 'bg-slate-400'
+                            }`}
+                          />
+                          {soundEnabled ? 'On' : 'Off'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

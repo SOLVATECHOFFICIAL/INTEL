@@ -132,6 +132,7 @@ export interface ParsedRouteLocation {
   listingId: string | null;
   marketplaceTab: MarketplaceTab;
   accountSection: AccountSettingsSection;
+  notifId: string | null;
 }
 
 function parseSafeIdParam(params: URLSearchParams, key: string): string | null {
@@ -191,6 +192,7 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
     route === 'account' && isValidAccountSection(rawSection)
       ? rawSection
       : 'profile';
+  const notifId = parseSafeIdParam(params, 'notifId');
 
   return {
     route,
@@ -205,6 +207,7 @@ export function parseLocationSearch(search: string): ParsedRouteLocation {
     listingId,
     marketplaceTab,
     accountSection,
+    notifId,
   };
 }
 

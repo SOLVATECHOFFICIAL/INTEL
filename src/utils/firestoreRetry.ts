@@ -19,7 +19,32 @@ const TRANSIENT_FIREBASE_CODES = new Set([
 ]);
 
 const TRANSIENT_MESSAGE_PATTERN =
-  /Connection failed|the client is offline|Request time out|Failed to get document|Could not reach Cloud Firestore backend|The operation could not be completed|code=unavailable|network|transport|ECONNRESET|ETIMEDOUT/i;
+  /Connection failed|the client is offline|Request time out|Failed to get document|Could not reach Cloud Firestore backend|The operation could not be completed|code=unavailable|Target ID already exists|network|transport|ECONNRESET|ETIMEDOUT/i;
+
+const TARGET_ID_CONFLICT_PATTERN = /Target ID already exists/i;
+
+export function isFirestoreTargetIdConflictError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof (error as { message?: unknown }).message === 'string'
+        ? String((error as { message: string }).message)
+        : '';
+  return TARGET_ID_CONFLICT_PATTERN.test(message);
+}
+
+export function computeResilientSnapshotRetryDelayMs(
+  attempt: number,
+  jitterMs = 0
+): number {
+  const safeAttempt = Math.max(0, Math.trunc(attempt));
+  const baseMs = Math.min(10_000, 350 * Math.pow(2, safeAttempt));
+  const safeJitter = Number.isFinite(jitterMs) && jitterMs > 0 ? jitterMs : 0;
+  return Math.round(baseMs + Math.min(250, safeJitter));
+}
 
 export function isFirestoreSdkError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) {
@@ -54,6 +79,12 @@ export function hasValidFirebaseConfig(config: {
 export function isTransientFirestoreConnectionError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) {
     return false;
+  }
+
+  // Watch-stream target collisions emit code='already-exists' with "Target ID already exists: <N>"
+  // and must be recovered by listener re-subscription rather than treated as fatal write conflicts.
+  if (isFirestoreTargetIdConflictError(error)) {
+    return true;
   }
 
   const maybeCode = (error as { code?: unknown }).code;

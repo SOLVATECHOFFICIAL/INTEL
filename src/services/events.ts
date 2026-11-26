@@ -44,12 +44,14 @@ import {
   buildReplyNotificationId,
   extractMentionedUsernames,
   shouldEmitActivityNotification,
+  shouldThrottleReactionNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
 import { SingleFlightRegistry } from '../utils/cacheSync';
 import type { CommentWithAuthor } from './socialPosts';
 
 const eventsSingleFlight = new SingleFlightRegistry();
+const eventReactionNotifCooldowns = new Map<string, number>();
 
 export async function fetchPublishedCampusEvents(): Promise<CampusEvent[]> {
   return eventsSingleFlight.run('events:published', async () => {
@@ -174,16 +176,24 @@ export async function toggleEventReaction(input: {
         recipientUid: result.eventOwnerUid,
       })
     ) {
-      void createSafeMemberNotification({
-        id: buildReactionNotificationId('events', input.eventId, input.actorUid),
-        recipientUid: result.eventOwnerUid,
-        eventType: 'reaction',
-        title: `Someone liked event "${summarizeNotificationExcerpt(result.eventTitle, 80)}"`,
-        targetPath: `/?view=upcoming-events&eventId=${input.eventId}`,
-        actorUid: input.actorUid,
-        targetImageId: result.eventImageId,
-        targetImageUrl: result.eventImageId ? undefined : result.eventBannerUrl,
-      });
+      const cooldownKey = `e:${input.eventId}:${input.actorUid}`;
+      if (!shouldThrottleReactionNotification(eventReactionNotifCooldowns, cooldownKey)) {
+        void createSafeMemberNotification({
+          id: buildReactionNotificationId(
+            'events',
+            input.eventId,
+            input.actorUid,
+            Date.now().toString(36)
+          ),
+          recipientUid: result.eventOwnerUid,
+          eventType: 'reaction',
+          title: `Someone liked event "${summarizeNotificationExcerpt(result.eventTitle, 80)}"`,
+          targetPath: `/?view=upcoming-events&eventId=${input.eventId}`,
+          actorUid: input.actorUid,
+          targetImageId: result.eventImageId,
+          targetImageUrl: result.eventImageId ? undefined : result.eventBannerUrl,
+        });
+      }
     }
 
     notifyEventReactionChanged(
@@ -644,19 +654,23 @@ export async function togglePostCommentReaction(input: {
               ? `/?view=updates&postId=${result.parentPostId}&commentId=${input.commentId}`
               : `/?view=for-you&postId=${result.parentPostId}&commentId=${input.commentId}`;
 
-      void createSafeMemberNotification({
-        id: buildReactionNotificationId(
-          'postComments',
-          input.commentId,
-          input.actorUid
-        ),
-        recipientUid: result.commentOwnerUid,
-        eventType: 'reaction',
-        title: 'Someone liked your comment',
-        body: summarizeNotificationExcerpt(result.commentBody, 120) || undefined,
-        targetPath,
-        actorUid: input.actorUid,
-      });
+      const cooldownKey = `pc:${input.commentId}:${input.actorUid}`;
+      if (!shouldThrottleReactionNotification(eventReactionNotifCooldowns, cooldownKey)) {
+        void createSafeMemberNotification({
+          id: buildReactionNotificationId(
+            'postComments',
+            input.commentId,
+            input.actorUid,
+            Date.now().toString(36)
+          ),
+          recipientUid: result.commentOwnerUid,
+          eventType: 'reaction',
+          title: 'Someone liked your comment',
+          body: summarizeNotificationExcerpt(result.commentBody, 120) || undefined,
+          targetPath,
+          actorUid: input.actorUid,
+        });
+      }
     }
 
     return { liked: result.liked, likesCount: result.likesCount };

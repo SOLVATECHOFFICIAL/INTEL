@@ -29,6 +29,9 @@ import {
   refreshAuthSessionToken,
 } from '../lib/firebase';
 import {
+  computeResilientSnapshotRetryDelayMs,
+  isFirestoreTargetIdConflictError,
+  isPermissionDeniedError,
   isTransientFirestoreConnectionError,
   runWithPermissionRetry,
 } from '../utils/firestoreRetry';
@@ -232,30 +235,146 @@ export async function fetchUserRoleRecord(
   }
 }
 
+function subscribeWithTargetRecovery(options: {
+  label: string;
+  path: string;
+  attach: (
+    onError: (error: unknown) => void,
+    onHealthySnapshot: () => void
+  ) => Unsubscribe;
+  shouldContinue?: () => boolean;
+  onRecoverFallback?: (error: unknown) => void;
+  onTransientError?: (error: unknown) => void;
+  onFatalError?: (error: unknown) => void;
+  maxRecoveries?: number;
+}): Unsubscribe {
+  let disposed = false;
+  let activeUnsubscribe: Unsubscribe = () => {};
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let recoveryAttempt = 0;
+  const maxRecoveries = options.maxRecoveries ?? 6;
+
+  const clearRetryTimer = () => {
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  };
+
+  const detachActive = () => {
+    const prev = activeUnsubscribe;
+    activeUnsubscribe = () => {};
+    try {
+      prev();
+    } catch {
+      // Ignore detach cleanup errors from already-closed Watch streams
+    }
+  };
+
+  const start = () => {
+    if (disposed) return;
+    if (options.shouldContinue && !options.shouldContinue()) return;
+
+    detachActive();
+    let generationClosed = false;
+
+    const unsubscribe = options.attach(
+      (error) => {
+        if (disposed || generationClosed) return;
+        if (options.shouldContinue && !options.shouldContinue()) return;
+
+        if (
+          isFirestoreTargetIdConflictError(error) ||
+          isTransientFirestoreConnectionError(error)
+        ) {
+          generationClosed = true;
+          detachActive();
+          options.onTransientError?.(error);
+          options.onRecoverFallback?.(error);
+
+          if (recoveryAttempt < maxRecoveries) {
+            const delayMs = computeResilientSnapshotRetryDelayMs(
+              recoveryAttempt,
+              Math.random() * 180
+            );
+            recoveryAttempt += 1;
+            clearRetryTimer();
+            retryTimer = setTimeout(() => {
+              retryTimer = null;
+              start();
+            }, delayMs);
+          }
+          return;
+        }
+
+        options.onFatalError?.(error);
+      },
+      () => {
+        recoveryAttempt = 0;
+      }
+    );
+
+    if (disposed || generationClosed) {
+      try {
+        unsubscribe();
+      } catch {
+        // Ignore immediate cleanup error
+      }
+      return;
+    }
+    activeUnsubscribe = unsubscribe;
+  };
+
+  start();
+
+  return () => {
+    disposed = true;
+    clearRetryTimer();
+    detachActive();
+  };
+}
+
 export function subscribeUserRoleRecord(
   uid: string,
   onRole: (record: UserRoleRecord | null) => void,
   onError?: (error: unknown) => void
 ): Unsubscribe {
   const path = `${COLLECTION_NAMES.userRoles}/${uid}`;
-  return onSnapshot(
-    doc(db, COLLECTION_NAMES.userRoles, uid),
-    (snapshot) => {
-      onRole(snapshot.exists() ? (snapshot.data() as UserRoleRecord) : null);
+  return subscribeWithTargetRecovery({
+    label: 'userRoles',
+    path,
+    shouldContinue: () => auth.currentUser?.uid === uid,
+    attach: (handleListenerError, onHealthySnapshot) =>
+      onSnapshot(
+        doc(db, COLLECTION_NAMES.userRoles, uid),
+        (snapshot) => {
+          onHealthySnapshot();
+          onRole(snapshot.exists() ? (snapshot.data() as UserRoleRecord) : null);
+        },
+        handleListenerError
+      ),
+    onRecoverFallback: () => {
+      void getDoc(doc(db, COLLECTION_NAMES.userRoles, uid))
+        .then((snap) => {
+          if (auth.currentUser?.uid === uid) {
+            onRole(snap.exists() ? (snap.data() as UserRoleRecord) : null);
+          }
+        })
+        .catch(() => undefined);
     },
-    (error) => {
-      if (auth.currentUser?.uid !== uid) {
-        return;
-      }
-      if (isTransientFirestoreConnectionError(error)) {
-        console.warn('Role subscription paused while reconnecting:', path, error);
-        onError?.(error);
-        return;
-      }
+    onTransientError: (error) => {
+      console.warn('Role subscription paused while recovering:', path, error);
       onError?.(error);
-      handleFirestoreError(error, OperationType.GET, path);
-    }
-  );
+    },
+    onFatalError: (error) => {
+      onError?.(error);
+      if (isPermissionDeniedError(error)) {
+        handleFirestoreError(error, OperationType.GET, path);
+      } else {
+        console.warn('Role subscription error:', path, error);
+      }
+    },
+  });
 }
 
 export async function fetchPublicMemberProfile(
@@ -283,24 +402,45 @@ export function subscribePublicMemberProfile(
   onError?: (error: unknown) => void
 ): Unsubscribe {
   const path = `${COLLECTION_NAMES.users}/${uid}`;
-  return onSnapshot(
-    doc(db, COLLECTION_NAMES.users, uid),
-    (snapshot) => {
-      onProfile(snapshot.exists() ? (snapshot.data() as PublicUserProfile) : null);
+  return subscribeWithTargetRecovery({
+    label: 'users',
+    path,
+    shouldContinue: () => auth.currentUser?.uid === uid,
+    attach: (handleListenerError, onHealthySnapshot) =>
+      onSnapshot(
+        doc(db, COLLECTION_NAMES.users, uid),
+        (snapshot) => {
+          onHealthySnapshot();
+          onProfile(
+            snapshot.exists() ? (snapshot.data() as PublicUserProfile) : null
+          );
+        },
+        handleListenerError
+      ),
+    onRecoverFallback: () => {
+      void getDoc(doc(db, COLLECTION_NAMES.users, uid))
+        .then((snap) => {
+          if (auth.currentUser?.uid === uid) {
+            onProfile(
+              snap.exists() ? (snap.data() as PublicUserProfile) : null
+            );
+          }
+        })
+        .catch(() => undefined);
     },
-    (error) => {
-      if (auth.currentUser?.uid !== uid) {
-        return;
-      }
-      if (isTransientFirestoreConnectionError(error)) {
-        console.warn('Profile subscription paused while reconnecting:', path, error);
-        onError?.(error);
-        return;
-      }
+    onTransientError: (error) => {
+      console.warn('Profile subscription paused while recovering:', path, error);
       onError?.(error);
-      handleFirestoreError(error, OperationType.GET, path);
-    }
-  );
+    },
+    onFatalError: (error) => {
+      onError?.(error);
+      if (isPermissionDeniedError(error)) {
+        handleFirestoreError(error, OperationType.GET, path);
+      } else {
+        console.warn('Profile subscription error:', path, error);
+      }
+    },
+  });
 }
 
 export async function createInitialMemberAccountDocs(
@@ -1575,53 +1715,94 @@ export function subscribeViewerFollowUsernames(
     onUpdate({ followingUsernames, followerUsernames });
   };
 
-  const unsubFollowing = onSnapshot(
-    query(
-      collection(db, COLLECTION_NAMES.follows),
-      where('followerUid', '==', viewerUid),
-      limit(250)
-    ),
-    (snapshot) => {
-      followingUids = snapshot.docs.map(
-        (item) => (item.data() as FollowEdge).targetUid
-      );
-      void syncResolvedSets();
-    },
-    (error) => {
-      if (auth.currentUser?.uid !== viewerUid) {
-        return;
-      }
-      if (isTransientFirestoreConnectionError(error)) {
-        console.warn('Following listener paused while reconnecting:', error);
-        return;
-      }
-      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
-    }
+  const followingQuery = query(
+    collection(db, COLLECTION_NAMES.follows),
+    where('followerUid', '==', viewerUid),
+    limit(250)
+  );
+  const followersQuery = query(
+    collection(db, COLLECTION_NAMES.follows),
+    where('targetUid', '==', viewerUid),
+    limit(250)
   );
 
-  const unsubFollowers = onSnapshot(
-    query(
-      collection(db, COLLECTION_NAMES.follows),
-      where('targetUid', '==', viewerUid),
-      limit(250)
-    ),
-    (snapshot) => {
-      followerUids = snapshot.docs.map(
-        (item) => (item.data() as FollowEdge).followerUid
-      );
-      void syncResolvedSets();
+  const unsubFollowing = subscribeWithTargetRecovery({
+    label: 'follows_following',
+    path: COLLECTION_NAMES.follows,
+    shouldContinue: () => active && auth.currentUser?.uid === viewerUid,
+    attach: (handleListenerError, onHealthySnapshot) =>
+      onSnapshot(
+        followingQuery,
+        (snapshot) => {
+          onHealthySnapshot();
+          followingUids = snapshot.docs.map(
+            (item) => (item.data() as FollowEdge).targetUid
+          );
+          void syncResolvedSets();
+        },
+        handleListenerError
+      ),
+    onRecoverFallback: () => {
+      void getDocs(followingQuery)
+        .then((snapshot) => {
+          if (!active || auth.currentUser?.uid !== viewerUid) return;
+          followingUids = snapshot.docs.map(
+            (item) => (item.data() as FollowEdge).targetUid
+          );
+          void syncResolvedSets();
+        })
+        .catch(() => undefined);
     },
-    (error) => {
-      if (auth.currentUser?.uid !== viewerUid) {
-        return;
+    onTransientError: (error) => {
+      console.warn('Following listener paused while recovering:', error);
+    },
+    onFatalError: (error) => {
+      if (isPermissionDeniedError(error)) {
+        handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
+      } else {
+        console.warn('Following listener error:', error);
       }
-      if (isTransientFirestoreConnectionError(error)) {
-        console.warn('Followers listener paused while reconnecting:', error);
-        return;
+    },
+  });
+
+  const unsubFollowers = subscribeWithTargetRecovery({
+    label: 'follows_followers',
+    path: COLLECTION_NAMES.follows,
+    shouldContinue: () => active && auth.currentUser?.uid === viewerUid,
+    attach: (handleListenerError, onHealthySnapshot) =>
+      onSnapshot(
+        followersQuery,
+        (snapshot) => {
+          onHealthySnapshot();
+          followerUids = snapshot.docs.map(
+            (item) => (item.data() as FollowEdge).followerUid
+          );
+          void syncResolvedSets();
+        },
+        handleListenerError
+      ),
+    onRecoverFallback: () => {
+      void getDocs(followersQuery)
+        .then((snapshot) => {
+          if (!active || auth.currentUser?.uid !== viewerUid) return;
+          followerUids = snapshot.docs.map(
+            (item) => (item.data() as FollowEdge).followerUid
+          );
+          void syncResolvedSets();
+        })
+        .catch(() => undefined);
+    },
+    onTransientError: (error) => {
+      console.warn('Followers listener paused while recovering:', error);
+    },
+    onFatalError: (error) => {
+      if (isPermissionDeniedError(error)) {
+        handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
+      } else {
+        console.warn('Followers listener error:', error);
       }
-      handleFirestoreError(error, OperationType.LIST, COLLECTION_NAMES.follows);
-    }
-  );
+    },
+  });
 
   return () => {
     active = false;
@@ -2389,26 +2570,34 @@ export function subscribeUserNotifications(
       where('recipientUid', '==', uid),
       limit(200)
     );
-    activeUnsubscribe = onSnapshot(
-      fallbackQuery,
-      (snapshot) => {
-        const sorted = sortByCreatedAtDesc(
-          snapshot.docs.map((item) => item.data() as NotificationItem)
-        ).slice(0, INITIAL_NOTIFICATION_PAGE_SIZE);
-        onUpdate({
-          items: sorted,
-          oldestDoc: null,
-          hasMore: false,
-        });
-      },
-      (error) => {
+    activeUnsubscribe = subscribeWithTargetRecovery({
+      label: 'notifications_fallback',
+      path,
+      shouldContinue: () => !disposed && auth.currentUser?.uid === uid,
+      attach: (handleListenerError, onHealthySnapshot) =>
+        onSnapshot(
+          fallbackQuery,
+          (snapshot) => {
+            onHealthySnapshot();
+            const sorted = sortByCreatedAtDesc(
+              snapshot.docs.map((item) => item.data() as NotificationItem)
+            ).slice(0, INITIAL_NOTIFICATION_PAGE_SIZE);
+            onUpdate({
+              items: sorted,
+              oldestDoc: null,
+              hasMore: false,
+            });
+          },
+          handleListenerError
+        ),
+      onFatalError: (error) => {
         onError?.(
           error instanceof Error
             ? error
             : new Error('Unable to listen for live notifications.')
         );
-      }
-    );
+      },
+    });
   };
 
   const orderedQuery = query(
@@ -2418,19 +2607,28 @@ export function subscribeUserNotifications(
     limit(INITIAL_NOTIFICATION_PAGE_SIZE + 1)
   );
 
-  activeUnsubscribe = onSnapshot(
-    orderedQuery,
-    (snapshot) => {
-      const hasMore = snapshot.docs.length > INITIAL_NOTIFICATION_PAGE_SIZE;
-      const pageDocs = snapshot.docs.slice(0, INITIAL_NOTIFICATION_PAGE_SIZE);
-      onUpdate({
-        items: pageDocs.map((item) => item.data() as NotificationItem),
-        oldestDoc: pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
-        hasMore,
-      });
-    },
-    (error) => {
+  activeUnsubscribe = subscribeWithTargetRecovery({
+    label: 'notifications',
+    path,
+    shouldContinue: () => !disposed && auth.currentUser?.uid === uid,
+    attach: (handleListenerError, onHealthySnapshot) =>
+      onSnapshot(
+        orderedQuery,
+        (snapshot) => {
+          onHealthySnapshot();
+          const hasMore = snapshot.docs.length > INITIAL_NOTIFICATION_PAGE_SIZE;
+          const pageDocs = snapshot.docs.slice(0, INITIAL_NOTIFICATION_PAGE_SIZE);
+          onUpdate({
+            items: pageDocs.map((item) => item.data() as NotificationItem),
+            oldestDoc: pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
+            hasMore,
+          });
+        },
+        handleListenerError
+      ),
+    onFatalError: (error) => {
       if (isFirebaseErrorCode(error, 'failed-precondition')) {
+        activeUnsubscribe();
         subscribeFallback();
         return;
       }
@@ -2442,13 +2640,59 @@ export function subscribeUserNotifications(
       if (!isFirebaseErrorCode(error, 'permission-denied')) {
         console.warn('Notification subscription warning:', path, error);
       }
-    }
-  );
+    },
+  });
 
   return () => {
     disposed = true;
     activeUnsubscribe();
   };
+}
+
+export interface UnreadNotificationSummaryItem {
+  id: string;
+  eventType: NotificationEventType;
+}
+
+export function subscribeUnreadNotificationsSummary(
+  uid: string,
+  onUpdate: (items: UnreadNotificationSummaryItem[] | null) => void
+): Unsubscribe {
+  if (!isValidFirestoreId(uid)) {
+    onUpdate(null);
+    return () => {};
+  }
+  const unreadQuery = query(
+    collection(db, COLLECTION_NAMES.notifications),
+    where('recipientUid', '==', uid),
+    where('isRead', '==', false),
+    limit(1005)
+  );
+  return subscribeWithTargetRecovery({
+    label: 'notifications_unread_summary',
+    path: COLLECTION_NAMES.notifications,
+    shouldContinue: () => auth.currentUser?.uid === uid,
+    attach: (handleListenerError, onHealthySnapshot) =>
+      onSnapshot(
+        unreadQuery,
+        (snapshot) => {
+          onHealthySnapshot();
+          const summary: UnreadNotificationSummaryItem[] = [];
+          for (const docSnap of snapshot.docs) {
+            const data = docSnap.data() as Partial<NotificationItem> | undefined;
+            summary.push({
+              id: docSnap.id,
+              eventType: (data?.eventType ?? 'announcement') as NotificationEventType,
+            });
+          }
+          onUpdate(summary);
+        },
+        handleListenerError
+      ),
+    onFatalError: () => {
+      onUpdate(null);
+    },
+  });
 }
 
 export async function fetchOlderUserNotificationsPage(
@@ -2525,14 +2769,16 @@ export async function markNotificationAsUnread(
 }
 
 export async function markAllNotificationsAsRead(
-  notifications: readonly NotificationItem[]
+  notifications: readonly NotificationItem[],
+  extraUnreadIds?: readonly string[]
 ): Promise<void> {
   const unreadIds = Array.from(
-    new Set(
-      notifications
+    new Set([
+      ...notifications
         .filter((item) => !item.isRead && isValidFirestoreId(item.id))
-        .map((item) => item.id)
-    )
+        .map((item) => item.id),
+      ...(extraUnreadIds ?? []).filter((id) => isValidFirestoreId(id)),
+    ])
   );
   if (unreadIds.length === 0) return;
 

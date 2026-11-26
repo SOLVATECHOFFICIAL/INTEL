@@ -64,8 +64,11 @@ import {
   buildReplyNotificationId,
   extractMentionedUsernames,
   shouldEmitActivityNotification,
+  shouldThrottleReactionNotification,
   summarizeNotificationExcerpt,
 } from '../utils/notifications';
+
+const updateReactionNotifCooldowns = new Map<string, number>();
 import {
   notifyAdminUpdateCommentMutated,
   notifyAdminUpdateCreated,
@@ -1119,16 +1122,24 @@ export async function toggleOfficialUpdateReaction(input: {
         recipientUid: result.publicAuthorUid,
       })
     ) {
-      void createSafeMemberNotification({
-        id: buildReactionNotificationId('updates', input.updateId, input.actorUid),
-        recipientUid: result.publicAuthorUid,
-        eventType: 'reaction',
-        title: 'Someone liked your official update',
-        body: result.snippet || undefined,
-        targetPath: `/?view=updates&postId=${input.updateId}`,
-        actorUid: input.actorUid,
-        targetImageId: result.imageId,
-      });
+      const cooldownKey = `u:${input.updateId}:${input.actorUid}`;
+      if (!shouldThrottleReactionNotification(updateReactionNotifCooldowns, cooldownKey)) {
+        void createSafeMemberNotification({
+          id: buildReactionNotificationId(
+            'updates',
+            input.updateId,
+            input.actorUid,
+            Date.now().toString(36)
+          ),
+          recipientUid: result.publicAuthorUid,
+          eventType: 'reaction',
+          title: 'Someone liked your official update',
+          body: result.snippet || undefined,
+          targetPath: `/?view=updates&postId=${input.updateId}`,
+          actorUid: input.actorUid,
+          targetImageId: result.imageId,
+        });
+      }
     }
 
     notifyAdminUpdateReactionChanged(

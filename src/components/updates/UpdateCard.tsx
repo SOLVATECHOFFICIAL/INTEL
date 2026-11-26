@@ -230,7 +230,9 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
   const [guestPrompt, setGuestPrompt] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  const [commentsOpen, setCommentsOpen] = useState(defaultCommentsOpen);
+  const [commentsOpen, setCommentsOpen] = useState(
+    Boolean(defaultCommentsOpen || highlightCommentId)
+  );
   const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [comments, setComments] = useState<CommentWithAuthor[]>([]);
@@ -451,13 +453,28 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
   };
 
   useEffect(() => {
-    if (!defaultCommentsOpen || commentsLoaded || commentsLoading) return;
+    const shouldAutoOpen = Boolean(defaultCommentsOpen || highlightCommentId);
+    if (!shouldAutoOpen) return;
     const timer = window.setTimeout(() => {
-      void loadComments();
+      setCommentsOpen(true);
+      if (!commentsLoaded && !commentsLoading) {
+        void loadComments();
+      }
     }, 0);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultCommentsOpen, update.id]);
+  }, [defaultCommentsOpen, highlightCommentId, update.id]);
+
+  useEffect(() => {
+    if (!highlightCommentId || !commentsLoaded) return;
+    const timer = window.setTimeout(() => {
+      const el = document.getElementById(`comment-${highlightCommentId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [highlightCommentId, commentsLoaded, update.id]);
 
   const handleToggleComments = () => {
     const next = !commentsOpen;

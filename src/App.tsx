@@ -200,6 +200,7 @@ export function App() {
   const cancelPendingScrollRafRef = useRef<(() => void) | null>(null);
   const isRestoringScrollRef = useRef(false);
   const lastSearchQueryRef = useRef<string | null>(initialDest.searchQuery);
+  const pendingInitialNotifIdRef = useRef<string | null>(initialParsed.notifId);
   const [canGoBack, setCanGoBack] = useState(false);
 
   const syncCanGoBack = useCallback((stack: NavigationStackState) => {
@@ -733,6 +734,25 @@ export function App() {
       );
     };
   }, [handleNavigate, isSuspended, markNotificationReadOptimistic, user]);
+
+  useEffect(() => {
+    if (!authReady || !user || isSuspended) return;
+    const notifId = pendingInitialNotifIdRef.current;
+    if (!notifId) return;
+    pendingInitialNotifIdRef.current = null;
+    void markNotificationReadOptimistic(notifId);
+    if (typeof window !== 'undefined') {
+      const cleanUrl = buildSearchForRoute(navDest.route, navDest);
+      const currentRelative = `${window.location.pathname}${window.location.search}`;
+      if (cleanUrl && cleanUrl !== currentRelative) {
+        try {
+          window.history.replaceState(window.history.state, '', cleanUrl);
+        } catch {
+          // Ignore replaceState failures in restricted frames
+        }
+      }
+    }
+  }, [authReady, user, isSuspended, markNotificationReadOptimistic, navDest]);
 
   useEffect(() => {
     if (!foregroundNotificationToast) return;

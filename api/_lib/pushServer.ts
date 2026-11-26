@@ -357,8 +357,8 @@ export async function deliverWebPushToRecipient(
           },
           serializedPayload,
           {
-            TTL: 86_400,
-            urgency: 'normal',
+            TTL: 2_419_200,
+            urgency: 'high',
           }
         );
         return { outcome: 'delivered' as const, subId: sub.id };
@@ -485,7 +485,7 @@ export async function deliverWebPushTestToRecipient(
             },
             serializedPayload,
             {
-              TTL: 86_400,
+              TTL: 2_419_200,
               urgency: 'high',
             }
           );

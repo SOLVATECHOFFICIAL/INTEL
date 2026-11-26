@@ -5,8 +5,10 @@ import {
   commitFreshWriteBatchWithPermissionRetry,
   commitFreshWriteBatchWithRetry,
   computeNextReactionTransactionState,
+  computeResilientSnapshotRetryDelayMs,
   hasValidFirebaseConfig,
   isFirestoreSdkError,
+  isFirestoreTargetIdConflictError,
   isPermissionDeniedError,
   isTransientFirestoreConnectionError,
   runWithFirestoreConnectionRetry,
@@ -399,4 +401,36 @@ test('isPermissionDeniedError and runWithPermissionRetry refresh token once and 
     /Rule blocked/
   );
   assert.equal(noRefreshOpCalls, 1);
+});
+
+test('isFirestoreTargetIdConflictError and isTransientFirestoreConnectionError recover Target ID already exists errors', () => {
+  const targetConflict = makeFirebaseError(
+    'already-exists',
+    'Target ID already exists: 1002'
+  );
+  const realWriteConflict = makeFirebaseError(
+    'already-exists',
+    'Document already exists.'
+  );
+
+  assert.equal(isFirestoreTargetIdConflictError(targetConflict), true);
+  assert.equal(isFirestoreTargetIdConflictError(realWriteConflict), false);
+  assert.equal(isTransientFirestoreConnectionError(targetConflict), true);
+  assert.equal(isTransientFirestoreConnectionError(realWriteConflict), false);
+
+  assert.equal(computeResilientSnapshotRetryDelayMs(0, 0), 350);
+  assert.equal(computeResilientSnapshotRetryDelayMs(1, 50), 750);
+  assert.equal(computeResilientSnapshotRetryDelayMs(10, 0), 10_000);
+
+  const translated = formatFirestoreOrAppError(
+    new Error(
+      JSON.stringify({
+        error: 'Target ID already exists: 1002',
+        operationType: 'get',
+        path: 'users/testUid',
+      })
+    ),
+    'Fallback message'
+  );
+  assert.match(translated, /Network connection interrupted/i);
 });
