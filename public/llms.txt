@@ -1,0 +1,25 @@
+# LASUED Intel
+
+> LASUED Intel is the student information, verified campus news, marketplace, opportunities, events, and community platform for Lagos State University of Education (LASUED) students across the Oto/Ijanikin and Epe campuses in Lagos, Nigeria.
+
+- Website: https://lasuedintel.com.ng/
+- Preview Image: https://lasuedintel.com.ng/og-share.png
+- Brand Emblem: https://lasuedintel.com.ng/lasued-intel.webp
+- Sitemap: https://lasuedintel.com.ng/sitemap.xml
+
+## Core Public Pages
+- [Home / For You Campus Stream](https://lasuedintel.com.ng/): Combined feed led by verified Official Campus Updates, student community posts, and discovery recommendations.
+- [Official Campus Updates](https://lasuedintel.com.ng/?view=updates): Official administrative briefings, academic calendar notices, and verified campus advisories.
+- [Latest Campus Posts](https://lasuedintel.com.ng/?view=latest): Chronological stream of verified campus news, student posts, and anonymous discussions.
+- [Campus Marketplace](https://lasuedintel.com.ng/?view=marketplace): Verified student-to-student marketplace for textbooks, past questions, gadgets, hostel accommodation, and campus services.
+- [Marketplace Updates](https://lasuedintel.com.ng/?view=marketplace&mktTab=updates): Campus marketplace advisories, listing guidelines, and community notices.
+- [Student Opportunities & Scholarships](https://lasuedintel.com.ng/?view=opportunities): Curated scholarships, grants, internships, fellowships, competitions, skill programmes, and career openings for LASUED students.
+- [Upcoming Campus Events](https://lasuedintel.com.ng/?view=upcoming-events): Campus calendar covering faculty seminars, orientations, workshops, deadlines, and student programmes.
+- [Trusted Circle Directory](https://lasuedintel.com.ng/?view=trusted-circle): Verified directory of student representatives, faculty/department contacts, and trusted campus service providers.
+- [The Unfiltered (Anonymous Campus Discussions)](https://lasuedintel.com.ng/?view=anonymous): Privacy-protected anonymous forum for candid LASUED student discussions, questions, and campus life perspectives.
+- [Search LASUED Intel](https://lasuedintel.com.ng/?view=search): Instant search across campus updates, members, marketplace listings, opportunities, events, and community discussions.
+
+## Who LASUED Intel Serves
+- Undergraduate and postgraduate students of Lagos State University of Education (LASUED) at Ijanikin (Oto/Ijanikin) and Epe campuses.
+- Prospective LASUED applicants seeking verified campus information, events, student life insights, and academic opportunities.
+- LASUED student entrepreneurs, course representatives, and student organizations sharing verified campus notices and services.

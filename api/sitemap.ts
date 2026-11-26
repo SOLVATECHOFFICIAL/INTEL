@@ -2,6 +2,7 @@ import {
   buildSitemapXml,
   resolveServerPublicOrigin,
 } from './_lib/siteOrigin.js';
+import { fetchPublicSitemapEntries } from './_lib/sitemapDiscovery.js';
 import type { VercelLikeRequest, VercelLikeResponse } from './_lib/pushConfig.js';
 
 export default async function handler(
@@ -16,12 +17,13 @@ export default async function handler(
   }
 
   const origin = resolveServerPublicOrigin(req.headers);
-  const xml = buildSitemapXml(origin);
+  const dynamicEntries = await fetchPublicSitemapEntries().catch(() => []);
+  const xml = buildSitemapXml(origin, dynamicEntries);
 
   res.setHeader('Content-Type', 'application/xml; charset=utf-8');
   res.setHeader(
     'Cache-Control',
-    'public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400'
+    'public, max-age=1800, s-maxage=1800, stale-while-revalidate=86400'
   );
   res.statusCode = 200;
   res.end(req.method === 'HEAD' ? '' : xml);

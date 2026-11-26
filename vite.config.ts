@@ -14,10 +14,12 @@ import {
   parseServiceAccountJson,
 } from './api/_lib/pushConfig.ts';
 import {
+  buildLlmsTxt,
   buildRobotsTxt,
   buildSitemapXml,
   resolveServerPublicOrigin,
 } from './api/_lib/siteOrigin.ts';
+import { fetchPublicSitemapEntries } from './api/_lib/sitemapDiscovery.ts';
 
 /**
  * Ensures the root-level ./lasued-intel.webp logo is copied into the
@@ -113,9 +115,13 @@ function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
       const pathname = req.url?.split('?')[0];
       if (pathname === '/sitemap.xml') {
         const origin = resolveServerPublicOrigin(req.headers);
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-        res.end(buildSitemapXml(origin));
+        void fetchPublicSitemapEntries()
+          .catch(() => [])
+          .then((dynamicEntries) => {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+            res.end(buildSitemapXml(origin, dynamicEntries));
+          });
         return;
       }
       if (pathname === '/robots.txt') {
@@ -123,6 +129,13 @@ function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.end(buildRobotsTxt(origin));
+        return;
+      }
+      if (pathname === '/llms.txt') {
+        const origin = resolveServerPublicOrigin(req.headers);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.end(buildLlmsTxt(origin));
         return;
       }
       if (pathname === '/api/push/config') {

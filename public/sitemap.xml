@@ -1,48 +1,114 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
     <loc>https://lasuedintel.com.ng/</loc>
     <changefreq>hourly</changefreq>
     <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>LASUED Intel — Lagos State University of Education Student Hub</image:title>
+      <image:caption>Official LASUED Intel platform preview featuring campus updates, marketplace, opportunities, events, trusted circle, and anonymous discussions.</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/lasued-intel.webp</image:loc>
+      <image:title>LASUED Intel Official Brand Emblem</image:title>
+      <image:caption>LASUED Intel LI monogram emblem.</image:caption>
+    </image:image>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/pwa-512x512.png</image:loc>
+      <image:title>LASUED Intel App Icon</image:title>
+      <image:caption>LASUED Intel high-resolution app icon.</image:caption>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://lasuedintel.com.ng/?view=updates</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.95</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>Official Campus Updates — LASUED Intel</image:title>
+      <image:caption>Verified administrative announcements, academic notices, and campus briefings for LASUED students.</image:caption>
+    </image:image>
   </url>
   <url>
     <loc>https://lasuedintel.com.ng/?view=latest</loc>
     <changefreq>hourly</changefreq>
     <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://lasuedintel.com.ng/?view=updates</loc>
-    <changefreq>hourly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://lasuedintel.com.ng/?view=anonymous</loc>
-    <changefreq>hourly</changefreq>
-    <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>Latest Campus Posts — LASUED Intel</image:title>
+      <image:caption>Real-time chronological campus updates and student discussions across Lagos State University of Education.</image:caption>
+    </image:image>
   </url>
   <url>
     <loc>https://lasuedintel.com.ng/?view=marketplace</loc>
     <changefreq>hourly</changefreq>
     <priority>0.9</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>LASUED Campus Marketplace — LASUED Intel</image:title>
+      <image:caption>Verified student marketplace for textbooks, past questions, gadgets, hostel accommodation, and campus services.</image:caption>
+    </image:image>
   </url>
   <url>
-    <loc>https://lasuedintel.com.ng/?view=trusted-circle</loc>
+    <loc>https://lasuedintel.com.ng/?view=marketplace&amp;mktTab=updates</loc>
     <changefreq>daily</changefreq>
-    <priority>0.8</priority>
+    <priority>0.75</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>Marketplace Notices &amp; Updates — LASUED Intel</image:title>
+      <image:caption>Official marketplace notices, buyer safety reminders, and listing updates at LASUED Intel.</image:caption>
+    </image:image>
   </url>
   <url>
     <loc>https://lasuedintel.com.ng/?view=opportunities</loc>
     <changefreq>daily</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>LASUED Student Opportunities &amp; Scholarships — LASUED Intel</image:title>
+      <image:caption>Curated scholarships, grants, internships, fellowships, skill programmes, and job openings for LASUED students.</image:caption>
+    </image:image>
   </url>
   <url>
     <loc>https://lasuedintel.com.ng/?view=upcoming-events</loc>
     <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>Upcoming LASUED Campus Events — LASUED Intel</image:title>
+      <image:caption>Campus events, academic workshops, seminars, orientations, and faculty programmes at LASUED.</image:caption>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://lasuedintel.com.ng/?view=trusted-circle</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>Trusted Circle Campus Directory — LASUED Intel</image:title>
+      <image:caption>Verified campus contacts, lecturers, student representatives, and trusted student service providers at LASUED.</image:caption>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://lasuedintel.com.ng/?view=anonymous</loc>
+    <changefreq>hourly</changefreq>
     <priority>0.8</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>The Unfiltered (Anonymous Campus Discussions) — LASUED Intel</image:title>
+      <image:caption>Privacy-protected anonymous student discussions, questions, and candid campus perspectives on LASUED Intel.</image:caption>
+    </image:image>
   </url>
   <url>
     <loc>https://lasuedintel.com.ng/?view=search</loc>
     <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
+    <image:image>
+      <image:loc>https://lasuedintel.com.ng/og-share.png</image:loc>
+      <image:title>Search LASUED Intel</image:title>
+      <image:caption>Search public LASUED campus updates, members, marketplace listings, opportunities, and events.</image:caption>
+    </image:image>
   </url>
 </urlset>
