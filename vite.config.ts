@@ -148,7 +148,8 @@ function seoDevEndpointsPlugin(env: Record<string, string>): Plugin {
       if (
         pathname === '/api/push/test' ||
         pathname === '/api/push/dispatch' ||
-        pathname === '/api/push/anonymous'
+        pathname === '/api/push/anonymous' ||
+        pathname === '/api/push/broadcast'
       ) {
         const method = (req as { method?: string }).method ?? 'GET';
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
