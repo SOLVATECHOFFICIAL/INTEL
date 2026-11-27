@@ -122,12 +122,12 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
   if (loading) {
     return (
       <div
-        className="mt-3.5 rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+        className="mt-3.5 rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/50"
         data-testid={`official-poll-loading-${pollId}`}
       >
-        <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]" />
-          Loading official poll...
+        <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5] dark:text-sky-400" />
+          Loading poll...
         </div>
       </div>
     );
@@ -273,26 +273,26 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
 
   return (
     <div
-      className="mt-3.5 rounded-2xl border border-[#1E88E5]/25 bg-gradient-to-b from-slate-50/90 to-white p-3.5 shadow-xs sm:p-4"
+      className="mt-3.5 rounded-2xl border border-[#1E88E5]/25 bg-gradient-to-b from-slate-50/90 to-white p-3.5 shadow-xs sm:p-4 dark:border-sky-800/60 dark:from-slate-800/70 dark:to-slate-900"
       data-testid={`official-poll-card-${poll.id}`}
     >
       {/* Header Row */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white shadow-xs">
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white shadow-xs dark:bg-slate-800">
             <BarChart3 className="h-3.5 w-3.5 text-[#38BDF8]" aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase">
+            <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase dark:text-sky-400">
               Official Poll
             </p>
-            <h4 className="mt-0.5 font-display text-sm font-bold leading-snug text-[#0B1A2E] overflow-wrap-anywhere sm:text-[15px]">
+            <h4 className="mt-0.5 font-display text-sm font-bold leading-snug text-[#0B1A2E] overflow-wrap-anywhere sm:text-[15px] dark:text-white">
               {poll.question}
             </h4>
             {poll.description && (
               <LinkifiedText
                 text={poll.description}
-                className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 overflow-wrap-anywhere"
+                className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-600 overflow-wrap-anywhere dark:text-slate-300"
               />
             )}
           </div>
@@ -301,39 +301,39 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
         <span
           className={`inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ${
             isClosedOrExpired
-              ? 'bg-slate-200 text-slate-700'
-              : 'bg-[#1E88E5]/10 text-[#0B1A2E]'
+              ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+              : 'bg-[#1E88E5]/10 text-[#0B1A2E] dark:bg-sky-500/15 dark:text-sky-300'
           }`}
         >
-          <Clock className="h-3 w-3 text-[#1E88E5]" aria-hidden="true" />
+          <Clock className="h-3 w-3 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
           {expiryLabel}
         </span>
       </div>
 
-      {/* WhatsApp-style Rule & Scope Hints */}
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-        <span className="font-medium text-slate-700">{selectionRuleLabel}</span>
+      {/* Rule & Scope Hints */}
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+        <span className="font-medium text-slate-700 dark:text-slate-300">{selectionRuleLabel}</span>
         {poll.voterScope === 'verified_and_above' && (
-          <span className="inline-flex items-center gap-1 font-medium text-[#0B1A2E]">
-            <ShieldCheck className="h-3 w-3 text-[#1E88E5]" aria-hidden="true" />
-            Verified+ voters only
+          <span className="inline-flex items-center gap-1 font-medium text-[#0B1A2E] dark:text-slate-200">
+            <ShieldCheck className="h-3 w-3 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
+            Verified+ only
           </span>
         )}
         {poll.resultsVisibility === 'after_vote' && !showResults && (
           <span className="inline-flex items-center gap-1">
-            <Lock className="h-3 w-3 text-slate-400" aria-hidden="true" />
-            Results visible after voting
+            <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+            Results shown after voting
           </span>
         )}
         {poll.resultsVisibility === 'after_close' && !showResults && (
           <span className="inline-flex items-center gap-1">
-            <Lock className="h-3 w-3 text-slate-400" aria-hidden="true" />
-            Results unlock when poll closes
+            <Lock className="h-3 w-3 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+            Results shown when closed
           </span>
         )}
       </div>
 
-      {/* WhatsApp-style Options */}
+      {/* Poll Options */}
       <div className="mt-3 space-y-2">
         {poll.options.map((optionLabel, idx) => {
           const isVotedByUser = viewerVote?.selectedIndices.includes(idx) ?? false;
@@ -355,10 +355,10 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
               aria-pressed={isActiveVisual}
               className={`relative w-full overflow-hidden rounded-xl border text-left transition-all ${
                 isDraftSelected && canInteractWithOptions
-                  ? 'border-[#1E88E5] bg-white ring-1 ring-[#1E88E5]'
+                  ? 'border-[#1E88E5] bg-white ring-1 ring-[#1E88E5] dark:border-sky-400 dark:bg-slate-900 dark:ring-sky-400'
                   : isVotedByUser
-                  ? 'border-[#1E88E5]/70 bg-white'
-                  : 'border-slate-200 bg-white hover:border-slate-300'
+                  ? 'border-[#1E88E5]/70 bg-white dark:border-sky-500/70 dark:bg-slate-900'
+                  : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600'
               } disabled:cursor-default`}
             >
               {showResults && (
@@ -366,10 +366,10 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
                   aria-hidden="true"
                   className={`pointer-events-none absolute inset-y-0 left-0 transition-all duration-300 ${
                     isVotedByUser
-                      ? 'bg-[#1E88E5]/18'
+                      ? 'bg-[#1E88E5]/18 dark:bg-sky-500/25'
                       : isLeading
-                      ? 'bg-[#0B1A2E]/9'
-                      : 'bg-slate-200/55'
+                      ? 'bg-[#0B1A2E]/9 dark:bg-slate-700/50'
+                      : 'bg-slate-200/55 dark:bg-slate-800/80'
                   }`}
                   style={{ width: `${pct}%` }}
                 />
@@ -384,20 +384,20 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
                     } ${
                       isActiveVisual
                         ? 'border-[#1E88E5] bg-[#1E88E5] text-white'
-                        : 'border-slate-300 bg-white'
+                        : 'border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800'
                     }`}
                   >
                     {isActiveVisual && <CheckCircle2 className="h-3 w-3" />}
                   </span>
-                  <span className="min-w-0 flex-1 whitespace-normal text-xs font-semibold leading-snug text-[#0B1A2E] overflow-wrap-anywhere sm:text-sm">
+                  <span className="min-w-0 flex-1 whitespace-normal text-xs font-semibold leading-snug text-[#0B1A2E] overflow-wrap-anywhere sm:text-sm dark:text-slate-100">
                     {optionLabel}
                   </span>
                 </div>
 
                 {showResults && (
                   <div className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums">
-                    <span className="font-bold text-[#0B1A2E]">{pct}%</span>
-                    <span className="text-[11px] text-slate-500">({count})</span>
+                    <span className="font-bold text-[#0B1A2E] dark:text-white">{pct}%</span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">({count})</span>
                   </div>
                 )}
               </div>
@@ -435,7 +435,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
                 setSelectedIndices(viewerVote?.selectedIndices ?? []);
                 setErrorMessage(null);
               }}
-              className="inline-flex min-h-[38px] items-center rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+              className="inline-flex min-h-[38px] items-center rounded-xl border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
@@ -444,12 +444,12 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
       )}
 
       {!viewerUid && guestPrompt && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-          <span>Sign in with your LASUED Intel account to cast your vote.</span>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          <span>Sign in to vote in this poll.</span>
           <button
             type="button"
             onClick={() => onRequireAuth('login', returnRoute)}
-            className="font-semibold text-[#1E88E5] hover:underline"
+            className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             Sign In
           </button>
@@ -459,22 +459,22 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
       {errorMessage && (
         <div
           role="alert"
-          className="mt-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"
+          className="mt-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
         >
           {errorMessage}
         </div>
       )}
 
       {/* Footer Meta & Admin Quick Controls */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2.5 text-[11px] text-slate-500">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/80 pt-2.5 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-[#0B1A2E] tabular-nums">
+          <span className="font-semibold text-[#0B1A2E] tabular-nums dark:text-white">
             {poll.totalVotes} {poll.totalVotes === 1 ? 'vote' : 'votes'}
           </span>
           {hasVoted && !editingVote && (
             <>
               <span aria-hidden="true">·</span>
-              <span className="font-medium text-[#1E88E5]">Your vote recorded</span>
+              <span className="font-medium text-[#1E88E5] dark:text-sky-400">Vote saved</span>
               {poll.allowVoteChange && voteEligibility.allowed && (
                 <button
                   type="button"
@@ -482,7 +482,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
                     setEditingVote(true);
                     setErrorMessage(null);
                   }}
-                  className="inline-flex items-center gap-1 font-semibold text-[#0B1A2E] underline-offset-2 hover:text-[#1E88E5] hover:underline"
+                  className="inline-flex items-center gap-1 font-semibold text-[#0B1A2E] underline-offset-2 hover:text-[#1E88E5] hover:underline dark:text-slate-200 dark:hover:text-sky-400"
                 >
                   <RefreshCw className="h-3 w-3" aria-hidden="true" />
                   Change vote
@@ -493,7 +493,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
           {viewerUid && !hasVoted && !voteEligibility.allowed && voteEligibility.reason && (
             <>
               <span aria-hidden="true">·</span>
-              <span className="text-slate-600">{voteEligibility.reason}</span>
+              <span className="text-slate-600 dark:text-slate-400">{voteEligibility.reason}</span>
             </>
           )}
         </div>
@@ -503,7 +503,7 @@ export const OfficialUpdatePollBlock: React.FC<OfficialUpdatePollBlockProps> = (
             type="button"
             disabled={togglingStatus}
             onClick={() => void handleTogglePollStatus()}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
           >
             {togglingStatus && (
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />

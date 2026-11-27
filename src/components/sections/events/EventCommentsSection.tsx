@@ -615,16 +615,16 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
     <section
       id="event-comments-section"
       aria-labelledby="event-comments-heading"
-      className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+      className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900"
     >
       <div className="flex items-center justify-between gap-2">
         <h3
           id="event-comments-heading"
-          className="flex items-center gap-2 font-display text-base font-bold text-[#0B1A2E]"
+          className="flex items-center gap-2 font-display text-base font-bold text-[#0B1A2E] dark:text-white"
         >
-          <MessageCircle className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-          <span>Discussion</span>
-          <span className="text-xs font-semibold text-slate-500 tabular-nums">
+          <MessageCircle className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
+          <span>Comments</span>
+          <span className="text-xs font-semibold text-slate-500 tabular-nums dark:text-slate-400">
             ({commentsCount})
           </span>
         </h3>
@@ -633,7 +633,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
       {errorMessage && (
         <div
           role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
         >
           {errorMessage}
         </div>
@@ -655,32 +655,32 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
           onChange={(e) => setNewCommentBody(e.target.value)}
           placeholder={
             viewerUid
-              ? 'Ask a question or share a comment about this event...'
-              : 'Sign in to comment on this event...'
+              ? 'Write a comment...'
+              : 'Sign in to comment...'
           }
-          className="min-h-[40px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+          className="min-h-[40px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
         />
         <button
           type="submit"
           disabled={!newCommentBody.trim()}
-          className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-50"
+          className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
         >
-          <Send className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+          <Send className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white" aria-hidden="true" />
           Post
         </button>
       </form>
 
       {loading ? (
-        <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
+        <div className="flex items-center gap-2 py-3 text-xs text-slate-500 dark:text-slate-400">
           <Loader2
-            className="h-4 w-4 animate-spin text-[#1E88E5]"
+            className="h-4 w-4 animate-spin text-[#1E88E5] dark:text-sky-400"
             aria-hidden="true"
           />
-          Loading event comments...
+          Loading comments...
         </div>
       ) : topLevel.length === 0 ? (
-        <p className="py-2 text-xs text-slate-500">
-          No comments yet. Ask a question or start the conversation.
+        <p className="py-2 text-xs text-slate-500 dark:text-slate-400">
+          No comments yet.
         </p>
       ) : (
         <div className="space-y-3">
@@ -700,8 +700,8 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                 id={`comment-${comment.id}`}
                 className={`rounded-xl border p-3.5 transition-colors ${
                   highlightCommentId === comment.id
-                    ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
-                    : 'border-slate-100 bg-slate-50/80'
+                    ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20 dark:border-sky-400 dark:bg-sky-950/30'
+                    : 'border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/40'
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -712,7 +712,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                           <button
                             type="button"
                             onClick={() => onNavigateProfile?.(author.username)}
-                            className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                            className="font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-white dark:hover:text-sky-400"
                           >
                             {author.fullName}
                           </button>
@@ -721,18 +721,18 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                         <button
                           type="button"
                           onClick={() => onNavigateProfile?.(author.username)}
-                          className="font-normal text-slate-500 hover:text-[#1E88E5]"
+                          className="font-normal text-slate-500 hover:text-[#1E88E5] dark:text-slate-400 dark:hover:text-sky-400"
                         >
                           @{author.username}
                         </button>
                       </>
                     ) : (
-                      <span className="font-bold text-[#0B1A2E]">
+                      <span className="font-bold text-[#0B1A2E] dark:text-white">
                         Campus Member
                       </span>
                     )}
-                    <span className="text-slate-400">·</span>
-                    <span className="text-slate-500">
+                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                    <span className="text-slate-500 dark:text-slate-400">
                       {formatCommentTime(comment.createdAt)}
                     </span>
                   </div>
@@ -745,12 +745,12 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                       aria-pressed={liked}
                       className={`inline-flex items-center gap-1 font-semibold ${
                         liked
-                          ? 'text-[#1E88E5]'
-                          : 'text-slate-600 hover:text-[#0B1A2E]'
+                          ? 'text-[#1E88E5] dark:text-sky-400'
+                          : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
                       }`}
                     >
                       <Heart
-                        className={`h-3.5 w-3.5 ${liked ? 'fill-[#1E88E5]' : ''}`}
+                        className={`h-3.5 w-3.5 ${liked ? 'fill-[#1E88E5] dark:fill-sky-400' : ''}`}
                         aria-hidden="true"
                       />
                       <span className="tabular-nums">{likeCount}</span>
@@ -770,7 +770,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                         setReplyTarget(null);
                         setReplyBody('');
                       }}
-                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50 dark:text-sky-400"
                     >
                       Reply
                     </button>
@@ -782,7 +782,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                           setEditingId(comment.id);
                           setEditingBody(comment.body);
                         }}
-                        className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
+                        className="font-semibold text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                       >
                         Edit
                       </button>
@@ -793,7 +793,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                         type="button"
                         disabled={actionBusyId === comment.id}
                         onClick={() => handleDeleteComment(comment)}
-                        className="font-semibold text-red-700 hover:underline disabled:opacity-50"
+                        className="font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-400"
                       >
                         Delete
                       </button>
@@ -808,7 +808,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                       value={editingBody}
                       maxLength={BLUEPRINT_LIMITS.commentBodyMax}
                       onChange={(e) => setEditingBody(e.target.value)}
-                      className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
+                      className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                     />
                     <button
                       type="button"
@@ -822,7 +822,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
-                      className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700"
+                      className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                     >
                       Cancel
                     </button>
@@ -830,7 +830,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                 ) : (
                   <LinkifiedText
                     text={comment.body}
-                    className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-700"
+                    className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-700 dark:text-slate-200"
                   />
                 )}
 
@@ -838,17 +838,17 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                   <div className="mt-2.5 space-y-1.5 pl-4">
                     {replyTarget?.parentCommentId === comment.id &&
                       replyTarget.label && (
-                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400">
                           <span>
                             Replying to{' '}
-                            <span className="font-semibold text-[#0B1A2E]">
+                            <span className="font-semibold text-[#0B1A2E] dark:text-white">
                               {replyTarget.label}
                             </span>
                           </span>
                           <button
                             type="button"
                             onClick={() => setReplyTarget(null)}
-                            className="font-semibold text-slate-500 hover:text-[#0B1A2E]"
+                            className="font-semibold text-slate-500 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                           >
                             Clear
                           </button>
@@ -878,12 +878,12 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                             ? `Reply to ${replyTarget.label}...`
                             : 'Write a reply...'
                         }
-                        className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
+                        className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E] placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500"
                       />
                       <button
                         type="submit"
                         disabled={!replyBody.trim()}
-                        className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                        className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                       >
                         Reply
                       </button>
@@ -892,7 +892,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                 )}
 
                 {replies.length > 0 && (
-                  <div className="mt-2.5 space-y-2 border-l-2 border-slate-200 pl-3">
+                  <div className="mt-2.5 space-y-2 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
                     {replies.map(({ comment: rawReply, author: replyAuthor }) => {
                       const reply = rawReply as PostComment;
                       const isReplyOwner = Boolean(
@@ -917,14 +917,14 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                           id={`comment-${reply.id}`}
                           className={`rounded-lg p-2.5 transition-colors ${
                             highlightCommentId === reply.id
-                              ? 'border border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
-                              : 'bg-white'
+                              ? 'border border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20 dark:border-sky-400 dark:bg-sky-950/30'
+                              : 'bg-white dark:bg-slate-900'
                           }`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <CornerDownRight
-                                className="h-3 w-3 text-slate-400"
+                                className="h-3 w-3 text-slate-400 dark:text-slate-500"
                                 aria-hidden="true"
                               />
                               {replyAuthor ? (
@@ -934,7 +934,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                     onClick={() =>
                                       onNavigateProfile?.(replyAuthor.username)
                                     }
-                                    className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                                    className="font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-white dark:hover:text-sky-400"
                                   >
                                     {replyAuthor.fullName}
                                   </button>
@@ -944,12 +944,12 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                   />
                                 </>
                               ) : (
-                                <span className="font-bold text-[#0B1A2E]">
+                                <span className="font-bold text-[#0B1A2E] dark:text-white">
                                   Campus Member
                                 </span>
                               )}
-                              <span className="text-slate-400">·</span>
-                              <span className="text-slate-500">
+                              <span className="text-slate-400 dark:text-slate-500">·</span>
+                              <span className="text-slate-500 dark:text-slate-400">
                                 {formatCommentTime(reply.createdAt)}
                               </span>
                             </div>
@@ -962,13 +962,13 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                 aria-pressed={replyLiked}
                                 className={`inline-flex items-center gap-1 font-semibold ${
                                   replyLiked
-                                    ? 'text-[#1E88E5]'
-                                    : 'text-slate-600 hover:text-[#0B1A2E]'
+                                    ? 'text-[#1E88E5] dark:text-sky-400'
+                                    : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
                                 }`}
                               >
                                 <Heart
                                   className={`h-3 w-3 ${
-                                    replyLiked ? 'fill-[#1E88E5]' : ''
+                                    replyLiked ? 'fill-[#1E88E5] dark:fill-sky-400' : ''
                                   }`}
                                   aria-hidden="true"
                                 />
@@ -1004,7 +1004,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                     );
                                   }
                                 }}
-                                className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                                className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50 dark:text-sky-400"
                               >
                                 Reply
                               </button>
@@ -1016,7 +1016,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                     setEditingId(reply.id);
                                     setEditingBody(reply.body);
                                   }}
-                                  className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
+                                  className="font-semibold text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                                 >
                                   Edit
                                 </button>
@@ -1027,7 +1027,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                   type="button"
                                   disabled={actionBusyId === reply.id}
                                   onClick={() => handleDeleteComment(reply)}
-                                  className="font-semibold text-red-700 hover:underline disabled:opacity-50"
+                                  className="font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-400"
                                 >
                                   Delete
                                 </button>
@@ -1042,7 +1042,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                                 value={editingBody}
                                 maxLength={BLUEPRINT_LIMITS.commentBodyMax}
                                 onChange={(e) => setEditingBody(e.target.value)}
-                                className="min-h-[34px] flex-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-[#0B1A2E]"
+                                className="min-h-[34px] flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                               />
                               <button
                                 type="button"
@@ -1055,7 +1055,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setEditingId(null)}
-                                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700"
+                                className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                               >
                                 Cancel
                               </button>
@@ -1063,7 +1063,7 @@ export const EventCommentsSection: React.FC<EventCommentsSectionProps> = ({
                           ) : (
                             <LinkifiedText
                               text={reply.body}
-                              className="mt-1 whitespace-pre-wrap text-xs text-slate-700"
+                              className="mt-1 whitespace-pre-wrap text-xs text-slate-700 dark:text-slate-200"
                             />
                           )}
                         </div>

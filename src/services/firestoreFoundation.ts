@@ -65,6 +65,7 @@ import {
   type UsernameReservation,
 } from '../types/database';
 import {
+  buildSanitizedOwnedUsernamesUpdate,
   isDesignatedSupremeAdminUser,
   isFirebaseErrorCode,
   isProfileAccessibleByDirectInteraction,
@@ -804,6 +805,7 @@ export async function updateMemberAccountProfileAndUsername(
   const privateRef = doc(db, COLLECTION_NAMES.privateUserData, uid);
   const newUsernameRef = doc(db, COLLECTION_NAMES.usernames, cleanUsername);
   const txPath = `${COLLECTION_NAMES.users}/${uid}`;
+  let reportedOperation: OperationType = OperationType.UPDATE;
 
   try {
     await ensureVerifiedEmailTokenClaim(auth.currentUser);
@@ -820,17 +822,18 @@ export async function updateMemberAccountProfileAndUsername(
       const existingPublic = publicSnap.exists()
         ? (publicSnap.data() as PublicUserProfile)
         : null;
+      reportedOperation = existingPublic ? OperationType.UPDATE : OperationType.CREATE;
       const existingUsername = existingPublic
         ? normalizeUsername(existingPublic.username || currentUsername)
         : normalizeUsername(currentUsername);
       const isChangingUsername =
         !existingPublic ||
-        (existingUsername.length > 0 && cleanUsername !== existingUsername);
+        (isValidUsername(existingUsername) && cleanUsername !== existingUsername);
 
       const oldUsernameRef =
         existingPublic &&
         isChangingUsername &&
-        existingUsername.length > 0 &&
+        isValidUsername(existingUsername) &&
         existingUsername !== cleanUsername
           ? doc(db, COLLECTION_NAMES.usernames, existingUsername)
           : null;
@@ -930,10 +933,11 @@ export async function updateMemberAccountProfileAndUsername(
 
       if (privateSnap.exists()) {
         const privateData = privateSnap.data() as PrivateUserData;
-        const ownedSet = new Set<string>(privateData.ownedUsernames ?? []);
-        if (existingUsername) ownedSet.add(existingUsername);
-        ownedSet.add(cleanUsername);
-        const ownedList = Array.from(ownedSet).slice(0, 20);
+        const ownedList = buildSanitizedOwnedUsernamesUpdate({
+          primaryUsername: cleanUsername,
+          previousUsername: existingUsername,
+          existingOwnedUsernames: privateData.ownedUsernames,
+        });
 
         tx.update(privateRef, {
           whatsappNumber: cleanWhatsapp,
@@ -942,14 +946,15 @@ export async function updateMemberAccountProfileAndUsername(
         });
       } else if (cleanAuthEmail.length >= 3) {
         const currentAuthUser = auth.currentUser?.uid === uid ? auth.currentUser : null;
-        const ownedSet = new Set<string>();
-        if (existingUsername) ownedSet.add(existingUsername);
-        ownedSet.add(cleanUsername);
+        const ownedList = buildSanitizedOwnedUsernamesUpdate({
+          primaryUsername: cleanUsername,
+          previousUsername: existingUsername,
+        });
         tx.set(privateRef, {
           uid,
           authEmail: cleanAuthEmail,
           whatsappNumber: cleanWhatsapp,
-          ownedUsernames: Array.from(ownedSet).slice(0, 20),
+          ownedUsernames: ownedList,
           notificationPrefs: { ...DEFAULT_NOTIFICATION_PREFS },
           ...(isUndergroundSupremeAdminUser(currentAuthUser)
             ? { showSupremeAdminBadge: false }
@@ -990,7 +995,7 @@ export async function updateMemberAccountProfileAndUsername(
     if (error instanceof DomainValidationError) {
       throw error;
     }
-    handleFirestoreError(error, OperationType.UPDATE, txPath);
+    handleFirestoreError(error, reportedOperation, txPath);
   }
 }
 

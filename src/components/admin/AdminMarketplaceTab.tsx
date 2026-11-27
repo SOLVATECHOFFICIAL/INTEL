@@ -33,6 +33,7 @@ import {
 } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
 import { ProfileBadgesRow } from '../RoleBadge';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
 interface AdminMarketplaceTabProps {
@@ -208,51 +209,31 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
   return (
     <div className="space-y-4">
       {!isFullAdmin && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5 text-xs leading-relaxed text-[#0B1A2E]">
-          <strong>Moderator Scope:</strong> You can approve or reject{' '}
-          <strong>pending</strong> listings submitted by ordinary members.
-          Verified, Moderator, and Admin submissions, status overrides, and
-          permanent listing deletions are restricted to Supreme Admins.
+        <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5 text-xs leading-relaxed text-[#0B1A2E] dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-sky-100">
+          <strong>Moderator Scope:</strong> Approve or reject{' '}
+          <strong>pending</strong> listings from regular members.
         </div>
       )}
 
-      {/* 5-Bucket Lifecycle Filter Tabs */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        {BUCKET_OPTIONS.map((opt) => {
-          const active = bucketFilter === opt.id;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setBucketFilter(opt.id)}
-              className={`flex min-h-[42px] items-center justify-between rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
-                active
-                  ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
-                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <span>{opt.label}</span>
-              <span
-                className={`rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${
-                  active
-                    ? 'bg-white/15 text-white'
-                    : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {bucketed.counts[opt.id]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <SectionRibbon
+        ariaLabel="Filter marketplace listings"
+        variant="sublist"
+        activeId={bucketFilter}
+        onChange={(id) => setBucketFilter(id as MarketplaceFilterBucket)}
+        items={BUCKET_OPTIONS.map((opt) => ({
+          id: opt.id,
+          label: opt.label,
+          count: bucketed.counts[opt.id],
+        }))}
+      />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <label
             htmlFor="admin-mkt-search"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Search listings
+            Find listing
           </label>
           <div className="relative mt-1">
             <Search
@@ -264,8 +245,8 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Item title, category, or seller @username..."
-              className="block min-h-[42px] w-full rounded-xl border border-slate-300 py-2 pr-3 pl-9 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+              placeholder="Title, category, or seller @username..."
+              className="block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
         </div>
@@ -273,41 +254,40 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
         <div>
           <label
             htmlFor="admin-mkt-note"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Moderation / audit note (optional)
+            Review note (optional)
           </label>
           <input
             id="admin-mkt-note"
             type="text"
             value={reviewNote}
             onChange={(e) => setReviewNote(e.target.value)}
-            placeholder="Reason shared in member notification & audit log..."
-            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+            placeholder="Optional note shared with the seller..."
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-400">
           <Loader2
             className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
             aria-hidden="true"
           />
-          Loading Campus Marketplace inventory...
+          Loading marketplace items...
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center dark:border-slate-700 dark:bg-slate-800/40">
           <ShoppingBag
             className="mx-auto mb-2 h-6 w-6 text-slate-400"
             aria-hidden="true"
           />
-          <p className="text-sm font-semibold text-[#0B1A2E]">
-            No {bucketFilter} listings found
+          <p className="text-sm font-semibold text-[#0B1A2E] dark:text-slate-100">
+            No {bucketFilter} listings right now
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Listings matching the selected lifecycle filter appear here from
-            Firestore.
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Switch tabs above to check other listings.
           </p>
         </div>
       ) : (
@@ -326,45 +306,45 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
             return (
               <article
                 key={listing.id}
-                className="rounded-xl border border-slate-200 bg-white p-4"
+                className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/70"
               >
                 <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-slate-700">
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         {listing.listingKind} · {listing.category}
                       </span>
                       <span
                         className={`rounded-md px-2 py-0.5 text-[11px] font-bold uppercase ${
                           bucket === 'pending'
-                            ? 'bg-amber-100 text-amber-900'
+                            ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300'
                             : bucket === 'approved'
-                            ? 'bg-emerald-100 text-emerald-900'
+                            ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300'
                             : bucket === 'sold'
-                            ? 'bg-blue-100 text-blue-900'
+                            ? 'bg-blue-100 text-blue-900 dark:bg-blue-950/60 dark:text-blue-300'
                             : bucket === 'expired'
-                            ? 'bg-slate-200 text-slate-700'
-                            : 'bg-red-100 text-red-900'
+                            ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            : 'bg-red-100 text-red-900 dark:bg-red-950/60 dark:text-red-300'
                         }`}
                       >
                         {bucket}
                       </span>
-                      <span className="text-xs font-bold text-[#0B1A2E] tabular-nums">
+                      <span className="text-xs font-bold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                         ₦{listing.price.toLocaleString()} · Qty {listing.quantity}
                       </span>
                     </div>
 
-                    <h3 className="mt-2 font-display text-base font-bold text-[#0B1A2E]">
+                    <h3 className="mt-2 font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                       {listing.title}
                     </h3>
-                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
                       {listing.description}
                     </p>
 
-                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                       <span className="inline-flex items-center gap-1.5">
                         Seller:{' '}
-                        <strong className="text-[#0B1A2E]">
+                        <strong className="text-[#0B1A2E] dark:text-slate-200">
                           {seller
                             ? `${seller.fullName} (@${seller.username})`
                             : listing.ownerUID}
@@ -406,22 +386,22 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
                             ) : (
                               <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                             )}
-                            Approve (7 Days)
+                            Approve
                           </button>
                           <button
                             type="button"
                             disabled={isBusy}
                             onClick={() => void handleReview(entry, 'rejected')}
-                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-800/60 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-900/60"
                           >
                             <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
                             Reject
                           </button>
                         </>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                        <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                           <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-                          Supreme Admin Review Required
+                          Supreme Admin Only
                         </span>
                       ))}
 
@@ -435,7 +415,7 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
                               onClick={() =>
                                 void handleStatusChange(listing, 'sold')
                               }
-                              className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                              className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                             >
                               Mark Sold
                             </button>
@@ -447,7 +427,7 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
                               onClick={() =>
                                 void handleStatusChange(listing, 'expired')
                               }
-                              className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                              className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                             >
                               Mark Expired
                             </button>
@@ -460,7 +440,7 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
                                 onClick={() =>
                                   void handleStatusChange(listing, 'active')
                                 }
-                                className="inline-flex min-h-[38px] items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
+                                className="inline-flex min-h-[38px] items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-800/60 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
                               >
                                 Restore Active
                               </button>
@@ -473,7 +453,7 @@ export const AdminMarketplaceTab: React.FC<AdminMarketplaceTabProps> = ({
                         type="button"
                         disabled={isBusy}
                         onClick={() => setDeleteTarget(listing)}
-                        className="inline-flex min-h-[38px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                        className="inline-flex min-h-[38px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-800/60 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-900/60"
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         Delete

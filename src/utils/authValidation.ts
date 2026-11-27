@@ -159,6 +159,37 @@ export function normalizeUsername(value: string): string {
   return value.trim().toLowerCase();
 }
 
+export function buildSanitizedOwnedUsernamesUpdate(input: {
+  primaryUsername: string;
+  previousUsername?: string;
+  existingOwnedUsernames?: unknown;
+  maxItems?: number;
+}): string[] {
+  const maxItems = Math.max(1, Math.trunc(input.maxItems ?? 20));
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  const pushIfValid = (candidate: unknown) => {
+    if (typeof candidate !== 'string') return;
+    const normalized = normalizeUsername(candidate);
+    if (!isValidUsername(normalized) || seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(normalized);
+  };
+
+  pushIfValid(input.primaryUsername);
+  pushIfValid(input.previousUsername);
+
+  if (Array.isArray(input.existingOwnedUsernames)) {
+    for (const entry of input.existingOwnedUsernames) {
+      if (result.length >= maxItems) break;
+      pushIfValid(entry);
+    }
+  }
+
+  return result.slice(0, maxItems);
+}
+
 export function validateUsernameCandidate(
   value: string,
   options?: { currentUsername?: string; allowReserved?: boolean }

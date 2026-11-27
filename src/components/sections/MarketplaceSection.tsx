@@ -97,6 +97,7 @@ import { FullScreenImageLightbox } from '../media/FullScreenImageLightbox';
 import { SquareImageGrid } from '../media/SquareImageGrid';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
 import { LinkifiedText } from '../shared/LinkifiedText';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { MarketplaceListingComments } from './MarketplaceListingComments';
 import { MarketplaceListingCard } from './marketplace/MarketplaceListingCard';
 
@@ -1218,23 +1219,77 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
   const activeGalleryMedia =
     selectedGallery[activeGalleryIndex] ?? selectedGallery[0] ?? null;
 
+  const marketplaceTabItems = [
+    {
+      id: 'browse' as MarketplaceTab,
+      label: 'Browse',
+      count: publicListings.length,
+    },
+    ...(user
+      ? [
+          {
+            id: 'my_listings' as MarketplaceTab,
+            label: 'My Listings',
+            count: myListings.length,
+          },
+        ]
+      : []),
+    {
+      id: 'updates' as MarketplaceTab,
+      label: 'Updates',
+      count: updatesList.length,
+      icon: <Flame className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />,
+    },
+    ...(canModerateApprovals
+      ? [
+          {
+            id: 'pending_approvals' as MarketplaceTab,
+            label: 'Approvals',
+            count: pendingListings.length,
+            badgeDot: pendingListings.length > 0,
+            icon: <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />,
+          },
+        ]
+      : []),
+  ];
+
+  const categoryRibbonItems = [
+    { id: 'All Categories', label: 'All' },
+    ...MARKETPLACE_CATEGORIES.map((cat) => ({
+      id: cat,
+      label:
+        cat === 'Books and Educational Materials'
+          ? 'Books & Study'
+          : cat === 'Hostel and Accommodation'
+            ? 'Hostels'
+            : cat === 'Phones and Accessories'
+              ? 'Phones'
+              : cat === 'Food and Groceries'
+                ? 'Food'
+                : cat === 'Beauty and Personal Care'
+                  ? 'Beauty'
+                  : cat === 'Home and Living'
+                    ? 'Home'
+                    : cat,
+    })),
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header Toolbar */}
-      <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-5 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-5 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900/70">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Store className="h-5 w-5 text-[#1E88E5]" aria-hidden="true" />
-            <h2 className="font-display text-lg font-bold text-[#0B1A2E]">
-              Campus Marketplace &amp; Student Services
+            <h2 className="font-display text-lg font-bold text-[#0B1A2E] dark:text-slate-100">
+              Campus Marketplace
             </h2>
           </div>
-          <p className="text-xs text-slate-600">
-            Connect directly with fellow LASUED students via WhatsApp. No in-app
-            checkout or fees.{' '}
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Buy and sell books, gadgets, hostels, and services via WhatsApp.{' '}
             {isAutoPublished
-              ? 'Your Verified+ account auto-publishes listings instantly.'
-              : 'Ordinary member listings require Moderator review.'}
+              ? 'Your listings go live right away.'
+              : 'New listings are checked by moderators first.'}
           </p>
         </div>
 
@@ -1244,14 +1299,14 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-xl bg-[#1E88E5] px-5 py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-[#1565C0]"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
-          {showCreateForm ? 'Close Listing Form' : 'Post Marketplace Listing'}
+          {showCreateForm ? 'Close Form' : 'Post Listing'}
         </button>
       </div>
 
       {showGuestPrompt && (
         <GuestPromptCard
           title="Sign in to join Campus Marketplace"
-          description="Guests can browse listings and open WhatsApp seller links. Sign in to post listings or follow sellers."
+          description="Guests can browse listings and message sellers on WhatsApp. Sign in to post or follow sellers."
           returnRoute="marketplace"
           onRequireAuth={onRequireAuth}
           onDismiss={() => setShowGuestPrompt(false)}
@@ -1261,7 +1316,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
       {statusMessage && (
         <div
           role="status"
-          className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs font-semibold text-emerald-900"
+          className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-xs font-semibold text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-200"
         >
           <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{statusMessage}</span>
@@ -1271,7 +1326,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
       {errorMessage && (
         <div
           role="alert"
-          className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs text-red-800"
+          className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200"
         >
           <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{errorMessage}</span>
@@ -1280,27 +1335,27 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
       {/* Seller Listing Form */}
       {showCreateForm && user && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
-            <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4 dark:border-slate-800">
+            <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
               {isPreviewMode
                 ? 'Review Listing Preview'
                 : 'Create Marketplace Listing'}
             </h3>
-            <span className="rounded-md bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700">
+            <span className="rounded-md bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
               {isAutoPublished
                 ? 'Instant Publish (Verified+)'
-                : 'Moderator Approval Required'}
+                : 'Moderator Review'}
             </span>
           </div>
 
           {draftRestored && !isPreviewMode && (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1E88E5]/25 bg-[#1E88E5]/5 px-3.5 py-2 text-xs text-[#0B1A2E]">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1E88E5]/25 bg-[#1E88E5]/5 px-3.5 py-2 text-xs text-[#0B1A2E] dark:border-sky-800/60 dark:bg-sky-950/40 dark:text-slate-200">
               <span>Saved listing draft restored from this device.</span>
               <button
                 type="button"
                 onClick={handleDiscardListingDraft}
-                className="font-semibold text-[#1E88E5] hover:underline"
+                className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
               >
                 Discard draft
               </button>
@@ -1317,7 +1372,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <div>
                   <label
                     htmlFor="mkt-kind"
-                    className="block text-xs font-semibold text-[#0B1A2E]"
+                    className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                   >
                     Listing Type
                   </label>
@@ -1327,11 +1382,11 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     onChange={(e) =>
                       setListingKind(e.target.value as MarketplaceListingKind)
                     }
-                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="product">Product / Goods</option>
                     <option value="service">
-                      Service (Tutoring, Graphic Design, etc.)
+                      Service (Tutoring, Design, etc.)
                     </option>
                     <option value="accommodation">
                       Hostel &amp; Accommodation
@@ -1342,7 +1397,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <div>
                   <label
                     htmlFor="mkt-category"
-                    className="block text-xs font-semibold text-[#0B1A2E]"
+                    className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                   >
                     Category
                   </label>
@@ -1350,7 +1405,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     id="mkt-category"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     {MARKETPLACE_CATEGORIES.map((cat) => (
                       <option key={cat} value={cat}>
@@ -1364,7 +1419,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               <div>
                 <label
                   htmlFor="mkt-title"
-                  className="block text-xs font-semibold text-[#0B1A2E]"
+                  className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                 >
                   {listingKind === 'accommodation'
                     ? 'Accommodation Title & Location'
@@ -1384,10 +1439,10 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     listingKind === 'accommodation'
                       ? 'e.g. 1 Room Self Contain at Camp Gate, Ijanikin'
                       : listingKind === 'service'
-                      ? 'e.g. Professional Graphic Design & Assignment Typing'
-                      : 'e.g. CASIO Scientific Calculator & CSC 201 Textbook'
+                      ? 'e.g. Graphic Design & Assignment Typing'
+                      : 'e.g. CASIO Calculator & CSC 201 Textbook'
                   }
-                  className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
 
@@ -1395,7 +1450,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 <div>
                   <label
                     htmlFor="mkt-price"
-                    className="block text-xs font-semibold text-[#0B1A2E]"
+                    className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                   >
                     Price (₦)
                   </label>
@@ -1407,16 +1462,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     placeholder="4500"
-                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                   />
                 </div>
 
                 <div>
                   <label
                     htmlFor="mkt-qty"
-                    className="block text-xs font-semibold text-[#0B1A2E]"
+                    className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                   >
-                    Quantity / Availability
+                    Quantity
                   </label>
                   <input
                     id="mkt-qty"
@@ -1425,16 +1480,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     min={1}
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
-                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   />
                 </div>
 
                 <div>
                   <label
                     htmlFor="mkt-whatsapp"
-                    className="block text-xs font-semibold text-[#0B1A2E]"
+                    className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                   >
-                    WhatsApp Contact Number
+                    WhatsApp Number
                   </label>
                   <input
                     id="mkt-whatsapp"
@@ -1445,7 +1500,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     value={whatsappNumber}
                     onChange={(e) => setWhatsappNumber(e.target.value)}
                     placeholder="+2348012345678"
-                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                    className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                   />
                 </div>
               </div>
@@ -1453,9 +1508,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               <div>
                 <label
                   htmlFor="mkt-desc"
-                  className="block text-xs font-semibold text-[#0B1A2E]"
+                  className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                 >
-                  Full Description &amp; Campus Meetup Point
+                  Description &amp; Campus Meetup Point
                 </label>
                 <textarea
                   id="mkt-desc"
@@ -1465,21 +1520,21 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   maxLength={BLUEPRINT_LIMITS.marketplaceDescMax}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe condition, features, pricing details, and convenient campus meetup point (e.g. Main Gate, Epe Campus)..."
-                  className="mt-1 block w-full rounded-xl border border-slate-300 p-3.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
+                  placeholder="Describe condition, price details, and campus meetup spot (e.g. Main Gate, Epe Campus)..."
+                  className="mt-1 block w-full rounded-xl border border-slate-300 bg-white p-3.5 text-sm leading-relaxed text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
 
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/70">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <span className="text-xs font-bold text-[#0B1A2E]">
+                    <span className="text-xs font-bold text-[#0B1A2E] dark:text-slate-100">
                       {listingKind === 'product'
-                        ? `Product Photographs (${formAttachments.length}/4 · At least 1 required)`
-                        : `Photographs (${formAttachments.length}/4 max · Optional)`}
+                        ? `Product Photos (${formAttachments.length}/4 · At least 1 required)`
+                        : `Photos (${formAttachments.length}/4 max · Optional)`}
                     </span>
-                    <p className="text-[11px] text-slate-500">
-                      Any image format is supported and compressed automatically. Photo #1 is shown as the main cover.
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Images compress automatically. Photo #1 is the cover.
                     </p>
                   </div>
                   <button
@@ -1533,7 +1588,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   {formAttachments.map((att, idx) => (
                     <div
                       key={att.clientId}
-                      className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2 shadow-xs"
+                      className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2 shadow-xs dark:border-slate-700 dark:bg-slate-900"
                     >
                       <div className="relative aspect-square overflow-hidden rounded-lg bg-[#0B1A2E]">
                         <button
@@ -1571,7 +1626,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                           disabled={compressingPhotos || submitting}
                           onClick={() => handleTriggerReplacePhoto(att.clientId)}
                           aria-label={`Replace listing photo ${idx + 1}`}
-                          className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
+                          className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                         >
                           <RefreshCw
                             className="h-3 w-3 text-[#1E88E5]"
@@ -1587,7 +1642,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                               disabled={submitting || idx === 0}
                               onClick={() => handleMovePhoto(idx, idx - 1)}
                               aria-label={`Move photo ${idx + 1} left`}
-                              className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                              className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                             >
                               <ArrowLeft className="h-3 w-3" aria-hidden="true" />
                             </button>
@@ -1598,7 +1653,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                               }
                               onClick={() => handleMovePhoto(idx, idx + 1)}
                               aria-label={`Move photo ${idx + 1} right`}
-                              className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                              className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                             >
                               <ArrowRight className="h-3 w-3" aria-hidden="true" />
                             </button>
@@ -1612,7 +1667,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                       type="button"
                       disabled={compressingPhotos || submitting}
                       onClick={() => addPhotoInputRef.current?.click()}
-                      className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-xs text-slate-600 transition-colors hover:border-[#1E88E5] hover:bg-sky-50/40 disabled:opacity-60"
+                      className="col-span-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-xs text-slate-600 transition-colors hover:border-[#1E88E5] hover:bg-sky-50/40 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-500 dark:hover:bg-slate-800/80"
                     >
                       {compressingPhotos ? (
                         <Loader2
@@ -1625,27 +1680,27 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                           aria-hidden="true"
                         />
                       )}
-                      <span className="font-semibold text-[#0B1A2E]">
+                      <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                         {compressingPhotos
-                          ? 'Compressing photographs...'
+                          ? 'Compressing photos...'
                           : listingKind === 'product'
-                            ? 'Tap to upload 1–4 product photographs (Required)'
-                            : 'Tap to upload up to 4 photographs (Optional)'}
+                            ? 'Tap to add 1–4 product photos (Required)'
+                            : 'Tap to add up to 4 photos (Optional)'}
                       </span>
-                      <span className="text-[11px] text-slate-500">
-                        Supports JPEG, PNG, WebP, HEIC, AVIF, GIF, SVG and more — compressed automatically.
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Supports JPEG, PNG, WebP, HEIC, AVIF, and more.
                       </span>
                     </button>
                   )}
                 </div>
 
                 {uploadProgress && (
-                  <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+                  <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                    <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E] dark:text-slate-100">
                       <span>{uploadProgress.label}</span>
                       <span className="tabular-nums">{uploadProgress.percent}%</span>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                       <div
                         className="h-full bg-[#1E88E5] transition-all duration-200"
                         style={{ width: `${uploadProgress.percent}%` }}
@@ -1658,7 +1713,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               {errorMessage && (
                 <div
                   role="alert"
-                  className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800"
+                  className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200"
                 >
                   <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
                   <span>{errorMessage}</span>
@@ -1670,14 +1725,14 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   type="button"
                   disabled={submitting || compressingPhotos}
                   onClick={handleOpenPreview}
-                  className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
+                  className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
-                  Preview Listing
+                  Preview
                 </button>
                 <button
                   type="submit"
                   disabled={submitting || compressingPhotos}
-                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
+                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60 dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
                 >
                   {(submitting || compressingPhotos) && (
                     <Loader2
@@ -1689,25 +1744,25 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     ? 'Compressing...'
                     : submitting
                       ? 'Publishing...'
-                      : 'Publish Listing Now'}
+                      : 'Publish Listing'}
                 </button>
               </div>
             </form>
           ) : (
             <div className="mt-5 space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex items-center justify-between text-xs font-semibold text-[#1E88E5] uppercase">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-950/70">
+                <div className="flex items-center justify-between text-xs font-semibold text-[#1E88E5] uppercase dark:text-sky-400">
                   <span>
                     {listingKind} · {category}
                   </span>
                   <span>₦{Number(price || 0).toLocaleString()}</span>
                 </div>
-                <h4 className="mt-2 font-display text-lg font-bold text-[#0B1A2E]">
+                <h4 className="mt-2 font-display text-lg font-bold text-[#0B1A2E] dark:text-slate-100">
                   {title || 'Untitled Listing'}
                 </h4>
                 <LinkifiedText
                   text={description || 'No description provided.'}
-                  className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                  className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
                 />
                 {formAttachments.length > 0 && (
                   <div className="mt-4 max-w-md">
@@ -1725,12 +1780,12 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               </div>
 
               {uploadProgress && (
-                <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+                <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-950/70">
+                  <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E] dark:text-slate-100">
                     <span>{uploadProgress.label}</span>
                     <span className="tabular-nums">{uploadProgress.percent}%</span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                     <div
                       className="h-full bg-[#1E88E5] transition-all duration-200"
                       style={{ width: `${uploadProgress.percent}%` }}
@@ -1742,7 +1797,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               {errorMessage && (
                 <div
                   role="alert"
-                  className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800"
+                  className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200"
                 >
                   <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
                   <span>{errorMessage}</span>
@@ -1754,7 +1809,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   type="button"
                   disabled={submitting}
                   onClick={() => setIsPreviewMode(false)}
-                  className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] disabled:opacity-50"
+                  className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   Edit Details
                 </button>
@@ -1766,7 +1821,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     )
                   }
                   disabled={submitting || compressingPhotos}
-                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60"
+                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-6 py-2 text-xs font-bold text-white hover:bg-[#132844] disabled:opacity-60 dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
                 >
                   {(submitting || compressingPhotos) && (
                     <Loader2
@@ -1786,69 +1841,23 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         </div>
       )}
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => handleSelectTab('browse')}
-            className={`min-h-[38px] rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
-              activeTab === 'browse'
-                ? 'bg-[#0B1A2E] text-white shadow-xs'
-                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            Browse Listings ({publicListings.length})
-          </button>
+      {/* Navigation Ribbons */}
+      <div className="space-y-3 border-b border-slate-200 pb-3.5 dark:border-slate-800">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <SectionRibbon
+              items={marketplaceTabItems}
+              activeId={activeTab}
+              onChange={(id) => handleSelectTab(id)}
+              ariaLabel="Marketplace sections"
+              variant="primary"
+            />
+          </div>
 
-          {user && (
-            <button
-              type="button"
-              onClick={() => handleSelectTab('my_listings')}
-              className={`min-h-[38px] rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
-                activeTab === 'my_listings'
-                  ? 'bg-[#0B1A2E] text-white shadow-xs'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              My Listings ({myListings.length})
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => handleSelectTab('updates')}
-            className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
-              activeTab === 'updates'
-                ? 'bg-[#0B1A2E] text-white shadow-xs'
-                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <Flame className="h-3.5 w-3.5 text-amber-500" aria-hidden="true" />
-            Marketplace Updates ({updatesList.length})
-          </button>
-
-          {canModerateApprovals && (
-            <button
-              type="button"
-              onClick={() => handleSelectTab('pending_approvals')}
-              className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-bold transition-colors ${
-                activeTab === 'pending_approvals'
-                  ? 'bg-[#1E88E5] text-white'
-                  : 'border border-[#1E88E5]/40 bg-[#1E88E5]/10 text-[#0B1A2E] hover:bg-[#1E88E5]/20'
-              }`}
-            >
-              <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-              Pending Approvals ({pendingListings.length})
-            </button>
-          )}
-        </div>
-
-        {activeTab === 'browse' && (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+          {activeTab === 'browse' && (
+            <div className="relative shrink-0">
               <Search
-                className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+                className="absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500"
                 aria-hidden="true"
               />
               <input
@@ -1856,50 +1865,47 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search products or services..."
-                className="min-h-[36px] w-44 rounded-xl border border-slate-200 bg-white pr-3 pl-9 text-xs text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] sm:w-56"
+                className="min-h-[38px] w-full rounded-xl border border-slate-200 bg-white pr-3 pl-9 text-xs text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] sm:w-56 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
+          )}
+        </div>
 
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="min-h-[36px] rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-[#0B1A2E]"
-            >
-              <option value="All Categories">All Categories</option>
-              {MARKETPLACE_CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
+        {activeTab === 'browse' && (
+          <SectionRibbon
+            items={categoryRibbonItems}
+            activeId={selectedCategory}
+            onChange={(id) => setSelectedCategory(id)}
+            ariaLabel="Marketplace categories"
+            variant="sublist"
+          />
         )}
       </div>
 
       {/* GRACEFUL MISSING LISTING FALLBACK */}
       {!loading && effectiveSelectedListingId && !selectedProduct && (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center">
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center dark:border-slate-700 dark:bg-slate-900/60">
           {directLookupLoading ? (
-            <div className="flex items-center justify-center gap-2 text-xs font-medium text-slate-600">
+            <div className="flex items-center justify-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
               <Loader2 className="h-4 w-4 animate-spin text-[#1E88E5]" aria-hidden="true" />
-              <span>Opening Marketplace listing...</span>
+              <span>Opening listing...</span>
             </div>
           ) : (
             <>
               <ShoppingBag
-                className="mx-auto mb-2 h-6 w-6 text-slate-400"
+                className="mx-auto mb-2 h-6 w-6 text-slate-400 dark:text-slate-500"
                 aria-hidden="true"
               />
-              <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+              <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                 Listing not available
               </h3>
-              <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
-                This Marketplace listing may have expired, been removed, or is not publicly available.
+              <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-400">
+                This listing may have expired or been removed.
               </p>
               <button
                 type="button"
                 onClick={() => openListingModal(null)}
-                className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+                className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
               >
                 Browse Marketplace
               </button>
@@ -1910,26 +1916,25 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
       {/* Main Content Area */}
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
           <Loader2
             className="mr-2.5 h-5 w-5 animate-spin text-[#1E88E5]"
             aria-hidden="true"
           />
-          Loading Campus Marketplace...
+          Loading Marketplace...
         </div>
       ) : activeTab === 'browse' ? (
         filteredPublic.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center dark:border-slate-800 dark:bg-slate-900/50">
             <ShoppingBag
-              className="mx-auto mb-3 h-8 w-8 text-slate-400"
+              className="mx-auto mb-3 h-8 w-8 text-slate-400 dark:text-slate-500"
               aria-hidden="true"
             />
-            <h3 className="font-display text-base font-bold text-[#0B1A2E]">
-              No matching listings found
+            <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
+              No matching listings
             </h3>
-            <p className="mt-1 text-xs text-slate-600">
-              Try adjusting your search terms or category filters, or be the
-              first to post an offer.
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+              Try another search term or category, or post a new listing.
             </p>
           </div>
         ) : (
@@ -1949,17 +1954,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         )
       ) : activeTab === 'my_listings' ? (
         myListings.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center text-sm text-slate-600">
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
             <Package
-              className="mx-auto mb-3 h-8 w-8 text-slate-400"
+              className="mx-auto mb-3 h-8 w-8 text-slate-400 dark:text-slate-500"
               aria-hidden="true"
             />
-            <p className="font-bold text-[#0B1A2E]">
-              You have not posted any listings yet.
+            <p className="font-bold text-[#0B1A2E] dark:text-slate-100">
+              No listings posted yet
             </p>
             <p className="mt-1 text-xs">
-              Create your first product, service, or accommodation listing
-              above.
+              Tap Post Listing above to sell an item, service, or hostel space.
             </p>
           </div>
         ) : (
@@ -1970,32 +1974,32 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               return (
                 <div
                   key={item.id}
-                  className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5"
+                  className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
                 >
                   <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="font-semibold text-[#1E88E5] uppercase">
+                        <span className="font-semibold text-[#1E88E5] uppercase dark:text-sky-400">
                           {item.listingKind} · {item.category}
                         </span>
                         <span
                           className={`rounded-lg px-2.5 py-0.5 text-[10px] font-bold uppercase ${
                             item.status === 'active'
-                              ? 'bg-emerald-100 text-emerald-800'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300'
                               : item.status === 'pending_approval'
-                              ? 'bg-amber-100 text-amber-900'
+                              ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300'
                               : item.status === 'sold'
-                              ? 'bg-slate-200 text-slate-700'
-                              : 'bg-red-100 text-red-800'
+                              ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              : 'bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300'
                           }`}
                         >
                           {item.status.replace('_', ' ')}
                         </span>
                       </div>
-                      <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         {item.title} — ₦{item.price.toLocaleString()}
                       </h3>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
                         Remaining stock: {item.quantity} · Posted{' '}
                         {new Date(Number(item.createdAt)).toLocaleDateString()}
                       </p>
@@ -2008,7 +2012,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                             type="button"
                             disabled={busyListingId === item.id}
                             onClick={() => void handleUpdateQuantity(item, 0)}
-                            className="min-h-[38px] rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-xs font-bold text-[#0B1A2E] hover:bg-slate-50"
+                            className="min-h-[38px] rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-xs font-bold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                           >
                             Mark as Sold
                           </button>
@@ -2037,7 +2041,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                             prev === item.id ? null : item.id
                           )
                         }
-                        className="inline-flex min-h-[38px] items-center gap-1 rounded-xl border border-red-200 bg-red-50 px-4 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100"
+                        className="inline-flex min-h-[38px] items-center gap-1 rounded-xl border border-red-200 bg-red-50 px-4 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950/80"
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         Delete
@@ -2046,7 +2050,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   </div>
 
                   {confirmingDelete && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-200">
                       <span>Permanently delete this listing?</span>
                       <div className="flex items-center gap-2">
                         <button
@@ -2066,7 +2070,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteListingId(null)}
-                          className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+                          className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                         >
                           Cancel
                         </button>
@@ -2080,14 +2084,13 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
         )
       ) : activeTab === 'updates' ? (
         <div className="space-y-4">
-          <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center">
+          <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
             <div>
-              <h3 className="font-display text-base font-bold text-[#0B1A2E]">
-                Marketplace Announcements &amp; Safety Advisories
+              <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
+                Marketplace Notices &amp; Safety Tips
               </h3>
-              <p className="mt-1 text-xs text-slate-600">
-                Official updates regarding campus trading guidelines, security
-                alerts, and accommodation notices.
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Official campus trading rules, safety alerts, and hostel notices.
               </p>
             </div>
             {isSupremeAdminOrOwner && (
@@ -2097,9 +2100,9 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   if (showUpdateForm) resetUpdateForm();
                   else setShowUpdateForm(true);
                 }}
-                className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+                className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
               >
-                <Plus className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                <Plus className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white" aria-hidden="true" />
                 {showUpdateForm ? 'Close Form' : 'Publish Update'}
               </button>
             )}
@@ -2108,13 +2111,13 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           {showUpdateForm && isSupremeAdminOrOwner && (
             <form
               onSubmit={handleSaveMarketplaceUpdate}
-              className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-5"
+              className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-5 dark:border-slate-800 dark:bg-slate-900/70"
             >
               <div className="flex items-center justify-between gap-2">
-                <h4 className="font-display text-sm font-bold text-[#0B1A2E]">
+                <h4 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                   {editingUpdate
                     ? `Edit Notice: ${editingUpdate.title}`
-                    : 'New Marketplace Update / Safety Advisory'}
+                    : 'New Marketplace Notice'}
                 </h4>
               </div>
 
@@ -2127,14 +2130,14 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   value={updateTitle}
                   onChange={(e) => setUpdateTitle(e.target.value)}
                   placeholder="Notice headline..."
-                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] sm:col-span-2"
+                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] placeholder:text-slate-400 sm:col-span-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
                 <select
                   value={updateCategory}
                   onChange={(e) =>
                     setUpdateCategory(e.target.value as MarketplaceUpdateCategory)
                   }
-                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E]"
+                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="safety">Safety Advisory</option>
                   <option value="policy">Trading Policy</option>
@@ -2150,11 +2153,11 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 value={updateBody}
                 onChange={(e) => setUpdateBody(e.target.value)}
                 placeholder="Write the official notice details..."
-                className="block w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E]"
+                className="block w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E] placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
 
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <label className="inline-flex items-center gap-2 text-xs font-medium text-[#0B1A2E]">
+                <label className="inline-flex items-center gap-2 text-xs font-medium text-[#0B1A2E] dark:text-slate-200">
                   <input
                     type="checkbox"
                     checked={updatePublished}
@@ -2180,7 +2183,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   <button
                     type="button"
                     onClick={resetUpdateForm}
-                    className="min-h-[38px] rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700"
+                    className="min-h-[38px] rounded-xl border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                   >
                     Cancel
                   </button>
@@ -2190,16 +2193,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           )}
 
           {updatesLoading ? (
-            <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+            <div className="flex items-center justify-center py-10 text-sm text-slate-600 dark:text-slate-300">
               <Loader2
                 className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
                 aria-hidden="true"
               />
-              Loading official updates...
+              Loading updates...
             </div>
           ) : updatesList.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-10 text-center text-sm text-slate-600">
-              No marketplace updates or safety advisories published yet.
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-10 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+              No marketplace notices published yet.
             </div>
           ) : (
             <div className="space-y-3">
@@ -2217,15 +2220,15 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 return (
                   <article
                     key={up.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs"
+                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-2xs dark:border-slate-800 dark:bg-slate-900"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md bg-[#1E88E5]/10 px-2 py-0.5 font-semibold text-[#1E88E5] uppercase">
+                        <span className="rounded-md bg-[#1E88E5]/10 px-2 py-0.5 font-semibold text-[#1E88E5] uppercase dark:bg-sky-500/15 dark:text-sky-300">
                           {up.category}
                         </span>
                         {!up.published && (
-                          <span className="rounded-md bg-amber-100 px-2 py-0.5 font-semibold text-amber-900">
+                          <span className="rounded-md bg-amber-100 px-2 py-0.5 font-semibold text-amber-900 dark:bg-amber-950/70 dark:text-amber-300">
                             Draft
                           </span>
                         )}
@@ -2244,7 +2247,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                               setShowUpdateForm(true);
                             }}
                             aria-label={`Edit ${up.title}`}
-                            className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]"
+                            className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                           >
                             <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
@@ -2256,22 +2259,22 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                               )
                             }
                             aria-label={`Delete ${up.title}`}
-                            className="rounded-lg p-1.5 text-red-700 hover:bg-red-50"
+                            className="rounded-lg p-1.5 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
                           >
                             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         </div>
                       )}
                     </div>
-                    <h4 className="mt-2 font-display text-base font-bold text-[#0B1A2E]">
+                    <h4 className="mt-2 font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                       {up.title}
                     </h4>
                     <LinkifiedText
                       text={up.body}
-                      className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                      className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
                     />
                     {confirmingDelete && isSupremeAdminOrOwner && (
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900">
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-900/60 dark:bg-red-950/60 dark:text-red-200">
                         <span>Delete this marketplace notice?</span>
                         <div className="flex items-center gap-2">
                           <button
@@ -2293,7 +2296,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteUpdateId(null)}
-                            className="min-h-[32px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+                            className="min-h-[32px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                           >
                             Cancel
                           </button>
@@ -2307,12 +2310,12 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           )}
         </div>
       ) : pendingListings.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center text-sm text-slate-600">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-12 text-center text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
           <Clock
-            className="mx-auto mb-3 h-8 w-8 text-slate-400"
+            className="mx-auto mb-3 h-8 w-8 text-slate-400 dark:text-slate-500"
             aria-hidden="true"
           />
-          No pending listings awaiting review.
+          No pending listings to review.
         </div>
       ) : (
         <div className="space-y-4">
@@ -2326,18 +2329,18 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
             return (
               <div
                 key={item.id}
-                className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center"
+                className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-bold text-[#1E88E5] uppercase">
+                  <p className="text-xs font-bold text-[#1E88E5] uppercase dark:text-sky-400">
                     {item.listingKind} · {item.category}
                   </p>
-                  <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                  <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                     {item.title} — ₦{item.price.toLocaleString()}
                   </h3>
                   <LinkifiedText
                     text={item.description}
-                    className="text-xs text-slate-600"
+                    className="text-xs text-slate-600 dark:text-slate-400"
                   />
                 </div>
 
@@ -2356,14 +2359,14 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                       type="button"
                       disabled={busyListingId === item.id}
                       onClick={() => void handleReviewPending(item.id, 'rejected')}
-                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-800 hover:bg-red-100"
+                      className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-800 hover:bg-red-100 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950/80"
                     >
                       <XCircle className="h-4 w-4" aria-hidden="true" />
                       Reject
                     </button>
                   </div>
                 ) : (
-                  <span className="inline-flex shrink-0 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                  <span className="inline-flex shrink-0 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                     Admin review only
                   </span>
                 )}
@@ -2380,23 +2383,23 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1A2E]/70 p-4 backdrop-blur-xs"
         >
-          <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-6 py-4">
+          <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
               <div className="flex min-w-0 items-center gap-3">
                 <button
                   type="button"
                   onClick={() => openListingModal(null)}
                   aria-label="Back from product details"
-                  className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+                  className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
                   Back
                 </button>
                 <div className="min-w-0">
-                  <span className="text-xs font-bold text-[#1E88E5] uppercase">
+                  <span className="text-xs font-bold text-[#1E88E5] uppercase dark:text-sky-400">
                     {selectedProduct.listingKind} · {selectedProduct.category}
                   </span>
-                  <h3 className="truncate font-display text-lg font-bold text-[#0B1A2E]">
+                  <h3 className="truncate font-display text-lg font-bold text-[#0B1A2E] dark:text-slate-100">
                     {selectedProduct.title}
                   </h3>
                 </div>
@@ -2408,14 +2411,14 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                   text={`${selectedProduct.title} — ₦${selectedProduct.price.toLocaleString()} on LASUED Intel Marketplace`}
                   align="right"
                   ariaLabel="Share listing link"
-                  buttonClassName="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                  buttonClassName="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
                   testId={`marketplace-share-btn-${selectedProduct.id}`}
                 />
                 <button
                   type="button"
                   onClick={() => openListingModal(null)}
                   aria-label="Close product details"
-                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                 >
                   <X className="h-5 w-5" aria-hidden="true" />
                 </button>
@@ -2484,7 +2487,7 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
 
               {/* Seller Identity + Follow Control */}
               {selectedSeller && (
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-slate-800/50">
                   <button
                     type="button"
                     onClick={() => {
@@ -2502,12 +2505,12 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                     />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="truncate font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]">
+                        <span className="truncate font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400">
                           {selectedSeller.fullName}
                         </span>
                         <ProfileBadgesRow profile={selectedSeller} size="xs" />
                       </div>
-                      <p className="truncate text-xs text-slate-500">
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                         @{selectedSeller.username}
                         {selectedSeller.department
                           ? ` · ${selectedSeller.department}`
@@ -2526,32 +2529,32 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
                 <div>
-                  <span className="text-xs text-slate-500">Price</span>
-                  <p className="font-display text-2xl font-bold text-[#0B1A2E] tabular-nums">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Price</span>
+                  <p className="font-display text-2xl font-bold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                     ₦{selectedProduct.price.toLocaleString()}
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs text-slate-500">Availability</span>
-                  <p className="text-sm font-bold text-emerald-700 capitalize">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Availability</span>
+                  <p className="text-sm font-bold text-emerald-700 capitalize dark:text-emerald-400">
                     {selectedProduct.status} (Qty: {selectedProduct.quantity})
                   </p>
                 </div>
               </div>
 
               <div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase">
+                <h4 className="text-xs font-bold text-slate-500 uppercase dark:text-slate-400">
                   Description
                 </h4>
                 <LinkifiedText
                   text={selectedProduct.description}
-                  className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                  className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
                 />
               </div>
 
-              <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+              <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
                 <p>
                   Meetup &amp; Transaction: Direct between buyer and seller at
                   safe campus locations.
@@ -2585,16 +2588,16 @@ export const MarketplaceSection: React.FC<MarketplaceSectionProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-end border-t border-slate-200 bg-slate-50 px-6 py-4">
+            <div className="flex items-center justify-end border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-slate-800 dark:bg-slate-950/60">
               {buildWhatsAppChatUrl(selectedProduct.whatsappNumber) && (
                 <a
                   href={buildWhatsAppChatUrl(selectedProduct.whatsappNumber)!}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-[#0B1A2E] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#132844]"
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-[#0B1A2E] px-6 py-2.5 text-xs font-bold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
                 >
                   <MessageCircle
-                    className="h-4 w-4 text-[#1E88E5]"
+                    className="h-4 w-4 text-[#1E88E5] dark:text-white"
                     aria-hidden="true"
                   />
                   Contact Seller on WhatsApp

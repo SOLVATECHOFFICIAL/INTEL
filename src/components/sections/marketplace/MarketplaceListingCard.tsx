@@ -54,11 +54,11 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
   const leadPhoto = gallery[0] ?? null;
 
   return (
-    <article className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-[#1E88E5]/50 hover:shadow-md">
+    <article className="group flex min-w-0 flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:border-[#1E88E5]/50 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-500/60">
       <button
         type="button"
         onClick={() => onOpenListing(listing.id)}
-        className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100 text-left"
+        className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100 text-left dark:bg-slate-800"
       >
         {leadPhoto ? (
           <FirestoreImage
@@ -86,8 +86,8 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
 
       <div className="flex min-w-0 flex-1 flex-col justify-between p-4">
         <div>
-          <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-            <span className="truncate font-semibold text-[#1E88E5]">
+          <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="truncate font-semibold text-[#1E88E5] dark:text-sky-400">
               {listing.category}
             </span>
             <span className="shrink-0">
@@ -100,16 +100,16 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
             onClick={() => onOpenListing(listing.id)}
             className="mt-1.5 text-left"
           >
-            <h3 className="line-clamp-2 font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]">
+            <h3 className="line-clamp-2 font-display text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-white dark:hover:text-sky-400">
               {listing.title}
             </h3>
           </button>
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
             {listing.description}
           </p>
 
           {seller && (
-            <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/80 px-2.5 py-2">
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-slate-50/80 px-2.5 py-2 dark:border-slate-800 dark:bg-slate-800/60">
               <button
                 type="button"
                 onClick={() => onNavigateProfile?.(seller.username)}
@@ -123,7 +123,7 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
                   roundedClass="rounded-full"
                   textClass="text-[10px]"
                 />
-                <span className="truncate text-[11px] font-semibold text-[#0B1A2E] hover:text-[#1E88E5]">
+                <span className="truncate text-[11px] font-semibold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400">
                   {seller.fullName}
                 </span>
                 <ProfileBadgesRow profile={seller} size="xs" />
@@ -138,8 +138,8 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
           )}
         </div>
 
-        <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-          <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+        <div className="mt-3.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+          <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums dark:text-white">
             ₦{listing.price.toLocaleString()}
           </span>
           {waUrl && (
@@ -147,10 +147,10 @@ export const MarketplaceListingCard = React.memo(function MarketplaceListingCard
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#132844]"
+              className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#132844] dark:bg-sky-600 dark:hover:bg-sky-500"
             >
               <MessageCircle
-                className="h-3.5 w-3.5 text-[#1E88E5]"
+                className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white"
                 aria-hidden="true"
               />
               WhatsApp

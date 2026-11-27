@@ -38,6 +38,7 @@ import {
   OPPORTUNITY_CATEGORIES,
   resolveOpportunityLifecycle,
 } from '../../utils/opportunities';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
 interface AdminOpportunitiesTabProps {
@@ -364,13 +365,11 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-            Manage Opportunities ({opportunities.length})
+          <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+            Opportunities ({opportunities.length})
           </h2>
-          <p className="text-xs text-slate-600">
-            Publish scholarships, grants, internships, trainings, and career
-            notices, manage drafts, verify listings, and send deduplicated
-            member alerts.
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Post scholarships, grants, internships, and career alerts.
           </p>
         </div>
 
@@ -380,9 +379,9 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
             if (showForm) resetForm();
             else setShowForm(true);
           }}
-          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
         >
-          <Plus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+          <Plus className="h-4 w-4 text-[#1E88E5] dark:text-white" aria-hidden="true" />
           {showForm ? 'Close Form' : 'New Opportunity'}
         </button>
       </div>
@@ -390,15 +389,15 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="space-y-3.5 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5"
+          className="space-y-3.5 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-800/50"
         >
-          <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
-            {editing ? `Edit Opportunity: ${editing.title}` : 'Create Opportunity'}
+          <h3 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+            {editing ? `Edit: ${editing.title}` : 'New Opportunity'}
           </h3>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Category
               </label>
               <select
@@ -406,7 +405,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                 onChange={(e) =>
                   setCategory(e.target.value as OpportunityCategory)
                 }
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               >
                 {OPPORTUNITY_CATEGORIES.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -417,13 +416,13 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
-                Publishing Status
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                Status
               </label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as OpportunityStatus)}
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               >
                 <option value="active">Published (Active)</option>
                 <option value="unpublished">Unpublished (Draft)</option>
@@ -432,19 +431,19 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Opening Date (optional)
               </label>
               <input
                 type="datetime-local"
                 value={opensAtIso}
                 onChange={(e) => setOpensAtIso(e.target.value)}
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Application Deadline
               </label>
               <input
@@ -452,15 +451,15 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                 required
                 value={expiresAtIso}
                 onChange={(e) => setExpiresAtIso(e.target.value)}
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
-                Opportunity Title
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                Title
               </label>
               <input
                 type="text"
@@ -468,12 +467,12 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Lagos State Undergraduate Bursary 2026"
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
-                Organisation / Institution
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                Organisation
               </label>
               <input
                 type="text"
@@ -481,165 +480,156 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                 value={organisation}
                 onChange={(e) => setOrganisation(e.target.value)}
                 placeholder="e.g. Lagos State Scholarship Board"
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[#0B1A2E]">
-              Full Description
+            <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+              Description
             </label>
             <textarea
               required
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Explain what the opportunity covers, schedule details, and overview for LASUED students..."
-              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E]"
+              placeholder="Explain what it covers and key details for students..."
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Who Can Apply (optional)
               </label>
               <textarea
                 rows={2}
                 value={whoCanApply}
                 onChange={(e) => setWhoCanApply(e.target.value)}
-                placeholder="e.g. Full-time 200L–400L undergraduates in Science & Education"
-                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+                placeholder="e.g. Full-time 200L–400L undergraduates"
+                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
-                Eligibility Requirements (optional)
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                Eligibility (optional)
               </label>
               <textarea
                 rows={2}
                 value={eligibility}
                 onChange={(e) => setEligibility(e.target.value)}
-                placeholder="Minimum CGPA, enrolment status, age, or state requirements..."
-                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+                placeholder="Minimum CGPA, enrolment status, or state requirements..."
+                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Benefits (optional)
               </label>
               <textarea
                 rows={2}
                 value={benefits}
                 onChange={(e) => setBenefits(e.target.value)}
-                placeholder="e.g. Tuition grant, monthly stipend, certificate, or mentorship"
-                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+                placeholder="e.g. Tuition grant, monthly stipend, or mentorship"
+                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Required Documents (optional)
               </label>
               <textarea
                 rows={2}
                 value={requiredDocuments}
                 onChange={(e) => setRequiredDocuments(e.target.value)}
-                placeholder="Student ID, official transcript, CV, admission letter..."
-                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+                placeholder="Student ID, transcript, CV, admission letter..."
+                className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                 Application Link (optional https://...)
               </label>
               <input
                 type="url"
                 value={applicationUrl}
                 onChange={(e) => setApplicationUrl(e.target.value)}
-                placeholder="https://... (leave blank if application is by email or office)"
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                placeholder="https://... (leave blank if by email or office)"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#0B1A2E]">
-                Contact Information (optional)
+              <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                Contact Info (optional)
               </label>
               <input
                 type="text"
                 value={contactInfo}
                 onChange={(e) => setContactInfo(e.target.value)}
                 placeholder="Inquiry email, office room, or phone line"
-                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="mt-1 block min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-[#0B1A2E]">
-              Application Instructions (optional)
+            <label className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+              How to Apply (optional)
             </label>
             <textarea
               rows={2}
               value={applicationInstructions}
               onChange={(e) => setApplicationInstructions(e.target.value)}
               placeholder="Step-by-step submission instructions..."
-              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+              className="mt-1 block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
 
-          {/* Verification & Deduplicated Notification Toggles */}
-          <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-[#0B1A2E]">
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <label className="flex items-center gap-2 text-xs font-semibold text-[#0B1A2E] dark:text-slate-100">
               <input
                 type="checkbox"
                 checked={isVerified}
                 onChange={(e) => setIsVerified(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-[#1E88E5]"
               />
-              <span>
-                Mark as Verified Opportunity (only check when the source has
-                been officially confirmed)
-              </span>
+              <span>Mark as Verified Opportunity</span>
             </label>
 
             {canSendNewInForm ? (
-              <label className="flex items-center gap-2 text-xs text-slate-700">
+              <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
                 <input
                   type="checkbox"
                   checked={notifyNewOnSave}
                   onChange={(e) => setNotifyNewOnSave(e.target.checked)}
                   className="h-4 w-4 rounded border-slate-300 text-[#1E88E5]"
                 />
-                <span>
-                  Notify active members about this new opportunity (one-time
-                  alert per opportunity)
-                </span>
+                <span>Notify active members about this new opportunity</span>
               </label>
             ) : editing?.notifiedNewAt ? (
-              <p className="text-[11px] text-slate-500">
-                Initial new-opportunity alert already sent on{' '}
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Initial alert sent on{' '}
                 {formatOpportunityDate(editing.notifiedNewAt)}.
               </p>
             ) : null}
 
             {canSendDeadlineInForm && (
-              <label className="flex items-center gap-2 text-xs text-slate-700">
+              <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
                 <input
                   type="checkbox"
                   checked={notifyDeadlineOnSave}
                   onChange={(e) => setNotifyDeadlineOnSave(e.target.checked)}
                   className="h-4 w-4 rounded border-slate-300 text-[#1E88E5]"
                 />
-                <span>
-                  Notify active members about the updated closing deadline
-                </span>
+                <span>Notify members about the updated deadline</span>
               </label>
             )}
           </div>
@@ -659,7 +649,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
               type="button"
               disabled={submitting}
               onClick={resetForm}
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+              className="inline-flex min-h-[40px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
@@ -667,33 +657,22 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
         </form>
       )}
 
-      {/* Admin Status Filter Tabs */}
-      <div className="inline-flex flex-wrap rounded-xl bg-slate-100 p-1">
-        {(
-          [
-            { id: 'all', label: `All (${opportunities.length})` },
-            { id: 'active', label: `Published (${counts.activeCount})` },
-            { id: 'unpublished', label: `Drafts (${counts.draftCount})` },
-            { id: 'closed', label: `Closed (${counts.closedCount})` },
-          ] as const
-        ).map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setFilterTab(tab.id)}
-            className={`min-h-[34px] rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
-              filterTab === tab.id
-                ? 'bg-white text-[#0B1A2E] shadow-xs'
-                : 'text-slate-600 hover:text-[#0B1A2E]'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Admin Status Filter Ribbon */}
+      <SectionRibbon<AdminFilterTab>
+        variant="sublist"
+        ariaLabel="Opportunity status filter"
+        activeId={filterTab}
+        onChange={setFilterTab}
+        items={[
+          { id: 'all', label: 'All', count: opportunities.length },
+          { id: 'active', label: 'Published', count: counts.activeCount },
+          { id: 'unpublished', label: 'Drafts', count: counts.draftCount },
+          { id: 'closed', label: 'Closed', count: counts.closedCount },
+        ]}
+      />
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
           <Loader2
             className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
             aria-hidden="true"
@@ -701,17 +680,17 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
           Loading opportunities...
         </div>
       ) : filteredOpportunities.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center dark:border-slate-700 dark:bg-slate-800/40">
           <Briefcase
             className="mx-auto mb-2 h-6 w-6 text-slate-400"
             aria-hidden="true"
           />
-          <p className="text-sm font-semibold text-[#0B1A2E]">
+          <p className="text-sm font-semibold text-[#0B1A2E] dark:text-slate-100">
             No opportunities in this view
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Click &ldquo;New Opportunity&rdquo; above to add scholarships,
-            grants, internships, trainings, or conferences.
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Tap &ldquo;New Opportunity&rdquo; above to post a scholarship,
+            internship, or grant.
           </p>
         </div>
       ) : (
@@ -731,36 +710,42 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
             return (
               <article
                 key={opp.id}
-                className="rounded-xl border border-slate-200 bg-white p-4"
+                className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="font-semibold text-[#1E88E5]">
+                      <span className="font-semibold text-[#1E88E5] dark:text-sky-400">
                         {getOpportunityCategoryLabel(opp.category)}
                       </span>
-                      <span aria-hidden="true" className="text-slate-300">
+                      <span
+                        aria-hidden="true"
+                        className="text-slate-300 dark:text-slate-600"
+                      >
                         ·
                       </span>
                       <span
                         className={`font-bold ${
                           lifecycle.state === 'unpublished'
-                            ? 'text-slate-600'
+                            ? 'text-slate-600 dark:text-slate-400'
                             : lifecycle.state === 'closing_soon'
-                              ? 'text-amber-700'
+                              ? 'text-amber-700 dark:text-amber-400'
                               : lifecycle.state === 'closed'
-                                ? 'text-slate-500'
-                                : 'text-emerald-700'
+                                ? 'text-slate-500 dark:text-slate-400'
+                                : 'text-emerald-700 dark:text-emerald-400'
                         }`}
                       >
                         {lifecycle.label}
                       </span>
                       {opp.isVerified === true && (
                         <>
-                          <span aria-hidden="true" className="text-slate-300">
+                          <span
+                            aria-hidden="true"
+                            className="text-slate-300 dark:text-slate-600"
+                          >
                             ·
                           </span>
-                          <span className="inline-flex items-center gap-1 font-semibold text-[#0B1A2E]">
+                          <span className="inline-flex items-center gap-1 font-semibold text-[#0B1A2E] dark:text-slate-200">
                             <ShieldCheck
                               className="h-3.5 w-3.5 text-[#1E88E5]"
                               aria-hidden="true"
@@ -771,34 +756,37 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                       )}
                       {isOverdueActive && (
                         <>
-                          <span aria-hidden="true" className="text-slate-300">
+                          <span
+                            aria-hidden="true"
+                            className="text-slate-300 dark:text-slate-600"
+                          >
                             ·
                           </span>
-                          <span className="font-semibold text-amber-700">
+                          <span className="font-semibold text-amber-700 dark:text-amber-400">
                             Deadline passed (shown as Closed)
                           </span>
                         </>
                       )}
                     </div>
 
-                    <h3 className="mt-1.5 font-display text-base font-bold text-[#0B1A2E]">
+                    <h3 className="mt-1.5 font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                       {opp.title}
                     </h3>
-                    <p className="text-xs font-semibold text-[#1E88E5]">
+                    <p className="text-xs font-semibold text-[#1E88E5] dark:text-sky-400">
                       {opp.organisation}
                     </p>
-                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                       {opp.description}
                     </p>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
                       <span className="inline-flex items-center gap-1">
                         <Clock className="h-3 w-3" aria-hidden="true" />
                         Deadline: {formatOpportunityDate(opp.expiresAt)} (
                         {formatOpportunityDeadlineSummary(lifecycle)})
                       </span>
                       {Boolean(opp.notifiedNewAt) && (
-                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                           <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
                           Members alerted
                         </span>
@@ -808,7 +796,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                           href={safeUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 font-semibold text-[#1E88E5] hover:underline"
+                          className="inline-flex items-center gap-1 font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                         >
                           Application Link
                           <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -822,7 +810,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                       type="button"
                       disabled={isBusy}
                       onClick={() => startEdit(opp)}
-                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     >
                       <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
                       Edit
@@ -832,7 +820,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                       type="button"
                       disabled={isBusy}
                       onClick={() => void handleToggleVerified(opp)}
-                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     >
                       <ShieldCheck
                         className={`h-3.5 w-3.5 ${
@@ -854,7 +842,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                             `Published "${opp.title}".`
                           )
                         }
-                        className="inline-flex min-h-[34px] items-center rounded-lg bg-[#0B1A2E] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60"
+                        className="inline-flex min-h-[34px] items-center rounded-lg bg-[#0B1A2E] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60 dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
                       >
                         Publish
                       </button>
@@ -869,7 +857,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                             `Moved "${opp.title}" to drafts (unpublished).`
                           )
                         }
-                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                       >
                         <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
                         Unpublish
@@ -887,7 +875,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                             `Marked "${opp.title}" as closed.`
                           )
                         }
-                        className="inline-flex min-h-[34px] items-center rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                        className="inline-flex min-h-[34px] items-center rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-700/60 dark:bg-amber-950/50 dark:text-amber-300 dark:hover:bg-amber-950"
                       >
                         Mark Closed
                       </button>
@@ -898,7 +886,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                         type="button"
                         disabled={isBusy}
                         onClick={() => void handleSendNotice(opp, 'new')}
-                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-[#1E88E5]/40 bg-[#1E88E5]/10 px-2.5 py-1 text-xs font-semibold text-[#1E88E5] hover:bg-[#1E88E5]/20 disabled:opacity-60"
+                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-[#1E88E5]/40 bg-[#1E88E5]/10 px-2.5 py-1 text-xs font-semibold text-[#1E88E5] hover:bg-[#1E88E5]/20 disabled:opacity-60 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-300"
                       >
                         <Bell className="h-3.5 w-3.5" aria-hidden="true" />
                         Send Notice
@@ -910,7 +898,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                         type="button"
                         disabled={isBusy}
                         onClick={() => void handleSendNotice(opp, 'deadline')}
-                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-[#1E88E5]/40 bg-[#1E88E5]/10 px-2.5 py-1 text-xs font-semibold text-[#1E88E5] hover:bg-[#1E88E5]/20 disabled:opacity-60"
+                        className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-[#1E88E5]/40 bg-[#1E88E5]/10 px-2.5 py-1 text-xs font-semibold text-[#1E88E5] hover:bg-[#1E88E5]/20 disabled:opacity-60 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-300"
                       >
                         <Bell className="h-3.5 w-3.5" aria-hidden="true" />
                         Notify Deadline
@@ -921,7 +909,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
                       type="button"
                       disabled={isBusy}
                       onClick={() => setDeleteTarget(opp)}
-                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                      className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Delete
@@ -937,7 +925,7 @@ export const AdminOpportunitiesTab: React.FC<AdminOpportunitiesTabProps> = ({
       <AdminConfirmDialog
         open={Boolean(deleteTarget)}
         title={`Delete "${deleteTarget?.title}"?`}
-        description="This permanently removes the opportunity from LASUED Intel and logs the deletion in the audit trail."
+        description="This permanently removes the opportunity and logs the deletion."
         confirmLabel="Delete Opportunity"
         tone="danger"
         busy={Boolean(busyId)}

@@ -32,6 +32,7 @@ import { getSearchScopeFromRoute } from '../utils/urlRouting';
 import { SectionIcon } from './SectionIcon';
 import { PWAInstallControl } from './pwa/PWAInstallControl';
 import { WebPushNotificationButton } from './pwa/WebPushNotificationButton';
+import { ThemeToggle } from './shared/ThemeToggle';
 
 interface MobileSectionDrawerProps {
   isOpen: boolean;
@@ -112,14 +113,14 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
   return (
     <div
       id="mobile-navigation-drawer"
-      className="fixed inset-0 z-50 flex items-end bg-[#0B1A2E]/50 backdrop-blur-xs lg:hidden"
+      className="fixed inset-0 z-50 flex items-end bg-[#0B1A2E]/50 backdrop-blur-xs dark:bg-slate-950/75 lg:hidden"
       role="dialog"
       aria-modal="true"
       aria-labelledby="mobile-sections-title"
       onClick={onClose}
     >
       <div
-        className="max-h-[calc(90dvh-env(safe-area-inset-top))] w-full overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-xl"
+        className="max-h-[calc(90dvh-env(safe-area-inset-top))] w-full overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-xl dark:border-t dark:border-slate-800 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div
@@ -127,15 +128,15 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
           className="lasued-action-gradient mx-auto mb-3 h-1.5 w-12 rounded-full opacity-80"
         />
 
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
           <div>
             <h2
               id="mobile-sections-title"
-              className="font-display text-lg font-bold text-[#0B1A2E]"
+              className="font-display text-lg font-bold text-[#0B1A2E] dark:text-white"
             >
               LASUED Intel Menu
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               {user
                 ? profile?.fullName || user.email || 'Signed in'
                 : 'Browsing as guest'}
@@ -145,14 +146,27 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close menu"
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
+        {/* Appearance Quick Switch */}
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-800/60">
+          <div>
+            <p className="text-xs font-semibold text-[#0B1A2E] dark:text-slate-100">
+              Appearance
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Switch light or dark theme
+            </p>
+          </div>
+          <ThemeToggle showLabel />
+        </div>
+
         {/* Account / Auth Actions */}
-        <div className="mt-3 space-y-1.5 border-b border-slate-100 pb-3">
+        <div className="mt-3 space-y-1.5 border-b border-slate-100 pb-3 dark:border-slate-800">
           {user ? (
             <>
               <button
@@ -163,7 +177,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                     profile?.username ? { username: profile.username } : undefined
                   )
                 }
-                className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
               >
                 <span className="flex items-center gap-3">
                   <ExternalLink
@@ -190,17 +204,17 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                         profileTab: 'saved',
                       })
                     }
-                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
                   >
                     <span className="flex items-center gap-3">
                       <Bookmark
-                        className="h-4 w-4 text-[#1E88E5]"
+                        className="h-4 w-4 text-[#1E88E5] dark:text-sky-400"
                         aria-hidden="true"
                       />
                       Saved Content
                     </span>
                     <ChevronRight
-                      className="h-4 w-4 text-slate-400"
+                      className="h-4 w-4 text-slate-400 dark:text-slate-500"
                       aria-hidden="true"
                     />
                   </button>
@@ -213,17 +227,17 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                         profileTab: 'anonymous',
                       })
                     }
-                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800"
                   >
                     <span className="flex items-center gap-3">
                       <Lock
-                        className="h-4 w-4 text-[#1E88E5]"
+                        className="h-4 w-4 text-[#1E88E5] dark:text-sky-400"
                         aria-hidden="true"
                       />
                       My Anonymous Posts
                     </span>
                     <ChevronRight
-                      className="h-4 w-4 text-slate-400"
+                      className="h-4 w-4 text-slate-400 dark:text-slate-500"
                       aria-hidden="true"
                     />
                   </button>
@@ -238,7 +252,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 >
                   <span className="flex items-center gap-3">
                     <ShieldCheck className="h-4 w-4 text-sky-200" aria-hidden="true" />
-                    {isFullAdmin ? 'Administrator Dashboard' : 'Moderation Console'}
+                    {isFullAdmin ? 'Admin Dashboard' : 'Moderation'}
                   </span>
                   <ChevronRight className="h-4 w-4 opacity-80" aria-hidden="true" />
                 </button>
@@ -247,7 +261,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => void handleSignOut()}
-                className="flex min-h-[48px] w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-red-700 hover:bg-red-50"
+                className="flex min-h-[48px] w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
               >
                 <LogOut className="h-4 w-4" aria-hidden="true" />
                 Sign Out
@@ -258,9 +272,9 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => handleAuth('login')}
-                className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-[#0B1A2E]"
+                className="flex min-h-[46px] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               >
-                <LogIn className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                <LogIn className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
                 Sign In
               </button>
               <button
@@ -276,7 +290,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
         </div>
 
         {/* App Installation & Notification Controls */}
-        <div className="mt-3 space-y-2 border-b border-slate-100 pb-3 empty:hidden">
+        <div className="mt-3 space-y-2 border-b border-slate-100 pb-3 empty:hidden dark:border-slate-800">
           <PWAInstallControl variant="drawer" onActionComplete={onClose} />
           <WebPushNotificationButton variant="compact" hideWhenEnabled showIosHint />
         </div>
@@ -288,13 +302,13 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
             onClick={() =>
               handlePick('search', { searchScope: currentSearchScope })
             }
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             <span className="flex items-center gap-3">
-              <Search className="h-4 w-4 text-slate-500" aria-hidden="true" />
-              Search and Discovery
+              <Search className="h-4 w-4 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+              Search
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
           <button
@@ -302,14 +316,14 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
             onClick={() => handlePick('notifications')}
             className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium ${
               activeRoute === 'notifications'
-                ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
-                : 'text-slate-700 hover:bg-slate-50'
+                ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-3">
               <Bell
                 className={`h-4 w-4 ${
-                  activeRoute === 'notifications' ? 'text-[#1E88E5]' : 'text-slate-500'
+                  activeRoute === 'notifications' ? 'text-[#1E88E5] dark:text-sky-400' : 'text-slate-500 dark:text-slate-400'
                 }`}
                 aria-hidden="true"
               />
@@ -321,7 +335,7 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                   {unreadBadgeLabel}
                 </span>
               )}
-              <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+              <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
             </span>
           </button>
 
@@ -330,20 +344,20 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
             onClick={() => handlePick('account')}
             className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-medium ${
               activeRoute === 'account'
-                ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
-                : 'text-slate-700 hover:bg-slate-50'
+                ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-3">
               <Settings
                 className={`h-4 w-4 ${
-                  activeRoute === 'account' ? 'text-[#1E88E5]' : 'text-slate-500'
+                  activeRoute === 'account' ? 'text-[#1E88E5] dark:text-sky-400' : 'text-slate-500 dark:text-slate-400'
                 }`}
                 aria-hidden="true"
               />
               Settings
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
           <button
@@ -353,16 +367,16 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
             }
             className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left ${
               activeRoute === 'marketplace' && marketplaceTab === 'updates'
-                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'text-slate-700 hover:bg-slate-50'
+                ? 'bg-[#1E88E5]/10 text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
             }`}
           >
             <span className="flex items-center gap-3">
               <Flame
                 className={`h-4 w-4 shrink-0 ${
                   activeRoute === 'marketplace' && marketplaceTab === 'updates'
-                    ? 'text-[#1E88E5]'
-                    : 'text-slate-400'
+                    ? 'text-[#1E88E5] dark:text-sky-400'
+                    : 'text-slate-400 dark:text-slate-500'
                 }`}
                 aria-hidden="true"
               />
@@ -370,12 +384,12 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 <span className="block text-sm font-semibold">
                   Marketplace Updates
                 </span>
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-slate-500 dark:text-slate-400">
                   Vendor notices and restocks
                 </span>
               </span>
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
           {PLATFORM_SECTIONS.map((section) => {
@@ -391,27 +405,27 @@ export const MobileSectionDrawer: React.FC<MobileSectionDrawerProps> = ({
                 onClick={() => handlePick(section.id)}
                 className={`flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left ${
                   isActive
-                    ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent text-[#1565C0] ring-1 ring-[#1E88E5]/20'
-                    : 'text-slate-700 hover:bg-slate-50'
+                    ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent text-[#1565C0] ring-1 ring-[#1E88E5]/20 dark:from-sky-500/20 dark:via-sky-500/10 dark:to-transparent dark:text-sky-300 dark:ring-sky-500/30'
+                    : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
                 }`}
               >
                 <span className="flex items-center gap-3">
                   <SectionIcon
                     sectionId={section.id}
                     className={`h-4 w-4 shrink-0 ${
-                      isActive ? 'text-[#1E88E5]' : 'text-slate-400'
+                      isActive ? 'text-[#1E88E5] dark:text-sky-400' : 'text-slate-400 dark:text-slate-500'
                     }`}
                   />
                   <span>
                     <span className="block text-sm font-semibold">
                       {section.title}
                     </span>
-                    <span className="block text-xs text-slate-500">
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
                       {section.group}
                     </span>
                   </span>
                 </span>
-                <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
               </button>
             );
           })}

@@ -27,7 +27,7 @@ export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
     viewerUsername!.toLowerCase() === member.username.toLowerCase();
 
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60">
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-500/60 dark:hover:bg-slate-800/60">
       <button
         type="button"
         onClick={() => onOpenProfile(member.username)}
@@ -43,26 +43,26 @@ export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+            <span className="truncate font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
               {member.fullName}
             </span>
             <ProfileBadgesRow profile={member} size="xs" />
             {isSelf && (
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 You
               </span>
             )}
           </div>
-          <p className="mt-0.5 truncate text-xs text-slate-600">
+          <p className="mt-0.5 truncate text-xs text-slate-600 dark:text-slate-400">
             @{member.username}
             {member.department ? ` · ${member.department}` : ''}
             {member.level ? ` · ${member.level}` : ''}
           </p>
-          <p className="mt-0.5 text-[11px] font-medium text-slate-500 tabular-nums">
+          <p className="mt-0.5 text-[11px] font-medium text-slate-500 tabular-nums dark:text-slate-400">
             {hydratingStats &&
             (member.followersCount ?? 0) === 0 &&
             (member.followingCount ?? 0) === 0 ? (
-              <span className="font-normal text-slate-400">
+              <span className="font-normal text-slate-400 dark:text-slate-500">
                 Loading follower stats...
               </span>
             ) : (
@@ -70,7 +70,7 @@ export const MemberDirectoryCard = React.memo(function MemberDirectoryCard({
                 {member.followersCount} followers · {member.followingCount}{' '}
                 following
                 {hydratingStats && (
-                  <span className="ml-1.5 font-normal text-slate-400">
+                  <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-500">
                     · Updating...
                   </span>
                 )}
@@ -107,7 +107,7 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
     <>
       <article
         data-directory-entry-id={contact.id}
-        className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-purple-300"
+        className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-purple-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-purple-500/60"
       >
         <div className="flex items-start justify-between gap-3">
           <button
@@ -125,15 +125,15 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
             />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h3 className="inline-flex min-w-0 items-center gap-1 font-display text-sm font-bold text-[#0B1A2E] hover:text-purple-700">
+                <h3 className="inline-flex min-w-0 items-center gap-1 font-display text-sm font-bold text-[#0B1A2E] hover:text-purple-700 dark:text-white dark:hover:text-purple-400">
                   <span className="truncate">{contact.fullName}</span>
                   <RoleBadge badge="trust" size="xs" />
                 </h3>
-                <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+                <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
                   {categoryLabel}
                 </span>
               </div>
-              <p className="mt-0.5 text-xs font-medium text-[#1E88E5]">
+              <p className="mt-0.5 text-xs font-medium text-[#1E88E5] dark:text-sky-400">
                 {contact.roleTitle}
               </p>
             </div>
@@ -141,7 +141,7 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
         </div>
 
         {(contact.department || contact.faculty) && (
-          <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-600">
+          <p className="mt-2.5 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
             <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>
               {[contact.department, contact.faculty].filter(Boolean).join(' · ')}
@@ -150,7 +150,7 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
         )}
 
         {contact.description && (
-          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-600">
+          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
             {contact.description}
           </p>
         )}
@@ -161,19 +161,19 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844]"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-sky-600 dark:hover:bg-sky-500"
             >
               <MessageCircle
-                className="h-3.5 w-3.5 text-[#1E88E5]"
+                className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white"
                 aria-hidden="true"
               />
-              Message on WhatsApp
+              WhatsApp
             </a>
           )}
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100"
+            className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
           >
             Contact Info
           </button>
@@ -182,14 +182,14 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
 
       {modalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1A2E]/60 p-4 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#0B1A2E]/60 p-4 backdrop-blur-xs dark:bg-black/75"
           onClick={() => setModalOpen(false)}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby={`trusted-dir-modal-${contact.id}`}
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -205,17 +205,17 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <RoleBadge badge="trust" size="sm" />
-                    <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-800">
+                    <span className="rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
                       {categoryLabel}
                     </span>
                   </div>
                   <h3
                     id={`trusted-dir-modal-${contact.id}`}
-                    className="mt-1.5 font-display text-base font-bold text-[#0B1A2E]"
+                    className="mt-1.5 font-display text-base font-bold text-[#0B1A2E] dark:text-white"
                   >
                     {contact.fullName}
                   </h3>
-                  <p className="text-xs font-medium text-[#1E88E5]">
+                  <p className="text-xs font-medium text-[#1E88E5] dark:text-sky-400">
                     {contact.roleTitle}
                   </p>
                 </div>
@@ -224,14 +224,14 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
                 type="button"
                 aria-label="Close contact info"
                 onClick={() => setModalOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
 
             {(contact.department || contact.faculty) && (
-              <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-600">
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                 <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>
                   {[contact.department, contact.faculty]
@@ -242,27 +242,27 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
             )}
 
             {contact.contactNumber && (
-              <p className="mt-2 text-xs font-medium text-slate-700">
+              <p className="mt-2 text-xs font-medium text-slate-700 dark:text-slate-200">
                 WhatsApp: <span className="font-mono">{contact.contactNumber}</span>
               </p>
             )}
 
             {contact.description && (
-              <p className="mt-2.5 text-xs leading-relaxed text-slate-700">
+              <p className="mt-2.5 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
                 {contact.description}
               </p>
             )}
 
-            <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+            <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
               {waUrl && (
                 <a
                   href={waUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#132844]"
+                  className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-bold text-white hover:bg-[#132844] dark:bg-sky-600 dark:hover:bg-sky-500"
                 >
                   <MessageCircle
-                    className="h-4 w-4 text-[#1E88E5]"
+                    className="h-4 w-4 text-[#1E88E5] dark:text-white"
                     aria-hidden="true"
                   />
                   Message on WhatsApp
@@ -271,7 +271,7 @@ export const TrustedDirectoryCard = React.memo(function TrustedDirectoryCard({
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Close
               </button>

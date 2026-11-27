@@ -28,7 +28,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   return (
     <nav
       aria-label="Mobile bottom navigation"
-      className="fixed right-0 bottom-0 left-0 z-40 max-w-full border-t border-slate-200/90 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_-6px_rgba(11,26,46,0.12)] backdrop-blur-md lg:hidden"
+      className="fixed right-0 bottom-0 left-0 z-40 max-w-full border-t border-slate-200/90 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_20px_-6px_rgba(11,26,46,0.12)] backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95 dark:shadow-[0_-4px_20px_-6px_rgba(0,0,0,0.6)] lg:hidden"
     >
       <div aria-hidden="true" className="lasued-action-gradient h-[2px] w-full" />
       <div className="grid h-16 min-w-0 grid-cols-5 items-center pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]">
@@ -38,8 +38,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           aria-current={homeActive ? 'page' : undefined}
           className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             homeActive
-              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
-              : 'text-slate-600 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0] dark:from-sky-500/20 dark:to-sky-500/5 dark:text-sky-300'
+              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
           }`}
         >
           <Home className="h-5 w-5 shrink-0" aria-hidden="true" />
@@ -52,8 +52,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           aria-current={activeRoute === 'marketplace' ? 'page' : undefined}
           className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'marketplace'
-              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
-              : 'text-slate-600 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0] dark:from-sky-500/20 dark:to-sky-500/5 dark:text-sky-300'
+              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
           }`}
         >
           <ShoppingBag className="h-5 w-5 shrink-0" aria-hidden="true" />
@@ -66,8 +66,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           aria-current={activeRoute === 'anonymous' ? 'page' : undefined}
           className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'anonymous'
-              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
-              : 'text-slate-600 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0] dark:from-sky-500/20 dark:to-sky-500/5 dark:text-sky-300'
+              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
           }`}
         >
           <MessageSquare className="h-5 w-5 shrink-0" aria-hidden="true" />
@@ -80,8 +80,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           aria-current={activeRoute === 'trusted-circle' ? 'page' : undefined}
           className={`flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'trusted-circle'
-              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
-              : 'text-slate-600 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0] dark:from-sky-500/20 dark:to-sky-500/5 dark:text-sky-300'
+              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
           }`}
         >
           <ShieldCheck className="h-5 w-5 shrink-0" aria-hidden="true" />
@@ -99,8 +99,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           }
           className={`relative flex min-h-[48px] min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[10px] font-medium whitespace-nowrap transition-colors ${
             activeRoute === 'notifications'
-              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0]'
-              : 'text-slate-600 hover:text-[#0B1A2E]'
+              ? 'bg-gradient-to-b from-sky-100/85 to-blue-50/60 font-semibold text-[#1565C0] dark:from-sky-500/20 dark:to-sky-500/5 dark:text-sky-300'
+              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white'
           }`}
         >
           <span className="relative inline-flex">

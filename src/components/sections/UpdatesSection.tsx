@@ -44,6 +44,7 @@ import {
   pickFresherRecordPreservingRef,
   reuseSetIfUnchanged,
 } from '../../utils/cacheSync';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { UpdateCard } from '../updates/UpdateCard';
 import { UpdateComposerModal } from '../updates/UpdateComposerModal';
 
@@ -501,32 +502,22 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
       aria-label="Official Administrator Updates"
       className="min-w-0 max-w-full space-y-4 pb-20 sm:pb-12"
     >
-      {/* Category Filter Strip + Official Update Trigger */}
-      <div className="flex min-w-0 max-w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-sky-50/45 to-blue-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0">
-          {CATEGORY_FILTER_OPTIONS.filter(
-            (opt) =>
-              opt.id === 'all' ||
-              ALLOWED_ADMIN_UPDATE_CATEGORIES.includes(
-                opt.id as (typeof ALLOWED_ADMIN_UPDATE_CATEGORIES)[number]
-              )
-          ).map((cat) => {
-            const active = activeCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => setActiveCategory(cat.id)}
-                className={`min-h-[36px] shrink-0 rounded-lg px-3 py-1 text-xs font-semibold whitespace-nowrap transition-all ${
-                  active
-                    ? 'lasued-accent-gradient text-white shadow-xs'
-                    : 'bg-white/90 text-slate-700 ring-1 ring-slate-200/80 hover:bg-slate-100'
-                }`}
-              >
-                {cat.label}
-              </button>
-            );
-          })}
+      {/* Category Filter Ribbon + Official Update Trigger */}
+      <div className="flex min-w-0 max-w-full flex-col gap-2.5 rounded-2xl border border-slate-200 bg-gradient-to-r from-white via-sky-50/45 to-blue-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-4 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800/80">
+        <div className="min-w-0 flex-1">
+          <SectionRibbon
+            variant="primary"
+            ariaLabel="Official update categories"
+            items={CATEGORY_FILTER_OPTIONS.filter(
+              (opt) =>
+                opt.id === 'all' ||
+                ALLOWED_ADMIN_UPDATE_CATEGORIES.includes(
+                  opt.id as (typeof ALLOWED_ADMIN_UPDATE_CATEGORIES)[number]
+                )
+            ).map((cat) => ({ id: cat.id, label: cat.label }))}
+            activeId={activeCategory}
+            onChange={(id) => setActiveCategory(id)}
+          />
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -549,7 +540,7 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
             onClick={() => void loadUpdatesFeed({ force: true })}
             disabled={loading}
             aria-label="Refresh official updates"
-            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E] disabled:opacity-50"
+            className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E] disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
           >
             <RefreshCw
               className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
@@ -562,47 +553,47 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
 
       {/* Feed Content */}
       {loading && updates.length === 0 ? (
-        <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-slate-200 bg-white p-10 text-sm text-slate-600">
+        <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-slate-200 bg-white p-10 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
           <Loader2
             className="h-5 w-5 animate-spin text-[#1E88E5]"
             aria-hidden="true"
           />
-          <span>Loading official administrator updates...</span>
+          <span>Loading official updates...</span>
         </div>
       ) : errorMessage && updates.length === 0 ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50/80 p-6 text-center">
+        <div className="rounded-2xl border border-red-200 bg-red-50/80 p-6 text-center dark:border-red-900/60 dark:bg-red-950/40">
           <AlertCircle
-            className="mx-auto mb-2 h-6 w-6 text-red-700"
+            className="mx-auto mb-2 h-6 w-6 text-red-700 dark:text-red-400"
             aria-hidden="true"
           />
-          <p className="font-display text-sm font-bold text-[#0B1A2E]">
+          <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
             Unable to load Official Updates
           </p>
-          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-300">
             {errorMessage}
           </p>
           <button
             type="button"
             onClick={() => void loadUpdatesFeed({ force: true })}
-            className="mt-4 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1E88E5]"
+            className="mt-4 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1E88E5] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             Try Again
           </button>
         </div>
       ) : filteredUpdates.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
           <Megaphone
             className="mx-auto mb-2.5 h-6 w-6 text-[#1E88E5]"
             aria-hidden="true"
           />
-          <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+          <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-white">
             No official updates yet
           </h2>
-          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-400">
             {activeCategory === 'all'
-              ? 'Official university notices and administrator updates will appear here as soon as they are published.'
-              : 'There are no published official updates in this category right now.'}
+              ? 'Official campus notices will appear here when posted.'
+              : 'No official updates in this category right now.'}
           </p>
           {canPublishOfficialUpdate && activeCategory === 'all' && (
             <button
@@ -677,7 +668,7 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
                 type="button"
                 disabled={loadingMore}
                 onClick={() => void handleLoadMore()}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
               >
                 {loadingMore && (
                   <Loader2
@@ -703,7 +694,7 @@ export const UpdatesSection: React.FC<UpdatesSectionProps> = ({
             setEditingUpdate(null);
             setComposerOpen(true);
           }}
-          className="lasued-accent-gradient fixed right-4 bottom-20 z-30 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-lg ring-2 ring-white transition hover:brightness-110 lg:right-8 lg:bottom-8"
+          className="lasued-accent-gradient fixed right-4 bottom-20 z-30 flex h-14 w-14 items-center justify-center rounded-full text-white shadow-lg ring-2 ring-white transition hover:brightness-110 lg:right-8 lg:bottom-8 dark:ring-slate-900"
         >
           <Plus className="h-6 w-6" aria-hidden="true" />
         </button>

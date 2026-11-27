@@ -21,17 +21,17 @@ export const GuestPromptCard: React.FC<GuestPromptCardProps> = ({
     <div
       role="region"
       aria-label="Account sign-in required"
-      className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+      className="rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900"
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white">
-          <Lock className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white dark:bg-slate-800">
+          <Lock className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="font-display text-sm font-bold text-[#0B1A2E] sm:text-base">
+          <h3 className="font-display text-sm font-bold text-[#0B1A2E] sm:text-base dark:text-white">
             {title}
           </h3>
-          <p className="mt-1 text-sm leading-relaxed text-slate-600">
+          <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
             {description}
           </p>
 
@@ -47,16 +47,16 @@ export const GuestPromptCard: React.FC<GuestPromptCardProps> = ({
             <button
               type="button"
               onClick={() => onRequireAuth('register', returnRoute)}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] whitespace-nowrap transition-colors hover:bg-slate-100"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] whitespace-nowrap transition-colors hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              <UserPlus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <UserPlus className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               Create Account
             </button>
             {onDismiss && (
               <button
                 type="button"
                 onClick={onDismiss}
-                className="min-h-[44px] px-3 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
+                className="min-h-[44px] px-3 text-sm font-medium text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
               >
                 Continue browsing
               </button>

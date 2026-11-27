@@ -3,6 +3,7 @@ import { ClipboardList, Loader2, Search } from 'lucide-react';
 import type { UnifiedAuditEntry } from '../../services/adminDashboard';
 import { formatAdminAuditActionLabel } from '../../utils/adminPermissions';
 import { extractTimestampMs } from '../../utils/contextualSearch';
+import { SectionRibbon } from '../shared/SectionRibbon';
 
 interface AdminAuditLogTabProps {
   entries: UnifiedAuditEntry[];
@@ -118,22 +119,13 @@ export const AdminAuditLogTab: React.FC<AdminAuditLogTabProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-1.5">
-        {FILTER_OPTIONS.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            onClick={() => setFilter(opt.id)}
-            className={`min-h-[36px] rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors ${
-              filter === opt.id
-                ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
-                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      <SectionRibbon
+        ariaLabel="Filter activity log"
+        variant="sublist"
+        activeId={filter}
+        onChange={(id) => setFilter(id as AuditCategoryFilter)}
+        items={FILTER_OPTIONS}
+      />
 
       <div className="relative">
         <Search
@@ -144,31 +136,30 @@ export const AdminAuditLogTab: React.FC<AdminAuditLogTabProps> = ({
           type="search"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search audit entries by target, action, actor UID, or reason..."
-          className="block min-h-[42px] w-full rounded-xl border border-slate-300 py-2 pr-3 pl-9 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+          placeholder="Search activity by name, action, or reason..."
+          className="block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
         />
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-400">
           <Loader2
             className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
             aria-hidden="true"
           />
-          Loading immutable platform audit log...
+          Loading activity log...
         </div>
       ) : filteredEntries.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center dark:border-slate-700 dark:bg-slate-800/40">
           <ClipboardList
             className="mx-auto mb-2 h-6 w-6 text-slate-400"
             aria-hidden="true"
           />
-          <p className="text-sm font-semibold text-[#0B1A2E]">
-            No audit records match your filter
+          <p className="text-sm font-semibold text-[#0B1A2E] dark:text-slate-100">
+            No activity records match your filter
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Badge updates, suspensions, marketplace reviews, content deletions,
-            and settings changes appear here automatically.
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Role changes, suspensions, marketplace reviews, and settings updates appear here.
           </p>
         </div>
       ) : (
@@ -176,58 +167,55 @@ export const AdminAuditLogTab: React.FC<AdminAuditLogTabProps> = ({
           {filteredEntries.map((entry) => (
             <div
               key={entry.id}
-              className="rounded-xl border border-slate-200 bg-white p-3.5 text-xs"
+              className="rounded-xl border border-slate-200 bg-white p-3.5 text-xs dark:border-slate-800 dark:bg-slate-900/70"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-bold text-[#0B1A2E]">
+                <span className="font-bold text-[#0B1A2E] dark:text-slate-100">
                   {entry.kind === 'anonymous_reveal'
                     ? `Anonymous Safety Lookup — ${entry.data.targetEntryId}`
                     : formatAdminAuditActionLabel(entry.data.action)}
                 </span>
-                <span className="text-slate-500">
+                <span className="text-slate-500 dark:text-slate-400">
                   {formatTimestampLabel(entry.createdAt)}
                 </span>
               </div>
 
               {entry.kind === 'badge' ? (
                 <>
-                  <p className="mt-1 text-slate-600">
+                  <p className="mt-1 text-slate-600 dark:text-slate-400">
                     Member:{' '}
-                    <strong>
+                    <strong className="text-[#0B1A2E] dark:text-slate-200">
                       {entry.data.targetUsername
                         ? `@${entry.data.targetUsername}`
                         : entry.data.targetUid}
                     </strong>{' '}
-                    · Role: <strong>{entry.data.previousRole}</strong> -&gt;{' '}
-                    <strong>{entry.data.nextRole}</strong> · By{' '}
-                    <span className="uppercase">{entry.data.performedByRole}</span>{' '}
-                    ({entry.data.performedByUid})
+                    · Role: <strong className="text-[#0B1A2E] dark:text-slate-200">{entry.data.previousRole}</strong> -&gt;{' '}
+                    <strong className="text-[#0B1A2E] dark:text-slate-200">{entry.data.nextRole}</strong> · By{' '}
+                    <span className="uppercase">{entry.data.performedByRole}</span>
                   </p>
                   {entry.data.reason && (
-                    <p className="mt-1 text-slate-700">
+                    <p className="mt-1 text-slate-700 dark:text-slate-300">
                       Note: {entry.data.reason}
                     </p>
                   )}
                 </>
               ) : entry.kind === 'admin' ? (
                 <>
-                  <p className="mt-1 text-slate-600">
+                  <p className="mt-1 text-slate-600 dark:text-slate-400">
                     Target:{' '}
-                    <strong>
+                    <strong className="text-[#0B1A2E] dark:text-slate-200">
                       {entry.data.targetLabel || entry.data.targetId}
                     </strong>{' '}
                     ({entry.data.targetCollection}) · By{' '}
-                    <span className="uppercase">{entry.data.performedByRole}</span>{' '}
-                    ({entry.data.performedByUid})
+                    <span className="uppercase">{entry.data.performedByRole}</span>
                   </p>
                   {entry.data.details && (
-                    <p className="mt-1 text-slate-700">{entry.data.details}</p>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300">{entry.data.details}</p>
                   )}
                 </>
               ) : (
-                <p className="mt-1 text-slate-600">
-                  Reason: {entry.data.reason} · Revealed by UID:{' '}
-                  {entry.data.revealedByUid}
+                <p className="mt-1 text-slate-600 dark:text-slate-400">
+                  Reason: {entry.data.reason}
                 </p>
               )}
             </div>

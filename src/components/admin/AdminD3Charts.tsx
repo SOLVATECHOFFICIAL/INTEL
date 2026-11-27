@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { ArrowRight } from 'lucide-react';
+import { useTheme } from '../../context/themeContext';
 import type { AnonymousReportReason } from '../../types/database';
 import type {
   AdminDashboardSectionId,
@@ -86,6 +87,7 @@ export const TotalUsersD3Chart: React.FC<{
   isFullAdmin: boolean;
   onSelectSection: AdminD3ChartsProps['onSelectSection'];
 }> = ({ stats, isFullAdmin, onSelectSection }) => {
+  const { isDark } = useTheme();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 
@@ -95,7 +97,7 @@ export const TotalUsersD3Chart: React.FC<{
         key: 'ordinary',
         label: 'Ordinary Members',
         value: stats.ordinaryMembers,
-        color: '#0B1A2E',
+        color: isDark ? '#64748B' : '#0B1A2E',
       },
       {
         key: 'verified',
@@ -121,6 +123,7 @@ export const TotalUsersD3Chart: React.FC<{
       stats.verifiedMembers,
       stats.moderators,
       stats.supremeAdmins,
+      isDark,
     ]
   );
 
@@ -154,7 +157,7 @@ export const TotalUsersD3Chart: React.FC<{
       g.append('circle')
         .attr('r', (outerRadius + innerRadius) / 2)
         .attr('fill', 'none')
-        .attr('stroke', '#E2E8F0')
+        .attr('stroke', isDark ? '#334155' : '#E2E8F0')
         .attr('stroke-width', outerRadius - innerRadius);
       return;
     }
@@ -185,33 +188,33 @@ export const TotalUsersD3Chart: React.FC<{
       .on('mouseleave', () => setHoveredKey(null))
       .append('title')
       .text((d) => `${d.data.label}: ${d.data.value.toLocaleString()}`);
-  }, [slices, hoveredKey]);
+  }, [slices, hoveredKey, isDark]);
 
   const pctDenom = Math.max(totalTierCount, 1);
 
   return (
     <section
       aria-labelledby="d3-users-heading"
-      className="flex min-w-0 max-w-full flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-5"
+      className="flex min-w-0 max-w-full flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/80"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3
             id="d3-users-heading"
-            className="font-display text-sm font-bold text-[#0B1A2E]"
+            className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100"
           >
-            Total User Counts &amp; Roles
+            Members by Role
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            <span className="font-semibold text-[#0B1A2E] tabular-nums">
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <span className="font-semibold text-[#0B1A2E] tabular-nums dark:text-slate-100">
               {stats.totalMembers.toLocaleString()}
             </span>{' '}
             total ·{' '}
-            <span className="text-emerald-700 tabular-nums">
+            <span className="text-emerald-700 tabular-nums dark:text-emerald-400">
               {stats.activeMembers.toLocaleString()} active
             </span>{' '}
             ·{' '}
-            <span className="text-red-700 tabular-nums">
+            <span className="text-red-700 tabular-nums dark:text-red-400">
               {stats.suspendedMembers.toLocaleString()} suspended
             </span>
           </p>
@@ -240,16 +243,16 @@ export const TotalUsersD3Chart: React.FC<{
             className="block"
           />
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span className="font-display text-2xl font-extrabold text-[#0B1A2E] tabular-nums">
+            <span className="font-display text-2xl font-extrabold text-[#0B1A2E] tabular-nums dark:text-slate-100">
               {(activeSlice ? activeSlice.value : stats.totalMembers).toLocaleString()}
             </span>
-            <span className="mt-0.5 max-w-[96px] truncate text-[11px] font-medium text-slate-500">
+            <span className="mt-0.5 max-w-[96px] truncate text-[11px] font-medium text-slate-500 dark:text-slate-400">
               {activeSlice ? activeSlice.label : 'Total Users'}
             </span>
           </div>
         </div>
 
-        <div className="w-full min-w-0 flex-1 divide-y divide-slate-100">
+        <div className="w-full min-w-0 flex-1 divide-y divide-slate-100 dark:divide-slate-800">
           {slices.map((slice) => {
             const pct = Math.round((slice.value / pctDenom) * 100);
             const isHovered = hoveredKey === slice.key;
@@ -267,10 +270,10 @@ export const TotalUsersD3Chart: React.FC<{
                   }
                 }}
                 className={`flex w-full items-center justify-between gap-3 py-2.5 text-left text-xs transition-colors ${
-                  isHovered ? 'bg-slate-50/90' : ''
+                  isHovered ? 'bg-slate-50/90 dark:bg-slate-800/70' : ''
                 }`}
               >
-                <span className="flex min-w-0 items-center gap-2 font-medium text-[#0B1A2E]">
+                <span className="flex min-w-0 items-center gap-2 font-medium text-[#0B1A2E] dark:text-slate-200">
                   <span
                     aria-hidden="true"
                     className="h-2.5 w-2.5 shrink-0 rounded-sm"
@@ -278,9 +281,9 @@ export const TotalUsersD3Chart: React.FC<{
                   />
                   <span className="truncate">{slice.label}</span>
                 </span>
-                <span className="shrink-0 font-mono text-xs font-semibold text-slate-700 tabular-nums">
+                <span className="shrink-0 font-mono text-xs font-semibold text-slate-700 tabular-nums dark:text-slate-200">
                   {slice.value.toLocaleString()}{' '}
-                  <span className="text-slate-400">({pct}%)</span>
+                  <span className="text-slate-400 dark:text-slate-500">({pct}%)</span>
                 </span>
               </button>
             );
@@ -296,6 +299,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
   isFullAdmin: boolean;
   onSelectSection: AdminD3ChartsProps['onSelectSection'];
 }> = ({ stats, isFullAdmin, onSelectSection }) => {
+  const { isDark } = useTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const width = useContainerWidth(containerRef, 460);
@@ -308,7 +312,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
         label: 'Ordinary Posts',
         shortLabel: 'Feed Posts',
         value: stats.publishedOrdinaryPosts,
-        color: '#0B1A2E',
+        color: isDark ? '#38BDF8' : '#0B1A2E',
         section: 'content',
         contentSubTab: 'ordinary_posts',
       },
@@ -353,6 +357,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
       stats.activeOpportunities,
       stats.upcomingEvents,
       isFullAdmin,
+      isDark,
     ]
   );
 
@@ -397,7 +402,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
       .attr('x2', innerWidth)
       .attr('y1', (d) => y(d))
       .attr('y2', (d) => y(d))
-      .attr('stroke', '#E2E8F0')
+      .attr('stroke', isDark ? '#1E293B' : '#E2E8F0')
       .attr('stroke-dasharray', '3,3');
 
     const yAxis = d3
@@ -410,7 +415,7 @@ export const ActivePostMetricsD3Chart: React.FC<{
       .call(yAxis)
       .call((axisG) => axisG.select('.domain').remove())
       .selectAll('text')
-      .attr('fill', '#64748B')
+      .attr('fill', isDark ? '#94A3B8' : '#64748B')
       .attr('font-size', '11px')
       .style('font-variant-numeric', 'tabular-nums');
 
@@ -427,10 +432,12 @@ export const ActivePostMetricsD3Chart: React.FC<{
     g.append('g')
       .attr('transform', `translate(0, ${innerHeight})`)
       .call(xAxis)
-      .call((axisG) => axisG.select('.domain').attr('stroke', '#CBD5E1'))
+      .call((axisG) =>
+        axisG.select('.domain').attr('stroke', isDark ? '#334155' : '#CBD5E1')
+      )
       .selectAll('text')
       .attr('dy', '1.15em')
-      .attr('fill', '#334155')
+      .attr('fill', isDark ? '#CBD5E1' : '#334155')
       .attr('font-size', '11px')
       .attr('font-weight', '600');
 
@@ -467,30 +474,30 @@ export const ActivePostMetricsD3Chart: React.FC<{
       .attr('x', (d) => (x(d.key) ?? 0) + x.bandwidth() / 2)
       .attr('y', (d) => Math.max(y(d.value) - 6, 10))
       .attr('text-anchor', 'middle')
-      .attr('fill', '#0B1A2E')
+      .attr('fill', isDark ? '#F1F5F9' : '#0B1A2E')
       .attr('font-size', '11px')
       .attr('font-weight', '700')
       .style('font-variant-numeric', 'tabular-nums')
       .text((d) => d.value.toLocaleString());
-  }, [items, width, hoveredKey, onSelectSection]);
+  }, [items, width, hoveredKey, onSelectSection, isDark]);
 
   return (
     <section
       aria-labelledby="d3-posts-heading"
-      className="flex min-w-0 max-w-full flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-5"
+      className="flex min-w-0 max-w-full flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/80"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3
             id="d3-posts-heading"
-            className="font-display text-sm font-bold text-[#0B1A2E]"
+            className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100"
           >
-            Active Post &amp; Campus Content Metrics
+            Content Activity
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             {hoveredItem ? (
               <>
-                <span className="font-semibold text-[#0B1A2E]">
+                <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                   {hoveredItem.label}:
                 </span>{' '}
                 <span className="font-mono font-semibold text-[#1E88E5] tabular-nums">
@@ -499,12 +506,12 @@ export const ActivePostMetricsD3Chart: React.FC<{
               </>
             ) : (
               <>
-                <span className="font-semibold text-[#0B1A2E] tabular-nums">
+                <span className="font-semibold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                   {stats.totalActivePosts.toLocaleString()}
                 </span>{' '}
                 active posts ·{' '}
                 <span className="tabular-nums">
-                  {stats.publishedOrdinaryPosts.toLocaleString()} ordinary
+                  {stats.publishedOrdinaryPosts.toLocaleString()} feed
                 </span>{' '}
                 ·{' '}
                 <span className="tabular-nums">
@@ -543,6 +550,7 @@ export const FlaggedReportsD3Chart: React.FC<{
   stats: PlatformOverviewStats;
   onSelectSection: AdminD3ChartsProps['onSelectSection'];
 }> = ({ stats, onSelectSection }) => {
+  const { isDark } = useTheme();
   const donutRef = useRef<SVGSVGElement | null>(null);
   const barContainerRef = useRef<HTMLDivElement | null>(null);
   const barSvgRef = useRef<SVGSVGElement | null>(null);
@@ -584,9 +592,9 @@ export const FlaggedReportsD3Chart: React.FC<{
         label: meta.label,
         shortLabel: meta.shortLabel,
         value: stats.flaggedReportsByReason[meta.key] ?? 0,
-        color: meta.color,
+        color: meta.key === 'spam' && isDark ? '#94A3B8' : meta.color,
       })),
-    [stats.flaggedReportsByReason]
+    [stats.flaggedReportsByReason, isDark]
   );
 
   useEffect(() => {
@@ -609,7 +617,7 @@ export const FlaggedReportsD3Chart: React.FC<{
       g.append('circle')
         .attr('r', (outerRadius + innerRadius) / 2)
         .attr('fill', 'none')
-        .attr('stroke', '#E2E8F0')
+        .attr('stroke', isDark ? '#334155' : '#E2E8F0')
         .attr('stroke-width', outerRadius - innerRadius);
       return;
     }
@@ -633,7 +641,7 @@ export const FlaggedReportsD3Chart: React.FC<{
       .attr('fill', (d) => d.data.color)
       .append('title')
       .text((d) => `${d.data.label}: ${d.data.value.toLocaleString()}`);
-  }, [statusSlices]);
+  }, [statusSlices, isDark]);
 
   useEffect(() => {
     const svgEl = barSvgRef.current;
@@ -671,7 +679,7 @@ export const FlaggedReportsD3Chart: React.FC<{
       .attr('x2', (d) => x(d))
       .attr('y1', 0)
       .attr('y2', innerHeight)
-      .attr('stroke', '#E2E8F0')
+      .attr('stroke', isDark ? '#1E293B' : '#E2E8F0')
       .attr('stroke-dasharray', '3,3');
 
     g.append('g')
@@ -683,10 +691,12 @@ export const FlaggedReportsD3Chart: React.FC<{
           .tickSize(0)
           .tickFormat((v) => String(v))
       )
-      .call((axisG) => axisG.select('.domain').attr('stroke', '#CBD5E1'))
+      .call((axisG) =>
+        axisG.select('.domain').attr('stroke', isDark ? '#334155' : '#CBD5E1')
+      )
       .selectAll('text')
       .attr('dy', '1em')
-      .attr('fill', '#64748B')
+      .attr('fill', isDark ? '#94A3B8' : '#64748B')
       .attr('font-size', '11px')
       .style('font-variant-numeric', 'tabular-nums');
 
@@ -699,7 +709,7 @@ export const FlaggedReportsD3Chart: React.FC<{
       )
       .call((axisG) => axisG.select('.domain').remove())
       .selectAll('text')
-      .attr('fill', '#334155')
+      .attr('fill', isDark ? '#CBD5E1' : '#334155')
       .attr('font-size', '11px')
       .attr('font-weight', '600');
 
@@ -730,33 +740,33 @@ export const FlaggedReportsD3Chart: React.FC<{
       .attr('class', 'reason-count')
       .attr('x', (d) => x(d.value) + 6)
       .attr('y', (d) => (y(d.key) ?? 0) + y.bandwidth() / 2 + 4)
-      .attr('fill', '#0B1A2E')
+      .attr('fill', isDark ? '#F1F5F9' : '#0B1A2E')
       .attr('font-size', '11px')
       .attr('font-weight', '700')
       .style('font-variant-numeric', 'tabular-nums')
       .text((d) => d.value.toLocaleString());
-  }, [reasonData, barWidth, hoveredReason, onSelectSection]);
+  }, [reasonData, barWidth, hoveredReason, onSelectSection, isDark]);
 
   return (
     <section
       aria-labelledby="d3-reports-heading"
-      className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-5"
+      className="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900/80"
     >
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
           <h3
             id="d3-reports-heading"
-            className="font-display text-sm font-bold text-[#0B1A2E]"
+            className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100"
           >
-            Flagged Content Reports Analytics
+            Flagged Reports Overview
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500">
-            <span className="font-semibold text-[#0B1A2E] tabular-nums">
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            <span className="font-semibold text-[#0B1A2E] tabular-nums dark:text-slate-100">
               {stats.totalFlaggedReports.toLocaleString()}
             </span>{' '}
             total ·{' '}
-            <span className="font-medium text-amber-700 tabular-nums">
-              {stats.pendingFlaggedReports.toLocaleString()} pending
+            <span className="font-medium text-amber-700 tabular-nums dark:text-amber-400">
+              {stats.pendingFlaggedReports.toLocaleString()} waiting
             </span>{' '}
             ·{' '}
             <span className="tabular-nums">
@@ -764,7 +774,7 @@ export const FlaggedReportsD3Chart: React.FC<{
             </span>{' '}
             /{' '}
             <span className="tabular-nums">
-              {stats.flaggedReportsByTarget.anonymousComment.toLocaleString()} comments
+              {stats.flaggedReportsByTarget.anonymousComment.toLocaleString()} replies
             </span>
           </p>
         </div>
@@ -794,22 +804,22 @@ export const FlaggedReportsD3Chart: React.FC<{
               className="block"
             />
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-              <span className="font-display text-2xl font-extrabold text-[#0B1A2E] tabular-nums">
+              <span className="font-display text-2xl font-extrabold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                 {stats.pendingFlaggedReports.toLocaleString()}
               </span>
-              <span className="text-[11px] font-medium text-slate-500">
-                Pending
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Waiting
               </span>
             </div>
           </div>
 
-          <div className="w-full min-w-0 flex-1 divide-y divide-slate-100">
+          <div className="w-full min-w-0 flex-1 divide-y divide-slate-100 dark:divide-slate-800">
             {statusSlices.map((slice) => (
               <div
                 key={slice.key}
                 className="flex items-center justify-between gap-3 py-2 text-xs"
               >
-                <span className="flex items-center gap-2 font-medium text-[#0B1A2E]">
+                <span className="flex items-center gap-2 font-medium text-[#0B1A2E] dark:text-slate-200">
                   <span
                     aria-hidden="true"
                     className="h-2.5 w-2.5 shrink-0 rounded-sm"
@@ -817,7 +827,7 @@ export const FlaggedReportsD3Chart: React.FC<{
                   />
                   {slice.label}
                 </span>
-                <span className="font-mono font-semibold text-slate-700 tabular-nums">
+                <span className="font-mono font-semibold text-slate-700 tabular-nums dark:text-slate-200">
                   {slice.value.toLocaleString()}
                 </span>
               </div>
@@ -825,12 +835,12 @@ export const FlaggedReportsD3Chart: React.FC<{
           </div>
         </div>
 
-        <div className="min-w-0 border-t border-slate-100 pt-4 lg:col-span-7 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
+        <div className="min-w-0 border-t border-slate-100 pt-4 lg:col-span-7 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6 dark:border-slate-800">
           <div className="mb-2 flex items-center justify-between text-xs">
-            <span className="font-semibold text-[#0B1A2E]">
-              Reports by Violation Category
+            <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
+              Reports by Reason
             </span>
-            <span className="text-slate-500">Click bar to triage</span>
+            <span className="text-slate-500 dark:text-slate-400">Tap a bar to open</span>
           </div>
           <div ref={barContainerRef} className="min-w-0 max-w-full overflow-hidden">
             <svg

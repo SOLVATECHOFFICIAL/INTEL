@@ -92,36 +92,36 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/60 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/60 backdrop-blur-xs dark:bg-black/75 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="profile-menu-sheet-title"
       onClick={onClose}
     >
       <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-6 shadow-2xl sm:rounded-2xl sm:p-5"
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white px-4 pt-3 pb-6 shadow-2xl dark:border dark:border-slate-800 dark:bg-slate-900 sm:rounded-2xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div
           aria-hidden="true"
-          className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden"
+          className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 dark:bg-slate-700 sm:hidden"
         />
 
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
           <div>
             <h2
               id="profile-menu-sheet-title"
-              className="font-display text-base font-bold text-[#0B1A2E]"
+              className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100"
             >
               Profile &amp; Settings
             </h2>
-            <p className="text-xs text-slate-500">@{username}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">@{username}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close profile menu"
-            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
+            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -134,13 +134,13 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
               onClose();
               onEditProfile();
             }}
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
           >
             <span className="flex items-center gap-3">
-              <Edit3 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <Edit3 className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               Edit Profile
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
           <button
@@ -149,27 +149,27 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
               onClose();
               onOpenAccountSettings();
             }}
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
           >
             <span className="flex items-center gap-3">
-              <Settings className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <Settings className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               Account Settings
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
           <button
             type="button"
             aria-expanded={privacyOpen}
             onClick={() => setPrivacyOpen((prev) => !prev)}
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
           >
             <span className="flex items-center gap-3">
-              <Lock className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <Lock className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               Privacy Settings
             </span>
             <ChevronRight
-              className={`h-4 w-4 text-slate-400 transition-transform ${
+              className={`h-4 w-4 text-slate-400 transition-transform dark:text-slate-500 ${
                 privacyOpen ? 'rotate-90' : ''
               }`}
               aria-hidden="true"
@@ -177,15 +177,14 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
           </button>
 
           {privacyOpen && (
-            <div className="mx-1 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs">
+            <div className="mx-1 rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs dark:border-slate-700 dark:bg-slate-800/70">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-[#0B1A2E]">
+                  <p className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                     Show WhatsApp on Public Profile
                   </p>
-                  <p className="mt-0.5 text-slate-600">
-                    Controls the WhatsApp contact button visible to campus
-                    visitors.
+                  <p className="mt-0.5 text-slate-600 dark:text-slate-300">
+                    Show or hide your WhatsApp button to visitors.
                   </p>
                 </div>
                 <button
@@ -195,7 +194,9 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
                   disabled={privacyBusy || isSuspended}
                   onClick={() => void handleToggleWhatsappVisibility()}
                   className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 ${
-                    whatsappVisible ? 'bg-[#1E88E5]' : 'bg-slate-300'
+                    whatsappVisible
+                      ? 'bg-[#1E88E5] dark:bg-sky-500'
+                      : 'bg-slate-300 dark:bg-slate-700'
                   }`}
                 >
                   <span className="sr-only">Toggle WhatsApp visibility</span>
@@ -208,23 +209,23 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
               </div>
 
               {privacyBusy && (
-                <p className="mt-2 flex items-center gap-1.5 text-slate-600">
+                <p className="mt-2 flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                   Saving privacy preference...
                 </p>
               )}
               {privacyMessage && (
-                <p className="mt-2 font-medium text-emerald-700">
+                <p className="mt-2 font-medium text-emerald-700 dark:text-emerald-400">
                   {privacyMessage}
                 </p>
               )}
               {privacyError && (
-                <p className="mt-2 font-medium text-red-700">{privacyError}</p>
+                <p className="mt-2 font-medium text-red-700 dark:text-red-400">{privacyError}</p>
               )}
 
-              <p className="mt-3 border-t border-slate-200 pt-2.5 leading-relaxed text-slate-600">
-                Your email, internal UID, Saved Content, and My Anonymous Posts
-                are always private and never shown to visitors.
+              <p className="mt-3 border-t border-slate-200 pt-2.5 leading-relaxed text-slate-600 dark:border-slate-700 dark:text-slate-400">
+                Your email, Saved Content, and My Anonymous Posts are always
+                private.
               </p>
             </div>
           )}
@@ -235,13 +236,13 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
               onClose();
               onSelectAnonymousTab();
             }}
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
           >
             <span className="flex items-center gap-3">
-              <Shield className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <Shield className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               My Anonymous Posts
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
           <button
@@ -250,21 +251,21 @@ export const ProfileMenuSheet: React.FC<ProfileMenuSheetProps> = ({
               onClose();
               onSelectSavedTab();
             }}
-            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+            className="flex min-h-[48px] w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:text-slate-100 dark:hover:bg-slate-800/80"
           >
             <span className="flex items-center gap-3">
-              <Bookmark className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <Bookmark className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               Saved Content
             </span>
-            <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           </button>
 
-          <div className="border-t border-slate-100 pt-2">
+          <div className="border-t border-slate-100 pt-2 dark:border-slate-800">
             <button
               type="button"
               disabled={signingOut}
               onClick={() => void handleLogout()}
-              className="flex min-h-[48px] w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+              className="flex min-h-[48px] w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:text-red-400 dark:hover:bg-red-950/40"
             >
               {signingOut ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

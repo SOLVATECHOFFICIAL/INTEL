@@ -733,14 +733,14 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
   return (
     <div
       ref={containerRef}
-      className="min-w-0 max-w-full rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-sky-50/35 to-blue-50/45 p-4 shadow-xs sm:p-5"
+      className="min-w-0 max-w-full rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-sky-50/35 to-blue-50/45 p-4 shadow-xs sm:p-5 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900/95"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="font-display text-sm font-bold text-[#0B1A2E]">
+          <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
             Search {scopeMeta.label}
           </p>
-          <p className="text-xs text-slate-600">{scopeMeta.description}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">{scopeMeta.description}</p>
         </div>
         {embedded && (
           <button
@@ -751,7 +751,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                 searchQuery: queryText.trim() || null,
               })
             }
-            className="inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             <span>Open Full Search</span>
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
@@ -769,7 +769,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       >
         <div className="relative min-w-0 flex-1">
           <Search
-            className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
             aria-hidden="true"
           />
           <input
@@ -791,14 +791,14 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
             onChange={(e) => handleQueryChange(e.target.value)}
             aria-label={`Search ${scopeMeta.label}`}
             placeholder={scopeMeta.placeholder}
-            className="block min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-10 pl-10 text-sm text-[#0B1A2E] outline-none transition-colors focus:border-[#1E88E5] focus:ring-2 focus:ring-[#1E88E5]/20"
+            className="block min-h-[44px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-10 pl-10 text-sm text-[#0B1A2E] outline-none transition-colors focus:border-[#1E88E5] focus:ring-2 focus:ring-[#1E88E5]/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
           {queryText && (
             <button
               type="button"
               onClick={() => handleQueryChange('')}
               aria-label="Clear search query"
-              className="absolute top-1/2 right-2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E]"
+              className="absolute top-1/2 right-2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-white"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -816,7 +816,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
           <div
             role="listbox"
             aria-label="Search suggestions"
-            className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+            className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
           >
             {suggestions.map((sug) => {
               const compactPersonFollowers =
@@ -833,7 +833,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                   aria-selected={false}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleSelectSuggestion(sug)}
-                  className="flex w-full items-center justify-between gap-2.5 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50"
+                  className="flex w-full items-center justify-between gap-2.5 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/70"
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-2.5">
                     {sug.kind === 'recent' ? (
@@ -862,20 +862,20 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                       />
                     )}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold text-[#0B1A2E]">
+                      <span className="block truncate font-semibold text-[#0B1A2E] dark:text-white">
                         {sug.kind === 'person'
                           ? sug.fullName || sug.label
                           : sug.label}
                       </span>
                       {sug.kind === 'person' && sug.username && (
-                        <span className="block truncate text-[11px] text-slate-500">
+                        <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
                           @{sug.username}
                         </span>
                       )}
                     </span>
                   </span>
                   {sug.subtitle && (
-                    <span className="shrink-0 text-[11px] font-medium text-slate-500 tabular-nums">
+                    <span className="shrink-0 text-[11px] font-medium text-slate-500 tabular-nums dark:text-slate-400">
                       {compactPersonFollowers ? (
                         <>
                           <span className="sm:hidden">{compactPersonFollowers}</span>
@@ -906,13 +906,13 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       )}
 
       {status === 'short' && validationMessage && (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-300">
           {validationMessage}
         </div>
       )}
 
       {status === 'loading' && (
-        <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-300">
           <Loader2
             className="h-4 w-4 animate-spin text-[#1E88E5]"
             aria-hidden="true"
@@ -922,7 +922,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       )}
 
       {status === 'error' && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
           <span>{errorMessage || 'Unable to run search right now.'}</span>
           <button
             type="button"
@@ -935,11 +935,11 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
       )}
 
       {status === 'ready' && !hasResults && (
-        <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-center">
-          <p className="text-sm font-semibold text-[#0B1A2E]">
+        <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-center dark:border-slate-700 dark:bg-slate-800/50">
+          <p className="text-sm font-semibold text-[#0B1A2E] dark:text-white">
             No matches for &ldquo;{submittedQuery}&rdquo;
           </p>
-          <p className="mt-1 text-xs text-slate-600">
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
             Nothing matched inside {scopeMeta.label}. {FIRESTORE_SEARCH_SCOPE_NOTE}
           </p>
         </div>
@@ -950,7 +950,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
           {(scope === 'home' || scope === 'all' || scope === 'people') &&
             members.length > 0 && (
               <div>
-                <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
                   Campus Members ({members.length})
                 </p>
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -974,7 +974,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                     type="button"
                     disabled={loadingMoreSlice === 'people'}
                     onClick={() => void handleLoadMoreSlice('people')}
-                    className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
+                    className="mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60 dark:text-sky-400"
                   >
                     {loadingMoreSlice === 'people'
                       ? 'Loading more members...'
@@ -987,7 +987,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
           {(scope === 'home' || scope === 'all' || scope === 'posts') &&
             posts.length > 0 && (
             <div>
-              <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase">
+              <p className="mb-2 text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
                 Community Posts ({posts.length})
               </p>
               <div className="space-y-3">
@@ -1229,7 +1229,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
 
           {(scope === 'updates' || scope === 'all') && updates.length > 0 && (
             <div className="space-y-3">
-              <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+              <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
                 Official Updates ({updates.length})
               </p>
               <div className="space-y-3">
@@ -1298,7 +1298,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
                   type="button"
                   disabled={loadingMoreSlice === 'updates'}
                   onClick={() => void handleLoadMoreSlice('updates')}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline disabled:opacity-60 dark:text-sky-400"
                 >
                   {loadingMoreSlice === 'updates'
                     ? 'Loading more updates...'
@@ -1308,7 +1308,7 @@ export const ContextualSearchBar: React.FC<ContextualSearchBarProps> = ({
             </div>
           )}
 
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
             {FIRESTORE_SEARCH_SCOPE_NOTE}
           </p>
         </div>

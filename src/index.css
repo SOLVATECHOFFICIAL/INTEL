@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --color-navy: #0B1A2E;
@@ -16,11 +17,18 @@
     font-family: var(--font-sans);
     color: #0B1A2E;
     background-color: #F4F8FD;
+    color-scheme: light;
     scroll-behavior: smooth;
     max-width: 100%;
     overflow-x: clip;
     -webkit-text-size-adjust: 100%;
     touch-action: manipulation;
+  }
+
+  html.dark {
+    color: #E2E8F0;
+    background-color: #060D1A;
+    color-scheme: dark;
   }
 
   body {
@@ -33,6 +41,14 @@
       radial-gradient(circle at 50% 100%, rgba(16, 185, 129, 0.05) 0%, transparent 45%),
       linear-gradient(180deg, #F6FAFF 0%, #F1F6FC 52%, #EDF4FA 100%);
     background-attachment: scroll;
+  }
+
+  html.dark body {
+    color: #E2E8F0;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(30, 136, 229, 0.14) 0%, transparent 44%),
+      radial-gradient(circle at 88% 8%, rgba(14, 165, 233, 0.10) 0%, transparent 40%),
+      linear-gradient(180deg, #060D1A 0%, #091222 55%, #0B1528 100%);
   }
 
   #root {
@@ -79,6 +95,14 @@
   }
 }
 
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Signature campus gradient surfaces */
 .lasued-canvas-backdrop {
   background:
@@ -86,6 +110,14 @@
     radial-gradient(900px 420px at 94% -4%, rgba(14, 165, 233, 0.10), transparent 55%),
     radial-gradient(760px 360px at 50% 100%, rgba(15, 118, 110, 0.06), transparent 60%),
     linear-gradient(180deg, #F6FAFF 0%, #F0F6FD 55%, #ECF4FA 100%);
+}
+
+.dark .lasued-canvas-backdrop {
+  background:
+    radial-gradient(1100px 480px at 8% -10%, rgba(30, 136, 229, 0.16), transparent 60%),
+    radial-gradient(900px 420px at 94% -4%, rgba(14, 165, 233, 0.11), transparent 55%),
+    radial-gradient(760px 360px at 50% 100%, rgba(15, 118, 110, 0.09), transparent 60%),
+    linear-gradient(180deg, #060D1A 0%, #091222 55%, #0B1528 100%);
 }
 
 .lasued-brand-gradient {

@@ -199,33 +199,33 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/60 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/60 p-0 backdrop-blur-xs dark:bg-black/75 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="edit-profile-modal-title"
       onClick={onClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-2xl"
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl dark:border dark:border-slate-800 dark:bg-slate-900 sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900">
           <div>
             <h2
               id="edit-profile-modal-title"
-              className="font-display text-lg font-bold text-[#0B1A2E]"
+              className="font-display text-lg font-bold text-[#0B1A2E] dark:text-slate-100"
             >
               Edit Profile
             </h2>
-            <p className="text-xs text-slate-500">
-              Updates sync everywhere on LASUED Intel automatically.
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Changes appear across your profile right away.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close edit profile"
-            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E]"
+            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -235,7 +235,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           {statusMessage && (
             <div
               role="status"
-              className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-900"
+              className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-900 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-200"
             >
               {statusMessage}
             </div>
@@ -244,7 +244,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           {errorMessage && (
             <div
               role="alert"
-              className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800"
+              className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-200"
             >
               {errorMessage}
             </div>
@@ -278,9 +278,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               <div>
                 <label
                   htmlFor="modal-fullname"
-                  className="block text-sm font-medium text-[#0B1A2E]"
+                  className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
                 >
-                  Full name <span className="text-red-600">*</span>
+                  Full name <span className="text-red-600 dark:text-red-400">*</span>
                 </label>
                 <input
                   id="modal-fullname"
@@ -289,19 +289,19 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   disabled={isSuspended}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-sky-500"
                 />
                 {errors.fullName && (
-                  <p className="mt-1 text-xs text-red-700">{errors.fullName}</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-400">{errors.fullName}</p>
                 )}
               </div>
 
               <div>
                 <label
                   htmlFor="modal-username"
-                  className="block text-sm font-medium text-[#0B1A2E]"
+                  className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
                 >
-                  Username <span className="text-red-600">*</span>
+                  Username <span className="text-red-600 dark:text-red-400">*</span>
                 </label>
                 <input
                   id="modal-username"
@@ -310,23 +310,23 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   disabled={isSuspended}
                   value={username}
                   onChange={(e) => handleUsernameChange(e.target.value)}
-                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-sky-500"
                 />
                 {usernameStatus.state !== 'idle' && (
                   <p
                     className={`mt-1 text-xs font-medium ${
                       usernameStatus.state === 'available'
-                        ? 'text-emerald-700'
+                        ? 'text-emerald-700 dark:text-emerald-400'
                         : usernameStatus.state === 'taken'
-                        ? 'text-red-700'
-                        : 'text-slate-600'
+                        ? 'text-red-700 dark:text-red-400'
+                        : 'text-slate-600 dark:text-slate-400'
                     }`}
                   >
                     {usernameStatus.message}
                   </p>
                 )}
                 {errors.username && (
-                  <p className="mt-1 text-xs text-red-700">{errors.username}</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-400">{errors.username}</p>
                 )}
               </div>
             </div>
@@ -334,7 +334,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <div>
               <label
                 htmlFor="modal-bio"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
                 Bio
               </label>
@@ -345,14 +345,14 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 maxLength={BLUEPRINT_LIMITS.bioMax}
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
-                placeholder="Tell classmates about your course, campus role, or interests..."
-                className="mt-1.5 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                placeholder="Share your course, role, or interests..."
+                className="mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500"
               />
-              <p className="mt-1 text-xs text-slate-500 tabular-nums">
+              <p className="mt-1 text-xs text-slate-500 tabular-nums dark:text-slate-400">
                 {bio.trim().length} / {BLUEPRINT_LIMITS.bioMax} characters
               </p>
               {errors.bio && (
-                <p className="mt-1 text-xs text-red-700">{errors.bio}</p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">{errors.bio}</p>
               )}
             </div>
 
@@ -360,9 +360,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               <div>
                 <label
                   htmlFor="modal-department"
-                  className="block text-sm font-medium text-[#0B1A2E]"
+                  className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
                 >
-                  Department <span className="text-red-600">*</span>
+                  Department <span className="text-red-600 dark:text-red-400">*</span>
                 </label>
                 <input
                   id="modal-department"
@@ -371,10 +371,10 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   disabled={isSuspended}
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-sky-500"
                 />
                 {errors.department && (
-                  <p className="mt-1 text-xs text-red-700">
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                     {errors.department}
                   </p>
                 )}
@@ -383,7 +383,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               <div>
                 <label
                   htmlFor="modal-faculty"
-                  className="block text-sm font-medium text-[#0B1A2E]"
+                  className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
                 >
                   Faculty / College
                 </label>
@@ -394,10 +394,10 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   value={faculty}
                   onChange={(e) => setFaculty(e.target.value)}
                   placeholder="e.g. Science and Technology Education"
-                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500"
                 />
                 {errors.faculty && (
-                  <p className="mt-1 text-xs text-red-700">{errors.faculty}</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-400">{errors.faculty}</p>
                 )}
               </div>
             </div>
@@ -406,9 +406,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
               <div>
                 <label
                   htmlFor="modal-level"
-                  className="block text-sm font-medium text-[#0B1A2E]"
+                  className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
                 >
-                  Level / Campus Status <span className="text-red-600">*</span>
+                  Level / Campus Status <span className="text-red-600 dark:text-red-400">*</span>
                 </label>
                 <select
                   id="modal-level"
@@ -416,7 +416,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   disabled={isSuspended}
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
-                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-sky-500"
                 >
                   <option value="">Select level or status</option>
                   {CAMPUS_STATUS_OPTIONS.map((item) => (
@@ -426,14 +426,14 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   ))}
                 </select>
                 {errors.level && (
-                  <p className="mt-1 text-xs text-red-700">{errors.level}</p>
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-400">{errors.level}</p>
                 )}
               </div>
 
               <div>
                 <label
                   htmlFor="modal-category"
-                  className="block text-sm font-medium text-[#0B1A2E]"
+                  className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
                 >
                   Account Category
                 </label>
@@ -442,7 +442,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   disabled={isSuspended}
                   value={accountCategory}
                   onChange={(e) => setAccountCategory(e.target.value)}
-                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-sky-500"
                 >
                   <option value="">Select category (optional)</option>
                   {ACCOUNT_CATEGORY_OPTIONS.map((item) => (
@@ -452,7 +452,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                   ))}
                 </select>
                 {errors.accountCategory && (
-                  <p className="mt-1 text-xs text-red-700">
+                  <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                     {errors.accountCategory}
                   </p>
                 )}
@@ -462,9 +462,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <div>
               <label
                 htmlFor="modal-whatsapp"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                WhatsApp Number <span className="text-red-600">*</span>
+                WhatsApp Number <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="modal-whatsapp"
@@ -474,20 +474,20 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 value={publicWhatsapp}
                 onChange={(e) => setPublicWhatsapp(e.target.value)}
                 placeholder="+234 800 000 0000"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-500"
               />
               {errors.publicWhatsapp && (
-                <p className="mt-1 text-xs text-red-700">
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                   {errors.publicWhatsapp}
                 </p>
               )}
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
               <button
                 type="button"
                 onClick={onClose}
-                className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>
@@ -496,7 +496,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 disabled={
                   saving || isSuspended || usernameStatus.state === 'taken'
                 }
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#1E88E5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60"
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-[#1E88E5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#1565C0] disabled:opacity-60 dark:bg-sky-600 dark:hover:bg-sky-500"
               >
                 {saving && (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

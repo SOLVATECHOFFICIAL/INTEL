@@ -19,7 +19,7 @@ export const EventShareButton: React.FC<EventShareButtonProps> = ({ event }) => 
       variant="icon"
       align="right"
       ariaLabel={`Share ${event.title}`}
-      buttonClassName="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+      buttonClassName="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
       testId={`event-share-btn-${event.id}`}
     />
   );

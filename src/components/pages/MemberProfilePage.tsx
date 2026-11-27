@@ -57,6 +57,7 @@ import {
   type SavedContentBundle,
 } from '../../services/socialPosts';
 import { LinkifiedText } from '../shared/LinkifiedText';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { ShareActionMenu } from '../shared/ShareActionMenu';
 import type {
   AnonymousPost,
@@ -1103,16 +1104,16 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   if (resolvedLoadState === 'loading') {
     return (
-      <section className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="h-56 w-full animate-pulse bg-[#0B1A2E]/20 sm:h-72" />
+      <section className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="h-56 w-full animate-pulse bg-[#0B1A2E]/20 sm:h-72 dark:bg-slate-800" />
         <div className="px-5 pb-6">
-          <div className="-mt-12 h-24 w-24 animate-pulse rounded-full border-4 border-white bg-slate-200 sm:-mt-16 sm:h-32 sm:w-32" />
-          <div className="mt-4 h-7 w-48 animate-pulse rounded bg-slate-200" />
-          <div className="mt-2 h-4 w-32 animate-pulse rounded bg-slate-100" />
+          <div className="-mt-12 h-24 w-24 animate-pulse rounded-full border-4 border-white bg-slate-200 sm:-mt-16 sm:h-32 sm:w-32 dark:border-slate-900 dark:bg-slate-700" />
+          <div className="mt-4 h-7 w-48 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+          <div className="mt-2 h-4 w-32 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
           <div className="mt-6 grid grid-cols-3 gap-2">
-            <div className="aspect-square animate-pulse rounded-xl bg-slate-100" />
-            <div className="aspect-square animate-pulse rounded-xl bg-slate-100" />
-            <div className="aspect-square animate-pulse rounded-xl bg-slate-100" />
+            <div className="aspect-square animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+            <div className="aspect-square animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+            <div className="aspect-square animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
           </div>
         </div>
       </section>
@@ -1121,30 +1122,29 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   if (resolvedLoadState === 'needs_setup') {
     return (
-      <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6">
+      <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
+          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back
         </button>
         <div className="mt-5 max-w-lg">
-          <h1 className="font-display text-2xl font-bold text-[#0B1A2E]">
-            Complete your LASUED Intel Profile
+          <h1 className="font-display text-2xl font-bold text-[#0B1A2E] dark:text-slate-100">
+            Finish setting up your profile
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Save your full name, unique @username, department, level, and
-            WhatsApp number in Account Settings to activate your public profile
-            card and visual content grid.
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            Add your name, @username, department, level, and WhatsApp in Account
+            Settings to unlock your profile page.
           </p>
           <button
             type="button"
             onClick={() => onNavigate('account')}
             className="mt-5 inline-flex min-h-[44px] items-center rounded-lg bg-[#1E88E5] px-5 py-2 text-sm font-semibold text-white hover:bg-[#1565C0]"
           >
-            Set Up My Profile
+            Set Up Profile
           </button>
         </div>
       </section>
@@ -1153,20 +1153,20 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   if (resolvedLoadState === 'error') {
     return (
-      <section className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6">
+      <section className="min-w-0 flex-1 rounded-2xl border border-red-200 bg-white p-6 dark:border-red-900/50 dark:bg-slate-900">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
+          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back
         </button>
-        <h1 className="mt-4 font-display text-xl font-bold text-[#0B1A2E]">
-          Unable to load member profile
+        <h1 className="mt-4 font-display text-xl font-bold text-[#0B1A2E] dark:text-slate-100">
+          Unable to load profile
         </h1>
-        <p className="mt-1.5 text-sm text-slate-600">
-          A network or permission error occurred while loading this campus profile.
+        <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">
+          We couldn&apos;t load this profile right now. Please try again.
         </p>
         <button
           type="button"
@@ -1184,36 +1184,35 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
   if (resolvedLoadState === 'not_found' || !bundle || !displayedProfile) {
     return (
-      <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6">
+      <section className="min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
+          className="inline-flex min-h-[42px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back
         </button>
         <div className="mt-6 max-w-md">
-          <h1 className="font-display text-xl font-bold text-[#0B1A2E]">
-            Member profile not found
+          <h1 className="font-display text-xl font-bold text-[#0B1A2E] dark:text-slate-100">
+            Profile not found
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            No active public profile matches{' '}
-            {effectiveUsername ? `@${effectiveUsername}` : 'this link'}. It may
-            have been deleted or hidden from the directory.
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            No active profile matches{' '}
+            {effectiveUsername ? `@${effectiveUsername}` : 'this link'}.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <button
               type="button"
               onClick={() => onNavigate('for-you')}
-              className="inline-flex min-h-[42px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-sm font-semibold text-white hover:bg-[#132844]"
+              className="inline-flex min-h-[42px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-sm font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
             >
               Return Home
             </button>
             <button
               type="button"
               onClick={() => onNavigate('search', { searchScope: 'home' })}
-              className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50"
+              className="inline-flex min-h-[42px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Search Members
             </button>
@@ -1342,11 +1341,11 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
   ) => {
     if (items.length === 0) {
       return (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
-          <p className="font-display text-sm font-bold text-[#0B1A2E]">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center dark:border-slate-700 dark:bg-slate-800/50">
+          <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
             {emptyTitle}
           </p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600">
+          <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600 dark:text-slate-400">
             {emptySubtitle}
           </p>
         </div>
@@ -1471,21 +1470,21 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-white hover:text-[#0B1A2E]"
+          className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium text-slate-600 hover:bg-white hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back
         </button>
 
         {bundle.redirectedFrom && (
-          <p className="text-xs text-slate-600">
-            Updated handle: previously @{bundle.redirectedFrom}
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Previously @{bundle.redirectedFrom}
           </p>
         )}
       </div>
 
       {/* Main Profile Header Card (TikTok-inspired Layout with Large Cover + Overlapping Circular Avatar) */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         {/* 1. LARGE COVER PHOTO (~75% of profile header visual area) */}
         <div
           className="relative h-56 w-full overflow-hidden bg-[#0B1A2E] sm:h-72"
@@ -1621,7 +1620,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             {/* Large Circular Avatar with Independent Owner Camera Control */}
             <div className="relative inline-block w-fit">
               <div
-                className="relative h-24 w-24 overflow-hidden rounded-full bg-[#0B1A2E] ring-4 ring-white shadow-md sm:h-32 sm:w-32"
+                className="relative h-24 w-24 overflow-hidden rounded-full bg-[#0B1A2E] ring-4 ring-white shadow-md sm:h-32 sm:w-32 dark:ring-slate-900"
                 data-testid="profile-avatar-circle"
               >
                 {hasAvatar ? (
@@ -1684,7 +1683,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     disabled={avatarBusy}
                     onClick={() => avatarInputRef.current?.click()}
                     aria-label="Change profile picture"
-                    className="absolute right-0 bottom-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#1E88E5] text-white ring-2 ring-white shadow-sm hover:bg-[#1565C0] disabled:opacity-60"
+                    className="absolute right-0 bottom-0 flex h-9 w-9 items-center justify-center rounded-full bg-[#1E88E5] text-white ring-2 ring-white shadow-sm hover:bg-[#1565C0] disabled:opacity-60 dark:ring-slate-900"
                   >
                     {avatarBusy ? (
                       <Loader2
@@ -1707,9 +1706,9 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     type="button"
                     disabled={isSuspended}
                     onClick={() => setEditProfileOpen(true)}
-                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60 sm:text-sm"
+                    className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60 sm:text-sm dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
                   >
-                    <Edit3 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+                    <Edit3 className="h-4 w-4 text-[#1E88E5] dark:text-white" aria-hidden="true" />
                     Edit Profile
                   </button>
 
@@ -1723,14 +1722,14 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     variant="button"
                     label="Share Profile"
                     align="left"
-                    buttonClassName="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
+                    buttonClassName="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                   />
 
                   <button
                     type="button"
                     onClick={() => setMenuSheetOpen(true)}
                     aria-label="Open profile menu and settings"
-                    className="inline-flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50"
+                    className="inline-flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg border border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                   >
                     <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
                   </button>
@@ -1767,10 +1766,10 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                       href={whatsappUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm"
+                      className="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:text-sm dark:bg-emerald-700 dark:hover:bg-emerald-600"
                     >
                       <MessageCircle
-                        className="h-4 w-4 text-[#1E88E5]"
+                        className="h-4 w-4 text-[#1E88E5] dark:text-white"
                         aria-hidden="true"
                       />
                       WhatsApp
@@ -1788,7 +1787,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     label="Share"
                     align="left"
                     ariaLabel="Share profile"
-                    buttonClassName="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm"
+                    buttonClassName="inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 sm:text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                   />
                 </>
               )}
@@ -1797,8 +1796,8 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
           {/* Pending Direct Avatar Save/Discard Bar */}
           {pendingAvatar && bundle.isOwnProfile && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/5 px-3.5 py-2.5 text-xs">
-              <span className="font-medium text-[#0B1A2E]">
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/5 px-3.5 py-2.5 text-xs dark:border-[#1E88E5]/40 dark:bg-[#1E88E5]/10">
+              <span className="font-medium text-[#0B1A2E] dark:text-slate-100">
                 New profile picture preview ready.
               </span>
               <button
@@ -1818,7 +1817,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 type="button"
                 disabled={avatarBusy}
                 onClick={() => setPendingAvatar(null)}
-                className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+                className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               >
                 Discard
               </button>
@@ -1826,12 +1825,12 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           )}
 
           {avatarProgress && (
-            <div className="mt-3 max-w-sm space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
-              <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+            <div className="mt-3 max-w-sm space-y-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+              <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E] dark:text-slate-100">
                 <span>{avatarProgress.label}</span>
                 <span className="tabular-nums">{avatarProgress.percent}%</span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                 <div
                   className="h-full bg-[#1E88E5] transition-all duration-200"
                   style={{ width: `${avatarProgress.percent}%` }}
@@ -1845,7 +1844,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             <div className="flex flex-wrap items-center gap-2.5">
               <h1
                 id="member-profile-heading"
-                className="font-display text-2xl font-bold text-[#0B1A2E]"
+                className="font-display text-2xl font-bold text-[#0B1A2E] dark:text-slate-100"
               >
                 {profile.fullName}
               </h1>
@@ -1853,28 +1852,28 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 <ProfileBadgesRow profile={profile} size="md" />
               )}
               {bundle.isSuspended && (
-                <span className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
+                <span className="inline-flex items-center gap-1 rounded-lg bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800 dark:bg-red-950/60 dark:text-red-300">
                   <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
                   Suspended
                 </span>
               )}
             </div>
 
-            <p className="mt-0.5 text-sm font-medium text-slate-600">
+            <p className="mt-0.5 text-sm font-medium text-slate-600 dark:text-slate-400">
               @{profile.username}
             </p>
 
             {/* TikTok-Inspired Stats Row: Following · Followers · Likes */}
-            <div className="mt-4 flex flex-wrap items-center gap-6 border-y border-slate-100 py-3 text-sm">
+            <div className="mt-4 flex flex-wrap items-center gap-6 border-y border-slate-100 py-3 text-sm dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => openFollowModal('following')}
-                className="inline-flex items-baseline gap-1.5 text-left hover:text-[#1E88E5]"
+                className="inline-flex items-baseline gap-1.5 text-left hover:text-[#1E88E5] dark:hover:text-[#64B5F6]"
               >
-                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                   {profile.followingCount}
                 </span>
-                <span className="text-xs font-medium text-slate-600 sm:text-sm">
+                <span className="text-xs font-medium text-slate-600 sm:text-sm dark:text-slate-400">
                   Following
                 </span>
               </button>
@@ -1882,21 +1881,21 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
               <button
                 type="button"
                 onClick={() => openFollowModal('followers')}
-                className="inline-flex items-baseline gap-1.5 text-left hover:text-[#1E88E5]"
+                className="inline-flex items-baseline gap-1.5 text-left hover:text-[#1E88E5] dark:hover:text-[#64B5F6]"
               >
-                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                   {profile.followersCount}
                 </span>
-                <span className="text-xs font-medium text-slate-600 sm:text-sm">
+                <span className="text-xs font-medium text-slate-600 sm:text-sm dark:text-slate-400">
                   Followers
                 </span>
               </button>
 
               <div className="inline-flex items-baseline gap-1.5">
-                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                <span className="font-display text-base font-bold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                   {bundle.totalLikesReceived}
                 </span>
-                <span className="text-xs font-medium text-slate-600 sm:text-sm">
+                <span className="text-xs font-medium text-slate-600 sm:text-sm dark:text-slate-400">
                   Likes
                 </span>
               </div>
@@ -1906,12 +1905,12 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             {profile.bio?.trim() && (
               <LinkifiedText
                 text={profile.bio}
-                className="mt-3.5 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                className="mt-3.5 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
               />
             )}
 
             {/* Academic & Category Details (Zero Private Email / Zero UID) */}
-            <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-600 sm:text-sm">
+            <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-600 sm:text-sm dark:text-slate-400">
               {profile.accountCategory?.trim() && (
                 <span className="inline-flex items-center gap-1.5">
                   <Briefcase
@@ -1940,7 +1939,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 </span>
               )}
               {profile.faculty?.trim() && (
-                <span className="text-slate-600">
+                <span className="text-slate-600 dark:text-slate-400">
                   Faculty: {profile.faculty}
                 </span>
               )}
@@ -1950,7 +1949,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           {actionMessage && (
             <div
               role="status"
-              className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-medium text-emerald-900"
+              className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300"
             >
               {actionMessage}
             </div>
@@ -1959,7 +1958,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           {actionError && (
             <div
               role="alert"
-              className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800 sm:text-sm"
+              className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800 sm:text-sm dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
             >
               {actionError}
             </div>
@@ -1969,7 +1968,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             <div className="mt-4">
               <GuestPromptCard
                 title={`Sign in to follow @${profile.username}`}
-                description="Guests can view public member profiles and open WhatsApp conversations. Sign in to follow members and build your Following feed."
+                description="Sign in to follow members and build your Following feed."
                 returnRoute="for-you"
                 onRequireAuth={onRequireAuth}
                 onDismiss={() => setShowGuestPrompt(false)}
@@ -1979,46 +1978,23 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
         </div>
       </div>
 
-      {/* 3. SEPARATED CONTENT TABS & TIKTOK-STYLE 3-COLUMN GRID */}
-      <div className="rounded-2xl border border-slate-200 bg-white">
-        <div
-          role="tablist"
-          aria-label="Member profile content tabs"
-          className="flex overflow-x-auto border-b border-slate-200"
-        >
-          {tabs.map((tab) => {
-            const isSelected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isSelected}
-                onClick={() => handleSelectTab(tab.id)}
-                className={`relative flex min-h-[48px] shrink-0 items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold whitespace-nowrap transition-colors sm:flex-1 sm:text-sm ${
-                  isSelected
-                    ? 'text-[#1E88E5]'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]'
-                }`}
-              >
-                {tab.privateTab && (
-                  <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-                )}
-                <span>{tab.label}</span>
-                {typeof tab.count === 'number' && (
-                  <span className="text-[11px] font-medium opacity-80 tabular-nums">
-                    ({tab.count})
-                  </span>
-                )}
-                {isSelected && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-[#1E88E5]"
-                  />
-                )}
-              </button>
-            );
-          })}
+      {/* 3. SEPARATED CONTENT RIBBON & TIKTOK-STYLE 3-COLUMN GRID */}
+      <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-200 px-3 py-3 sm:px-5 dark:border-slate-800">
+          <SectionRibbon
+            variant="primary"
+            ariaLabel="Member profile content tabs"
+            activeId={activeTab}
+            onChange={handleSelectTab}
+            items={tabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              count: tab.count,
+              icon: tab.privateTab ? (
+                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : undefined,
+            }))}
+          />
         </div>
 
         <div className="p-3 sm:p-5">
@@ -2026,16 +2002,15 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           {activeTab === 'posts' && (
             <div>
               {!bundle.canPublishOrdinaryPosts && bundle.posts.length === 0 ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
-                  Ordinary public feed updates are reserved for Verified
-                  members, Moderators, and Administrators. Anonymous posts are
-                  strictly separated and never shown here.
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  Public feed posts are open to Verified members, Moderators, and
+                  Admins. Anonymous posts are kept private and never appear here.
                 </div>
               ) : (
                 renderPostVisualGrid(
                   bundle.posts.map((post) => ({ post, author: profile })),
                   `No public posts from @${profile.username} yet`,
-                  'Published updates and campus photographs will appear here in a clean 3-column grid.'
+                  'Published posts and photos will appear here.'
                 )
               )}
             </div>
@@ -2044,24 +2019,23 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           {/* TAB 2: SAVED CONTENT (Strictly Private to Owner) */}
           {activeTab === 'saved' && bundle.isOwnProfile && (
             <div className="space-y-6">
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
                 <Lock
                   className="h-4 w-4 shrink-0 text-[#1E88E5]"
                   aria-hidden="true"
                 />
                 <span>
-                  Only you can see your Saved posts and bookmarks. Visitors never
-                  have access to this tab.
+                  Only you can see your Saved items. Visitors never see this tab.
                 </span>
               </div>
 
               {savedLoading ? (
-                <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+                <div className="flex items-center justify-center py-10 text-sm text-slate-600 dark:text-slate-400">
                   <Loader2
                     className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
                     aria-hidden="true"
                   />
-                  Loading your saved content...
+                  Loading your saved items...
                 </div>
               ) : !savedBundle ||
                 (savedBundle.posts.length === 0 &&
@@ -2069,24 +2043,23 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   savedBundle.listings.length === 0 &&
                   savedBundle.opportunities.length === 0 &&
                   savedBundle.events.length === 0) ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center dark:border-slate-700 dark:bg-slate-800/50">
                   <Bookmark
                     className="mx-auto mb-2 h-6 w-6 text-slate-400"
                     aria-hidden="true"
                   />
-                  <p className="font-display text-sm font-bold text-[#0B1A2E]">
-                    No saved content yet
+                  <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+                    No saved items yet
                   </p>
-                  <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600">
-                    Tap Save on any campus update or anonymous post to bookmark
-                    it here privately.
+                  <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600 dark:text-slate-400">
+                    Tap Save on any post, listing, or event to keep it here.
                   </p>
                 </div>
               ) : (
                 <>
                   {savedBundle.posts.length > 0 && (
                     <div className="space-y-3">
-                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                         Saved Updates ({savedBundle.posts.length})
                       </h2>
                       {renderPostVisualGrid(
@@ -2099,7 +2072,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
                   {savedBundle.anonymousPosts.length > 0 && (
                     <div className="space-y-3">
-                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                         Saved Anonymous Posts ({savedBundle.anonymousPosts.length})
                       </h2>
                       <div className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2">
@@ -2173,20 +2146,20 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
                   {savedBundle.listings.length > 0 && (
                     <div className="space-y-2.5">
-                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                         Saved Marketplace Listings ({savedBundle.listings.length})
                       </h2>
                       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
                         {savedBundle.listings.map((item) => (
                           <div
                             key={item.id}
-                            className="flex w-[78%] shrink-0 snap-start flex-col justify-between gap-2.5 rounded-xl border border-slate-200 bg-white p-3.5 sm:w-[46%] lg:w-[32%]"
+                            className="flex w-[78%] shrink-0 snap-start flex-col justify-between gap-2.5 rounded-xl border border-slate-200 bg-white p-3.5 sm:w-[46%] lg:w-[32%] dark:border-slate-700 dark:bg-slate-800"
                           >
                             <div className="min-w-0">
-                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                                 {item.title}
                               </p>
-                              <p className="mt-0.5 text-xs text-slate-500">
+                              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                                 {item.category} · ₦{item.price.toLocaleString()}
                               </p>
                             </div>
@@ -2195,7 +2168,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                               onClick={() =>
                                 onNavigate('marketplace', { listingId: item.id })
                               }
-                              className="self-start text-xs font-semibold text-[#1E88E5] hover:underline"
+                              className="self-start text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                             >
                               View Listing
                             </button>
@@ -2207,7 +2180,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
                   {savedBundle.opportunities.length > 0 && (
                     <div className="space-y-2.5">
-                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                         Saved Opportunities ({savedBundle.opportunities.length})
                       </h2>
                       {savedBundle.opportunities.map((opp) => {
@@ -2215,13 +2188,13 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                         return (
                           <div
                             key={opp.id}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
+                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5 dark:border-slate-700 dark:bg-slate-800/60"
                           >
                             <div className="min-w-0">
-                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                                 {opp.title}
                               </p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 {getOpportunityCategoryShortLabel(opp.category)} ·{' '}
                                 {opp.organisation} · {lifecycle.label} (
                                 {formatOpportunityDeadlineSummary(lifecycle)})
@@ -2234,7 +2207,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                                   opportunityId: opp.id,
                                 })
                               }
-                              className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                              className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                             >
                               View Details
                             </button>
@@ -2246,7 +2219,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
                   {savedBundle.events.length > 0 && (
                     <div className="space-y-2.5">
-                      <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                         Saved Events ({savedBundle.events.length})
                       </h2>
                       {savedBundle.events.map((evt) => {
@@ -2254,13 +2227,13 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                         return (
                           <div
                             key={evt.id}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5"
+                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5 dark:border-slate-700 dark:bg-slate-800/60"
                           >
                             <div className="min-w-0">
-                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                              <p className="truncate font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                                 {evt.title}
                               </p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                 {getEventCategoryShortLabel(evt.category)} ·{' '}
                                 {evt.venue} · {lifecycle.label} (
                                 {formatEventLocalDate(evt.eventDate)})
@@ -2273,7 +2246,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                                   eventId: evt.id,
                                 })
                               }
-                              className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline"
+                              className="shrink-0 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                             >
                               View Details
                             </button>
@@ -2291,8 +2264,8 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           {activeTab === 'liked' &&
             renderPostVisualGrid(
               bundle.likedPosts,
-              `No liked public posts yet`,
-              `Public community updates liked by @${profile.username} will appear here. Anonymous likes are never shown.`
+              `No liked posts yet`,
+              `Public posts liked by @${profile.username} will appear here.`
             )}
 
           {/* TAB 4: MY ANONYMOUS POSTS (Strictly Private Owner History & Management) */}
@@ -2304,39 +2277,36 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   aria-hidden="true"
                 />
                 <span>
-                  <strong>Private Author History:</strong> Only you can view,
-                  edit, or delete your anonymous posts here. Your public
-                  profile, followers, and search never reveal any link to these
-                  entries.
+                  <strong>Private to you:</strong> Manage, edit, or delete your
+                  anonymous posts here. Your public profile never shows these.
                 </span>
               </div>
 
               {anonLoading ? (
-                <div className="flex items-center justify-center py-10 text-sm text-slate-600">
+                <div className="flex items-center justify-center py-10 text-sm text-slate-600 dark:text-slate-400">
                   <Loader2
                     className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
                     aria-hidden="true"
                   />
-                  Loading your private anonymous posts...
+                  Loading your anonymous posts...
                 </div>
               ) : !anonHistory || anonHistory.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-10 text-center dark:border-slate-700 dark:bg-slate-800/50">
                   <Shield
                     className="mx-auto mb-2 h-6 w-6 text-slate-400"
                     aria-hidden="true"
                   />
-                  <p className="font-display text-sm font-bold text-[#0B1A2E]">
-                    You haven&apos;t published any anonymous posts yet
+                  <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+                    No anonymous posts yet
                   </p>
-                  <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600">
-                    When you post in the Anonymous section, your posts appear
-                    privately here so you can manage, edit, or delete them
-                    anytime.
+                  <p className="mx-auto mt-1 max-w-sm text-xs text-slate-600 dark:text-slate-400">
+                    Anonymous posts you share will appear here so you can edit or
+                    delete them anytime.
                   </p>
                   <button
                     type="button"
                     onClick={() => onNavigate('anonymous')}
-                    className="mt-4 inline-flex min-h-[40px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+                    className="mt-4 inline-flex min-h-[40px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
                   >
                     Go to Anonymous Feed
                   </button>
@@ -2356,12 +2326,12 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                     return (
                       <article
                         key={anonPost.id}
-                        className="rounded-2xl border border-slate-200 bg-white p-4"
+                        className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-800/60"
                         data-testid={`private-anon-card-${anonPost.id}`}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-xs text-slate-500">
-                            <span className="font-semibold text-[#0B1A2E]">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                            <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                               {anonPost.category}
                             </span>
                             <span aria-hidden="true"> · </span>
@@ -2379,7 +2349,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                                   post: anonPost,
                                 })
                               }
-                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700"
                             >
                               <MessageCircle
                                 className="h-3.5 w-3.5 text-[#1E88E5]"
@@ -2391,7 +2361,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                               type="button"
                               disabled={isSuspended}
                               onClick={() => setEditingAnonPost(anonPost)}
-                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
                             >
                               <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
                               Edit
@@ -2406,7 +2376,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                                   prev === anonPost.id ? null : anonPost.id
                                 )
                               }
-                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
                             >
                               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                               Delete
@@ -2415,7 +2385,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                         </div>
 
                         {confirmDeleteAnonId === anonPost.id && (
-                          <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center">
+                          <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
                             <span>
                               Permanently delete this anonymous post, its
                               replies, likes, and images?
@@ -2440,7 +2410,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteAnonId(null)}
-                                className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E]"
+                                className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-3 py-1 font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                               >
                                 Cancel
                               </button>
@@ -2464,7 +2434,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                             {anonPost.body.trim().length > 0 && (
                               <LinkifiedText
                                 text={anonPost.body}
-                                className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                                className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200"
                               />
                             )}
                             {gridItems.length > 0 && (
@@ -2485,7 +2455,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                           </>
                         )}
 
-                        <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-2.5 text-xs font-semibold text-slate-600">
+                        <div className="mt-3 flex items-center gap-4 border-t border-slate-100 pt-2.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-400">
                           <span className="inline-flex items-center gap-1 tabular-nums">
                             <Heart
                               className="h-3.5 w-3.5 text-[#1E88E5]"
@@ -2513,7 +2483,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           {activeTab === 'listings' && (
             <div className="space-y-3">
               {bundle.listings.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                   <Package
                     className="mx-auto mb-2 h-5 w-5 text-slate-400"
                     aria-hidden="true"
@@ -2525,21 +2495,21 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   {bundle.listings.map((item) => (
                     <article
                       key={item.id}
-                      className="flex w-[78%] shrink-0 snap-start flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:w-[46%] lg:w-[32%]"
+                      className="flex w-[78%] shrink-0 snap-start flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:w-[46%] lg:w-[32%] dark:border-slate-700 dark:bg-slate-800"
                     >
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-500">
+                        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                           {item.listingKind} · {item.category}
                         </p>
-                        <h2 className="mt-0.5 line-clamp-1 font-display text-base font-bold text-[#0B1A2E]">
+                        <h2 className="mt-0.5 line-clamp-1 font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                           {item.title}
                         </h2>
-                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
                           {item.description}
                         </p>
                       </div>
-                      <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
-                        <p className="font-display text-base font-bold text-[#0B1A2E] tabular-nums">
+                      <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5 dark:border-slate-700">
+                        <p className="font-display text-base font-bold text-[#0B1A2E] tabular-nums dark:text-slate-100">
                           ₦{item.price.toLocaleString()}
                         </p>
                         {buildWhatsAppChatUrl(item.whatsappNumber) && (
@@ -2547,10 +2517,10 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                             href={buildWhatsAppChatUrl(item.whatsappNumber)!}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844]"
+                            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-emerald-700 dark:hover:bg-emerald-600"
                           >
                             <MessageCircle
-                              className="h-3.5 w-3.5 text-[#1E88E5]"
+                              className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white"
                               aria-hidden="true"
                             />
                             Contact
@@ -2576,34 +2546,28 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           onClick={closeFollowModal}
         >
           <div
-            className="max-h-[82vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-2xl"
+            className="max-h-[82vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-2xl dark:border dark:border-slate-800 dark:bg-slate-900"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-1 rounded-xl bg-slate-100 p-1">
-                <button
-                  type="button"
-                  onClick={() => openFollowModal('followers')}
-                  className={`min-h-[34px] rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
-                    followModalKind === 'followers'
-                      ? 'bg-[#0B1A2E] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-[#0B1A2E]'
-                  }`}
-                >
-                  Followers ({profile.followersCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openFollowModal('following')}
-                  className={`min-h-[34px] rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
-                    followModalKind === 'following'
-                      ? 'bg-[#0B1A2E] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-[#0B1A2E]'
-                  }`}
-                >
-                  Following ({profile.followingCount})
-                </button>
-              </div>
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
+              <SectionRibbon
+                variant="sublist"
+                ariaLabel="Followers or following list"
+                activeId={followModalKind}
+                onChange={(next) => openFollowModal(next)}
+                items={[
+                  {
+                    id: 'followers',
+                    label: 'Followers',
+                    count: profile.followersCount,
+                  },
+                  {
+                    id: 'following',
+                    label: 'Following',
+                    count: profile.followingCount,
+                  },
+                ]}
+              />
               <h2 id="follow-modal-title" className="sr-only">
                 {followModalKind === 'followers'
                   ? `Followers (${profile.followersCount})`
@@ -2613,7 +2577,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                 type="button"
                 onClick={closeFollowModal}
                 aria-label="Close list"
-                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100"
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
@@ -2622,7 +2586,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
             {followModalError && (
               <div
                 role="alert"
-                className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+                className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
               >
                 {followModalError}
               </div>
@@ -2630,7 +2594,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
 
             <div className="mt-4">
               {followModalLoading ? (
-                <div className="flex items-center justify-center py-8 text-sm text-slate-600">
+                <div className="flex items-center justify-center py-8 text-sm text-slate-600 dark:text-slate-400">
                   <Loader2
                     className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
                     aria-hidden="true"
@@ -2638,7 +2602,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   Loading {followModalKind}...
                 </div>
               ) : !followModalList || followModalList.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600">
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                   <Users
                     className="mx-auto mb-2 h-5 w-5 text-slate-400"
                     aria-hidden="true"
@@ -2652,7 +2616,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                   {followModalList.map((member) => (
                     <div
                       key={member.username}
-                      className="flex min-h-[60px] w-full items-center justify-between gap-2.5 rounded-xl border border-slate-200 p-2.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60"
+                      className="flex min-h-[60px] w-full items-center justify-between gap-2.5 rounded-xl border border-slate-200 p-2.5 transition-colors hover:border-[#1E88E5]/60 hover:bg-slate-50/60 dark:border-slate-800 dark:hover:border-[#64B5F6]/50 dark:hover:bg-slate-800"
                     >
                       <button
                         type="button"
@@ -2672,12 +2636,12 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E]">
+                            <p className="truncate font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                               {member.fullName}
                             </p>
                             <ProfileBadgesRow profile={member} size="xs" />
                           </div>
-                          <p className="truncate text-xs text-slate-600">
+                          <p className="truncate text-xs text-slate-600 dark:text-slate-400">
                             @{member.username}
                             {member.department ? ` · ${member.department}` : ''}
                           </p>
@@ -2701,7 +2665,7 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
                         type="button"
                         disabled={followModalLoadingMore}
                         onClick={() => void handleLoadMoreFollowModal()}
-                        className="inline-flex min-h-[40px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-60"
+                        className="inline-flex min-h-[40px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                       >
                         {followModalLoadingMore && (
                           <Loader2
@@ -2730,20 +2694,20 @@ export const MemberProfilePage: React.FC<MemberProfilePageProps> = ({
           onClick={() => setDetailTarget(null)}
         >
           <div
-            className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-slate-50 p-4 shadow-2xl sm:rounded-2xl sm:p-5"
+            className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-slate-50 p-4 shadow-2xl sm:rounded-2xl sm:p-5 dark:border dark:border-slate-800 dark:bg-slate-950"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
-              <span className="font-display text-sm font-bold text-[#0B1A2E]">
+              <span className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                 {detailTarget.kind === 'anonymous'
                   ? 'Anonymous Post Thread'
-                  : 'Campus Update'}
+                  : 'Campus Post'}
               </span>
               <button
                 type="button"
                 onClick={() => setDetailTarget(null)}
                 aria-label="Close post details"
-                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl bg-white text-slate-600 shadow-xs hover:text-[#0B1A2E]"
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-xl bg-white text-slate-600 shadow-xs hover:text-[#0B1A2E] dark:bg-slate-800 dark:text-slate-300 dark:hover:text-white"
               >
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>

@@ -12,7 +12,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
   return (
     <section
       aria-labelledby="hero-heading"
-      className="lasued-brand-gradient border-b border-slate-200 text-white"
+      className="lasued-brand-gradient border-b border-slate-200 text-white dark:border-slate-800"
     >
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
         <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-center">
@@ -21,7 +21,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
               <BrandLogo size="lg" showWordmark={false} inverted />
               <div>
                 <p className="text-xs font-semibold tracking-wide text-[#1E88E5]">
-                  Student Technology Platform
+                  LASUED Campus Hub
                 </p>
                 <p className="font-display text-sm font-semibold text-slate-200">
                   {BRAND.name}
@@ -37,9 +37,8 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
             </h1>
 
             <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-300">
-              A unified university platform structured for verified campus
-              updates, student discussions, marketplace discovery, peer circles,
-              opportunities, and campus events.
+              One place for campus news, student posts, marketplace listings,
+              trusted contacts, scholarships, and events.
             </p>
 
             <div className="mt-7 flex flex-wrap items-center gap-4">
@@ -56,7 +55,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({ onNavigate }) => {
                 href="#platform-sections"
                 className="inline-flex min-h-[44px] items-center px-2 text-sm font-medium text-slate-200 underline-offset-4 hover:text-white hover:underline"
               >
-                Explore all 8 sections
+                Browse all sections
               </a>
             </div>
           </div>

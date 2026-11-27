@@ -39,6 +39,7 @@ import { canActorDeleteCommentByBadge } from '../../utils/adminPermissions';
 import { formatFirestoreOrAppError } from '../../utils/authValidation';
 import { extractTimestampMs } from '../../utils/contextualSearch';
 import { ProfileBadgesRow } from '../RoleBadge';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { AdminConfirmDialog } from './AdminConfirmDialog';
 
 export type ContentSubTab =
@@ -396,72 +397,61 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
   return (
     <div className="space-y-5">
       {!isFullAdmin && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5 text-xs leading-relaxed text-[#0B1A2E]">
-          <strong>Moderator Boundaries:</strong> You can delete posts and
-          comments made by <strong>ordinary members</strong> only. Content from
-          Verified, Moderator, and Admin accounts is protected. Anonymous author
-          identities remain strictly hidden from Moderators.
+        <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3.5 text-xs leading-relaxed text-[#0B1A2E] dark:border-sky-500/30 dark:bg-sky-950/35 dark:text-sky-100">
+          <strong>Moderator Rule:</strong> You can delete ordinary members&apos;
+          posts and comments. Verified, Moderator, and Admin content is
+          protected, and anonymous identities stay hidden.
         </div>
       )}
 
-      {/* Sub-navigation Tabs */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        {(
-          [
-            {
-              id: 'ordinary_posts',
-              label: `Ordinary Posts (${ordinaryPosts.length})`,
-              icon: FileText,
-            },
-            {
-              id: 'anonymous_posts',
-              label: `Anonymous Posts (${anonymousPosts.length})`,
-              icon: EyeOff,
-            },
-            {
-              id: 'post_comments',
-              label: `Post Comments (${ordinaryComments.length})`,
-              icon: MessageSquare,
-            },
-            {
-              id: 'anonymous_comments',
-              label: `Anon Comments (${anonymousComments.length})`,
-              icon: EyeOff,
-            },
-            {
-              id: 'anonymous_reports',
-              label: `Anon Reports (${pendingReportsCount} pending)`,
-              icon: Flag,
-            },
-          ] as const
-        ).map((tab) => {
-          const Icon = tab.icon;
-          const active = subTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSubTab(tab.id)}
-              className={`flex min-h-[42px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
-                active
-                  ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
-                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Sub-navigation Ribbon */}
+      <SectionRibbon<ContentSubTab>
+        variant="sublist"
+        ariaLabel="Content moderation categories"
+        activeId={subTab}
+        onChange={setSubTab}
+        items={[
+          {
+            id: 'ordinary_posts',
+            label: 'Posts',
+            count: ordinaryPosts.length,
+            icon: <FileText className="h-3.5 w-3.5" aria-hidden="true" />,
+          },
+          {
+            id: 'anonymous_posts',
+            label: 'Anon Posts',
+            count: anonymousPosts.length,
+            icon: <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />,
+          },
+          {
+            id: 'post_comments',
+            label: 'Comments',
+            count: ordinaryComments.length,
+            icon: <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />,
+          },
+          {
+            id: 'anonymous_comments',
+            label: 'Anon Comments',
+            count: anonymousComments.length,
+            icon: <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />,
+          },
+          {
+            id: 'anonymous_reports',
+            label: 'Reports',
+            count: pendingReportsCount,
+            badgeDot: pendingReportsCount > 0,
+            icon: <Flag className="h-3.5 w-3.5" aria-hidden="true" />,
+          },
+        ]}
+      />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <label
             htmlFor="admin-content-search"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Filter content
+            Search content
           </label>
           <div className="relative mt-1">
             <Search
@@ -473,41 +463,41 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search text, category, entry ID, or author..."
-              className="block min-h-[42px] w-full rounded-xl border border-slate-300 py-2 pr-3 pl-9 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+              placeholder="Search text, category, ID, or author..."
+              className="block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
         </div>
         <div>
           <label
             htmlFor="admin-content-reason"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Moderation audit reason (optional)
+            Delete reason (optional)
           </label>
           <input
             id="admin-content-reason"
             type="text"
             value={reasonNote}
             onChange={(e) => setReasonNote(e.target.value)}
-            placeholder="Reason logged when deleting an entry..."
-            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+            placeholder="Reason logged when removing an item..."
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
           <Loader2
             className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
             aria-hidden="true"
           />
-          Loading community content...
+          Loading content...
         </div>
       ) : subTab === 'ordinary_posts' ? (
         filteredOrdinaryPosts.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
-            No ordinary community posts match your filter.
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+            No posts match your search.
           </p>
         ) : (
           <div className="space-y-3">
@@ -525,42 +515,42 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               return (
                 <article
                   key={post.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4"
+                  className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
                 >
                   <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                           {post.category}
                         </span>
                         {post.isPinned && (
-                          <span className="rounded-md bg-[#1E88E5]/10 px-2 py-0.5 font-semibold text-[#1E88E5]">
+                          <span className="rounded-md bg-[#1E88E5]/10 px-2 py-0.5 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300">
                             Pinned
                           </span>
                         )}
                         {post.isOfficial && (
-                          <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white">
+                          <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white dark:bg-[#1E88E5]">
                             Official
                           </span>
                         )}
-                        <span className="text-slate-500">
+                        <span className="text-slate-500 dark:text-slate-400">
                           {formatShortTime(post.createdAt)}
                         </span>
                       </div>
 
                       {post.title && (
-                        <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E]">
+                        <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                           {post.title}
                         </h3>
                       )}
-                      <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-700">
+                      <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
                         {post.body || '(Image-only campus post)'}
                       </p>
 
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span>
                           By{' '}
-                          <strong className="text-[#0B1A2E]">
+                          <strong className="text-[#0B1A2E] dark:text-slate-100">
                             {author
                               ? `${author.fullName} (@${author.username})`
                               : post.ownerUID}
@@ -589,8 +579,8 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                             }
                             className={`inline-flex min-h-[36px] items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-60 ${
                               post.isPinned
-                                ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5]'
-                                : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
+                                ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                                : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                             }`}
                           >
                             <Pin className="h-3.5 w-3.5" aria-hidden="true" />
@@ -606,8 +596,8 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                             }
                             className={`inline-flex min-h-[36px] items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-60 ${
                               post.isOfficial
-                                ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white'
-                                : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50'
+                                ? 'border-[#0B1A2E] bg-[#0B1A2E] text-white dark:border-[#1E88E5] dark:bg-[#1E88E5]'
+                                : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                             }`}
                           >
                             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
@@ -627,15 +617,15 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                               label: post.title || post.body.slice(0, 60) || post.id,
                             })
                           }
-                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                           Delete
                         </button>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
+                        <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                           <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-                          Protected Tier
+                          Protected
                         </span>
                       )}
                     </div>
@@ -647,35 +637,35 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
         )
       ) : subTab === 'anonymous_posts' ? (
         filteredAnonymousPosts.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
-            No anonymous posts match your filter.
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+            No anonymous posts match your search.
           </p>
         ) : (
           <div className="space-y-3">
             {filteredAnonymousPosts.map((post) => (
               <article
                 key={post.id}
-                className="rounded-xl border border-slate-200 bg-white p-4"
+                className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white">
+                      <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white dark:bg-[#1E88E5]">
                         Anonymous · {post.category}
                       </span>
-                      <span className="font-mono text-[11px] text-slate-500">
+                      <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
                         ID: {post.id}
                       </span>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         {formatShortTime(post.createdAt)}
                       </span>
                     </div>
-                    <p className="mt-2 text-xs leading-relaxed text-slate-800">
+                    <p className="mt-2 text-xs leading-relaxed text-slate-800 dark:text-slate-200">
                       {post.body || '(Image-only anonymous submission)'}
                     </p>
-                    <p className="mt-1.5 text-[11px] text-slate-500 tabular-nums">
+                    <p className="mt-1.5 text-[11px] text-slate-500 tabular-nums dark:text-slate-400">
                       {post.likesCount} likes · {post.commentsCount} comments ·
-                      Zero author PII stored on post document
+                      Author hidden
                     </p>
                   </div>
 
@@ -684,7 +674,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                       <button
                         type="button"
                         onClick={() => setLookupEntryId(post.id)}
-                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100"
+                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100 dark:border-purple-800/60 dark:bg-purple-950/50 dark:text-purple-200 dark:hover:bg-purple-900/60"
                       >
                         <Eye className="h-3.5 w-3.5" aria-hidden="true" />
                         Inspect ID
@@ -700,7 +690,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           label: post.body.slice(0, 60) || post.id,
                         })
                       }
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Delete
@@ -713,8 +703,8 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
         )
       ) : subTab === 'post_comments' ? (
         filteredOrdinaryComments.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
-            No post comments match your filter.
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+            No comments match your search.
           </p>
         ) : (
           <div className="space-y-2.5">
@@ -727,11 +717,11 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               return (
                 <div
                   key={comment.id}
-                  className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center"
+                  className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                      <strong className="text-[#0B1A2E]">
+                      <strong className="text-[#0B1A2E] dark:text-slate-100">
                         {author
                           ? `${author.fullName} (@${author.username})`
                           : postComment.ownerUID}
@@ -740,12 +730,14 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                         <ProfileBadgesRow profile={author} size="xs" />
                       )}
                       <span className="text-slate-400">·</span>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         {formatShortTime(comment.createdAt)}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-700">{comment.body}</p>
-                    <p className="mt-1 font-mono text-[11px] text-slate-400">
+                    <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">
+                      {comment.body}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-500">
                       Post: {comment.postId}
                     </p>
                   </div>
@@ -761,15 +753,15 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           label: comment.body.slice(0, 60),
                         })
                       }
-                      className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                      className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Delete
                     </button>
                   ) : (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                       <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-                      Protected Tier
+                      Protected
                     </span>
                   )}
                 </div>
@@ -779,8 +771,8 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
         )
       ) : subTab === 'anonymous_comments' ? (
         filteredAnonymousComments.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
-            No anonymous comments match your filter.
+          <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+            No anonymous comments match your search.
           </p>
         ) : (
           <div className="space-y-2.5">
@@ -789,22 +781,24 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               return (
                 <div
                   key={comment.id}
-                  className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center"
+                  className="flex flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-[#0B1A2E]">
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-[#0B1A2E] dark:bg-slate-800 dark:text-slate-200">
                         Anonymous Reply
                       </span>
-                      <span className="font-mono text-[11px] text-slate-500">
+                      <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
                         ID: {comment.id}
                       </span>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         {formatShortTime(comment.createdAt)}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-slate-800">{comment.body}</p>
-                    <p className="mt-1 font-mono text-[11px] text-slate-400">
+                    <p className="mt-1 text-xs text-slate-800 dark:text-slate-200">
+                      {comment.body}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400 dark:text-slate-500">
                       Thread: {comment.postId}
                     </p>
                   </div>
@@ -814,7 +808,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                       <button
                         type="button"
                         onClick={() => setLookupEntryId(comment.id)}
-                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100"
+                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100 dark:border-purple-800/60 dark:bg-purple-950/50 dark:text-purple-200 dark:hover:bg-purple-900/60"
                       >
                         <Eye className="h-3.5 w-3.5" aria-hidden="true" />
                         Inspect ID
@@ -830,7 +824,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           label: comment.body.slice(0, 60),
                         })
                       }
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                     >
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Delete
@@ -842,8 +836,8 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
           </div>
         )
       ) : filteredAnonymousReports.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500">
-          No anonymous moderation reports match your filter.
+        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+          No reports match your search.
         </p>
       ) : (
         <div className="space-y-3">
@@ -853,7 +847,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
             return (
               <article
                 key={report.id}
-                className="rounded-xl border border-slate-200 bg-white p-4"
+                className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
               >
                 <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                   <div className="min-w-0 flex-1 space-y-1.5">
@@ -861,10 +855,10 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                       <span
                         className={`rounded-md px-2 py-0.5 font-semibold ${
                           report.status === 'pending'
-                            ? 'bg-amber-100 text-amber-900'
+                            ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-200'
                             : report.status === 'reviewed_removed'
-                            ? 'bg-red-100 text-red-900'
-                            : 'bg-slate-100 text-slate-700'
+                            ? 'bg-red-100 text-red-900 dark:bg-red-950/70 dark:text-red-200'
+                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
                         }`}
                       >
                         {report.status === 'pending'
@@ -873,28 +867,28 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           ? 'Content Removed'
                           : 'Dismissed'}
                       </span>
-                      <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white">
+                      <span className="rounded-md bg-[#0B1A2E] px-2 py-0.5 font-semibold text-white dark:bg-[#1E88E5]">
                         {report.targetType === 'anonymousPost'
                           ? 'Anonymous Post'
                           : 'Anonymous Comment'}
                       </span>
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         Reason: {report.reason.replace(/_/g, ' ')}
                       </span>
-                      <span className="text-slate-500">
+                      <span className="text-slate-500 dark:text-slate-400">
                         {formatShortTime(report.createdAt)}
                       </span>
                     </div>
 
-                    <p className="text-xs leading-relaxed text-slate-800">
+                    <p className="text-xs leading-relaxed text-slate-800 dark:text-slate-200">
                       {report.excerpt}
                     </p>
                     {report.details && (
-                      <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+                      <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-800/80 dark:text-slate-300">
                         Reporter note: {report.details}
                       </p>
                     )}
-                    <p className="font-mono text-[11px] text-slate-400">
+                    <p className="font-mono text-[11px] text-slate-400 dark:text-slate-500">
                       Entry: {report.targetId} · Thread: {report.postId}
                     </p>
                   </div>
@@ -904,7 +898,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                       <button
                         type="button"
                         onClick={() => setLookupEntryId(report.targetId)}
-                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100"
+                        className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-semibold text-purple-900 hover:bg-purple-100 dark:border-purple-800/60 dark:bg-purple-950/50 dark:text-purple-200 dark:hover:bg-purple-900/60"
                       >
                         <Eye className="h-3.5 w-3.5" aria-hidden="true" />
                         Inspect ID
@@ -918,10 +912,10 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           onClick={() =>
                             void handleResolveReport(report, 'reviewed_removed')
                           }
-                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          Remove Content &amp; Resolve
+                          Remove &amp; Resolve
                         </button>
                         <button
                           type="button"
@@ -929,10 +923,10 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
                           onClick={() =>
                             void handleResolveReport(report, 'dismissed')
                           }
-                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                         >
                           <CheckCircle2
-                            className="h-3.5 w-3.5 text-slate-500"
+                            className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400"
                             aria-hidden="true"
                           />
                           Dismiss
@@ -951,16 +945,14 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
       {canRevealAnonymous && (
         <form
           onSubmit={handleRevealLookup}
-          className="space-y-3 rounded-xl border border-purple-200 bg-purple-50/50 p-4"
+          className="space-y-3 rounded-xl border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800/50 dark:bg-purple-950/25"
         >
           <div>
-            <h3 className="font-display text-sm font-bold text-purple-950">
-              Supreme Admin Anonymous Safety Lookup
+            <h3 className="font-display text-sm font-bold text-purple-950 dark:text-purple-200">
+              Anonymous Safety Lookup
             </h3>
-            <p className="text-xs text-purple-900/80">
-              Restricted strictly to the two designated Supreme Admins.
-              Moderators cannot access this control. Every lookup records an
-              immutable entry in <code>anonymousAuditLogs</code>.
+            <p className="text-xs text-purple-900/80 dark:text-purple-300/90">
+              Supreme Admin only. Every lookup records an audit entry.
             </p>
           </div>
 
@@ -971,7 +963,7 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               value={lookupEntryId}
               onChange={(e) => setLookupEntryId(e.target.value)}
               placeholder="Anonymous post or comment ID..."
-              className="min-h-[40px] rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+              className="min-h-[40px] rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-purple-800/60 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             <input
               type="text"
@@ -980,8 +972,8 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
               maxLength={BLUEPRINT_LIMITS.auditReasonMax}
               value={lookupReason}
               onChange={(e) => setLookupReason(e.target.value)}
-              placeholder="Safety justification (min 5 chars)..."
-              className="min-h-[40px] rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+              placeholder="Reason (min 5 chars)..."
+              className="min-h-[40px] rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-purple-800/60 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
 
@@ -1001,14 +993,14 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
           </button>
 
           {revealedResult && (
-            <div className="rounded-lg border border-purple-200 bg-white p-3 text-xs text-[#0B1A2E]">
+            <div className="rounded-lg border border-purple-200 bg-white p-3 text-xs text-[#0B1A2E] dark:border-purple-800/60 dark:bg-slate-900 dark:text-slate-100">
               Resolved author:{' '}
               <strong>
                 {revealedResult.profile
                   ? `${revealedResult.profile.fullName} (@${revealedResult.profile.username})`
                   : revealedResult.authorUid}
               </strong>{' '}
-              · Stored role: <strong>{revealedResult.authorRole}</strong>
+              · Role: <strong>{revealedResult.authorRole}</strong>
             </div>
           )}
         </form>
@@ -1016,10 +1008,10 @@ export const AdminContentTab: React.FC<AdminContentTabProps> = ({
 
       <AdminConfirmDialog
         open={Boolean(pendingDelete)}
-        title="Confirm Content Deletion"
+        title="Delete Content"
         description={
           pendingDelete
-            ? `Permanently delete "${pendingDelete.label}"? Cascading cleanup removes attached media and comments where applicable, and logs this moderation action.`
+            ? `Permanently delete "${pendingDelete.label}"? This also removes attached media and comments and records the action.`
             : ''
         }
         confirmLabel="Delete Permanently"

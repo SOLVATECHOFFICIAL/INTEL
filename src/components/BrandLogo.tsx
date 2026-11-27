@@ -45,7 +45,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
       {showWordmark && (
         <span
           className={`truncate font-display text-base font-bold tracking-tight sm:text-lg ${
-            inverted ? 'text-white' : 'text-[#0B1A2E]'
+            inverted ? 'text-white' : 'text-[#0B1A2E] dark:text-white'
           }`}
         >
           {BRAND.name}

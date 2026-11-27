@@ -80,9 +80,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
       aria-label="Platform sections"
       className="hidden lg:block lg:w-64 lg:shrink-0"
     >
-      <div className="sticky top-24 space-y-5 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="sticky top-24 space-y-5 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div>
-          <p className="px-3 text-xs font-semibold tracking-wide text-slate-400">
+          <p className="px-3 text-xs font-semibold tracking-wide text-slate-400 dark:text-slate-500">
             Feeds
           </p>
           <ul className="mt-2 space-y-1">
@@ -96,14 +96,14 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                     aria-current={isActive ? 'page' : undefined}
                     className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20'
-                        : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                        ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20 dark:from-sky-500/20 dark:via-sky-500/10 dark:to-transparent dark:text-sky-300 dark:ring-sky-500/30'
+                        : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                     }`}
                   >
                     <SectionIcon
                       sectionId={section.id}
                       className={`h-4 w-4 shrink-0 ${
-                        isActive ? 'text-[#1E88E5]' : 'text-slate-400'
+                        isActive ? 'text-[#1E88E5] dark:text-sky-400' : 'text-slate-400 dark:text-slate-500'
                       }`}
                     />
                     <span className="truncate">{section.title}</span>
@@ -114,8 +114,8 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
           </ul>
         </div>
 
-        <div className="border-t border-slate-100 pt-4">
-          <p className="px-3 text-xs font-semibold tracking-wide text-slate-400">
+        <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+          <p className="px-3 text-xs font-semibold tracking-wide text-slate-400 dark:text-slate-500">
             Campus Hub
           </p>
           <ul className="mt-2 space-y-1">
@@ -133,14 +133,14 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                     aria-current={isActive ? 'page' : undefined}
                     className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
-                        ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20'
-                        : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                        ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20 dark:from-sky-500/20 dark:via-sky-500/10 dark:to-transparent dark:text-sky-300 dark:ring-sky-500/30'
+                        : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                     }`}
                   >
                     <SectionIcon
                       sectionId={section.id}
                       className={`h-4 w-4 shrink-0 ${
-                        isActive ? 'text-[#1E88E5]' : 'text-slate-400'
+                        isActive ? 'text-[#1E88E5] dark:text-sky-400' : 'text-slate-400 dark:text-slate-500'
                       }`}
                     />
                     <span className="truncate">{section.title}</span>
@@ -165,15 +165,15 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                 }
                 className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                   activeRoute === 'marketplace' && marketplaceTab === 'updates'
-                    ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20'
-                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                    ? 'bg-gradient-to-r from-[#1E88E5]/15 via-sky-50 to-transparent font-semibold text-[#1565C0] ring-1 ring-[#1E88E5]/20 dark:from-sky-500/20 dark:via-sky-500/10 dark:to-transparent dark:text-sky-300 dark:ring-sky-500/30'
+                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                 }`}
               >
                 <Flame
                   className={`h-4 w-4 shrink-0 ${
                     activeRoute === 'marketplace' && marketplaceTab === 'updates'
-                      ? 'text-[#1E88E5]'
-                      : 'text-slate-400'
+                      ? 'text-[#1E88E5] dark:text-sky-400'
+                      : 'text-slate-400 dark:text-slate-500'
                   }`}
                   aria-hidden="true"
                 />
@@ -183,9 +183,9 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
           </ul>
         </div>
 
-        <div className="border-t border-slate-100 pt-4">
-          <p className="px-3 text-xs font-semibold tracking-wide text-slate-400">
-            Utilities
+        <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+          <p className="px-3 text-xs font-semibold tracking-wide text-slate-400 dark:text-slate-500">
+            Account &amp; Tools
           </p>
           <ul className="mt-2 space-y-1">
             <li>
@@ -201,11 +201,11 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                 aria-current={activeRoute === 'search' ? 'page' : undefined}
                 className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
                   activeRoute === 'search'
-                    ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
-                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                    ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                 }`}
               >
-                <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                <Search className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
                 <span>Search</span>
               </a>
             </li>
@@ -216,16 +216,16 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                 aria-current={activeRoute === 'notifications' ? 'page' : undefined}
                 className={`flex min-h-[42px] w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
                   activeRoute === 'notifications'
-                    ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
-                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                    ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                    : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                 }`}
               >
                 <span className="flex items-center gap-2.5">
-                  <Bell className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                  <Bell className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
                   <span>Notifications</span>
                 </span>
                 {user && unreadBadgeLabel && (
-                  <span className="text-xs font-bold text-[#1E88E5] tabular-nums">
+                  <span className="text-xs font-bold text-[#1E88E5] tabular-nums dark:text-sky-400">
                     {unreadBadgeLabel}
                   </span>
                 )}
@@ -244,12 +244,12 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   aria-current={activeRoute === 'profile' ? 'page' : undefined}
                   className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
                     activeRoute === 'profile'
-                      ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
-                      : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                      ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                   }`}
                 >
                   <ExternalLink
-                    className="h-4 w-4 shrink-0 text-slate-400"
+                    className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
                     aria-hidden="true"
                   />
                   <span>My Profile</span>
@@ -267,10 +267,10 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                         profileTab: 'saved',
                       })
                     }
-                    className="flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                    className="flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white"
                   >
                     <Bookmark
-                      className="h-4 w-4 shrink-0 text-slate-400"
+                      className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
                       aria-hidden="true"
                     />
                     <span>Saved Posts</span>
@@ -285,10 +285,10 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                         profileTab: 'anonymous',
                       })
                     }
-                    className="flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-[#0B1A2E]"
+                    className="flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors duration-150 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white"
                   >
                     <Lock
-                      className="h-4 w-4 shrink-0 text-slate-400"
+                      className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
                       aria-hidden="true"
                     />
                     <span>My Anonymous Posts</span>
@@ -304,11 +304,11 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   aria-current={activeRoute === 'account' ? 'page' : undefined}
                   className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors duration-150 ${
                     activeRoute === 'account'
-                      ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5]'
-                      : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E]'
+                      ? 'bg-[#1E88E5]/10 font-semibold text-[#1E88E5] dark:bg-sky-500/20 dark:text-sky-300'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white'
                   }`}
                 >
-                  <UserIcon className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                  <UserIcon className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
                   <span>Account Settings</span>
                 </button>
               </li>
@@ -322,16 +322,16 @@ export const SectionSidebar: React.FC<SectionSidebarProps> = ({
                   className={`flex min-h-[42px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-all duration-150 ${
                     activeRoute === 'admin'
                       ? 'lasued-accent-gradient text-white shadow-xs'
-                      : 'bg-gradient-to-r from-sky-50/80 to-slate-50 text-[#0B1A2E] ring-1 ring-slate-200/80 hover:from-sky-100/70 hover:to-blue-50/70'
+                      : 'bg-gradient-to-r from-sky-50/80 to-slate-50 text-[#0B1A2E] ring-1 ring-slate-200/80 hover:from-sky-100/70 hover:to-blue-50/70 dark:from-slate-800 dark:to-slate-800/70 dark:text-slate-100 dark:ring-slate-700 dark:hover:from-slate-800 dark:hover:to-slate-700'
                   }`}
                 >
                   <ShieldCheck
                     className={`h-4 w-4 shrink-0 ${
-                      activeRoute === 'admin' ? 'text-sky-200' : 'text-[#1E88E5]'
+                      activeRoute === 'admin' ? 'text-sky-200' : 'text-[#1E88E5] dark:text-sky-400'
                     }`}
                     aria-hidden="true"
                   />
-                  <span>{isFullAdmin ? 'Admin Dashboard' : 'Moderation Console'}</span>
+                  <span>{isFullAdmin ? 'Admin Dashboard' : 'Moderation'}</span>
                 </button>
               </li>
             )}

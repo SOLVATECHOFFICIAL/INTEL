@@ -100,6 +100,7 @@ import { EmptyState, ErrorState, LoadingState } from './StateViews';
 import { GuestPromptCard } from './auth/GuestPromptCard';
 import { PostCard } from './posts/PostCard';
 import { PostComposer } from './posts/PostComposer';
+import { SectionRibbon } from './shared/SectionRibbon';
 import { UpdateCard } from './updates/UpdateCard';
 import { UpdateComposerModal } from './updates/UpdateComposerModal';
 import { EventCard } from './sections/events/EventCard';
@@ -1969,7 +1970,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#0B1A2E] sm:text-sm"
+            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-[#0B1A2E] sm:text-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Back
@@ -1986,19 +1987,19 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
         returnRoute={activeFeedTab}
       />
 
-      {/* Prominent Official Updates & Marketplace Shortcuts near the top of Homepage */}
+      {/* Quick Shortcuts */}
       <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-sky-200/80 bg-gradient-to-br from-white via-sky-50/60 to-blue-50/85 px-4 py-3.5 shadow-xs">
+        <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-sky-200/80 bg-gradient-to-br from-white via-sky-50/60 to-blue-50/85 px-4 py-3.5 shadow-xs dark:border-sky-900/50 dark:from-slate-900 dark:via-slate-900 dark:to-sky-950/35">
           <div className="flex min-w-0 items-center gap-3">
             <div className="lasued-brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-xs">
               <Megaphone className="h-5 w-5 text-sky-300" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <p className="font-display text-sm font-bold text-[#0B1A2E]">
+              <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
                 Official Updates
               </p>
-              <p className="truncate text-xs text-slate-600">
-                Verified announcements &amp; campus notices.
+              <p className="truncate text-xs text-slate-600 dark:text-slate-400">
+                Campus alerts and announcements.
               </p>
             </div>
           </div>
@@ -2007,22 +2008,22 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             onClick={() => onNavigate('updates')}
             className="lasued-accent-gradient inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
           >
-            View Updates
+            Open
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-teal-200/80 bg-gradient-to-br from-white via-teal-50/45 to-emerald-50/70 px-4 py-3.5 shadow-xs">
+        <div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-teal-200/80 bg-gradient-to-br from-white via-teal-50/45 to-emerald-50/70 px-4 py-3.5 shadow-xs dark:border-teal-900/50 dark:from-slate-900 dark:via-slate-900 dark:to-teal-950/30">
           <div className="flex min-w-0 items-center gap-3">
             <div className="lasued-emerald-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-xs">
               <ShoppingBag className="h-5 w-5 text-teal-100" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <p className="font-display text-sm font-bold text-[#0B1A2E]">
-                Campus Marketplace
+              <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
+                Marketplace
               </p>
-              <p className="truncate text-xs text-slate-600">
-                Textbooks, hostels, gadgets &amp; services.
+              <p className="truncate text-xs text-slate-600 dark:text-slate-400">
+                Books, hostels, items, and services.
               </p>
             </div>
           </div>
@@ -2031,47 +2032,25 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             onClick={() => onNavigate('marketplace')}
             className="lasued-action-gradient inline-flex min-h-[40px] shrink-0 items-center justify-center gap-1 rounded-lg px-3.5 py-2 text-xs font-semibold text-white whitespace-nowrap shadow-xs transition hover:brightness-110"
           >
-            Marketplace
+            Browse
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
 
-      {/* Main Feed Navigation Tabs: For You · Following · Latest */}
-      <div className="rounded-2xl border border-slate-200 bg-white">
-        <div
-          role="tablist"
-          aria-label="Community feed tabs"
-          className="grid grid-cols-3 border-b border-slate-200"
-        >
-          {FEED_TABS.map((tab) => {
-            const isSelected = activeFeedTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isSelected}
-                onClick={() => {
-                  setComposerFeedback(null);
-                  onSelectFeedTab(tab.id);
-                }}
-                className={`relative min-h-[48px] px-3 py-3 text-sm font-semibold whitespace-nowrap transition-colors ${
-                  isSelected
-                    ? 'text-[#1E88E5]'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-[#0B1A2E]'
-                }`}
-              >
-                {tab.label}
-                {isSelected && (
-                  <span
-                    aria-hidden="true"
-                    className="lasued-action-gradient absolute right-4 bottom-0 left-4 h-0.5 rounded-full"
-                  />
-                )}
-              </button>
-            );
-          })}
+      {/* Main Feed Navigation Ribbon: For You · Following · Latest */}
+      <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-200 px-3 py-2.5 sm:px-4 dark:border-slate-800">
+          <SectionRibbon
+            variant="sublist"
+            ariaLabel="Community feed tabs"
+            items={FEED_TABS}
+            activeId={activeFeedTab}
+            onChange={(tabId) => {
+              setComposerFeedback(null);
+              onSelectFeedTab(tabId);
+            }}
+          />
         </div>
 
         {/* Campus Feed Composer */}
@@ -2080,9 +2059,9 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             type="button"
             disabled={verifyingComposerAction}
             onClick={() => void handleComposerAction('write')}
-            className="flex min-h-[48px] w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-sky-50/50 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-[#1E88E5]/40 hover:from-sky-50/70 hover:to-blue-50/60 disabled:opacity-70"
+            className="flex min-h-[48px] w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-sky-50/50 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-[#1E88E5]/40 hover:from-sky-50/70 hover:to-blue-50/60 disabled:opacity-70 dark:border-slate-700 dark:from-slate-800/80 dark:to-slate-800/50 dark:text-slate-300 dark:hover:border-sky-500/50"
           >
-            <span>What&apos;s happening on campus?</span>
+            <span>Share something with campus...</span>
             {verifyingComposerAction && (
               <Loader2
                 className="h-4 w-4 shrink-0 animate-spin text-[#1E88E5]"
@@ -2091,13 +2070,13 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             )}
           </button>
 
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 disabled={verifyingComposerAction}
                 onClick={() => void handleComposerAction('write')}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E] disabled:opacity-60"
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E] disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <PenSquare className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 Text Post
@@ -2107,7 +2086,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 type="button"
                 disabled={verifyingComposerAction}
                 onClick={() => void handleComposerAction('photo')}
-                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E] disabled:opacity-60"
+                className="inline-flex min-h-[42px] items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 whitespace-nowrap transition-colors hover:bg-sky-50 hover:text-[#0B1A2E] disabled:opacity-60 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <ImagePlus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 Photo Post
@@ -2144,8 +2123,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           {composerFeedback?.kind === 'guest' && (
             <div className="mt-4">
               <GuestPromptCard
-                title="Sign in to join the campus conversation"
-                description="Guests can browse all public updates freely. Sign in or create an account to post anonymously, comment, react, or follow members."
+                title="Sign in to join the conversation"
+                description="Sign in or create a free account to post, reply, react, or follow others."
                 returnRoute={activeFeedTab}
                 onRequireAuth={onRequireAuth}
                 onDismiss={() => setComposerFeedback(null)}
@@ -2158,29 +2137,29 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               role="status"
               className={`mt-4 flex flex-col justify-between gap-3 rounded-xl border p-3.5 text-sm sm:flex-row sm:items-center ${
                 composerFeedback.kind === 'suspended'
-                  ? 'border-red-200 bg-red-50 text-red-900'
+                  ? 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200'
                   : composerFeedback.kind === 'email_verification_required'
-                  ? 'border-amber-200 bg-amber-50 text-amber-950'
+                  ? 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200'
                   : composerFeedback.kind === 'anonymous_published' ||
                     composerFeedback.kind === 'ordinary_published'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                  : 'border-slate-200 bg-slate-50 text-slate-700'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200'
+                  : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
               }`}
             >
               <div className="flex items-start gap-2.5">
                 {composerFeedback.kind === 'anonymous_published' ||
                 composerFeedback.kind === 'ordinary_published' ? (
                   <CheckCircle2
-                    className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700"
+                    className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400"
                     aria-hidden="true"
                   />
                 ) : (
                   <ShieldAlert
                     className={`mt-0.5 h-4 w-4 shrink-0 ${
                       composerFeedback.kind === 'suspended'
-                        ? 'text-red-700'
+                        ? 'text-red-700 dark:text-red-400'
                         : composerFeedback.kind === 'email_verification_required'
-                        ? 'text-amber-700'
+                        ? 'text-amber-700 dark:text-amber-400'
                         : 'text-[#1E88E5]'
                     }`}
                     aria-hidden="true"
@@ -2194,7 +2173,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     type="button"
                     disabled={verifyingComposerAction}
                     onClick={() => void handleRefreshComposerVerification()}
-                    className="inline-flex min-h-[38px] items-center justify-center rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844] disabled:opacity-60"
+                    className="inline-flex min-h-[38px] items-center justify-center rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844] disabled:opacity-60 dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
                   >
                     {verifyingComposerAction
                       ? 'Checking...'
@@ -2204,7 +2183,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     type="button"
                     disabled={resendingVerificationEmail}
                     onClick={() => void handleResendComposerVerification()}
-                    className="inline-flex min-h-[38px] items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 whitespace-nowrap hover:bg-amber-100 disabled:opacity-60"
+                    className="inline-flex min-h-[38px] items-center justify-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 whitespace-nowrap hover:bg-amber-100 disabled:opacity-60 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-200 dark:hover:bg-slate-800"
                   >
                     {resendingVerificationEmail
                       ? 'Sending...'
@@ -2216,7 +2195,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('anonymous')}
-                  className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844]"
+                  className="inline-flex min-h-[40px] shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white whitespace-nowrap hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
                 >
                   Open Anonymous
                 </button>
@@ -2229,17 +2208,17 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
       {/* Feed Content Stream */}
       <section
         aria-labelledby="feed-stream-heading"
-        className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6"
+        className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-6 dark:border-slate-800 dark:bg-slate-900"
       >
-        <div className="flex flex-col justify-between gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">
+        <div className="flex flex-col justify-between gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-center dark:border-slate-800">
           <div>
             <h1
               id="feed-stream-heading"
-              className="font-display text-lg font-bold text-[#0B1A2E] sm:text-xl"
+              className="font-display text-lg font-bold text-[#0B1A2E] sm:text-xl dark:text-white"
             >
               {activeSection.title}
             </h1>
-            <p className="mt-0.5 text-sm text-slate-600">
+            <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
               {activeSection.summary}
             </p>
           </div>
@@ -2250,7 +2229,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 onClick={() =>
                   onNavigate('account', { accountSection: 'privacy' })
                 }
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                 Tailor topics
@@ -2260,7 +2239,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
               </button>
             )}
             {!authReady && (
-              <span className="text-xs text-slate-500">Checking account...</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">Checking account...</span>
             )}
           </div>
         </div>
@@ -2273,7 +2252,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
             !postItems.some((item) => item.post.id === selectedPostId) && (
               <div
                 role="status"
-                className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:text-sm"
+                className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:text-sm dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
               >
                 <span>
                   This post is unavailable or may have been deleted.
@@ -2281,7 +2260,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate(activeFeedTab)}
-                  className="font-semibold text-[#1E88E5] hover:underline"
+                  className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                 >
                   Dismiss
                 </button>
@@ -2290,8 +2269,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
 
           {activeFeedTab === 'following' && !user ? (
             <GuestPromptCard
-              title="Sign in to follow campus accounts"
-              description="Your Following feed displays ordinary public updates from members, departments, and verified contributors you follow. Browse For You or Latest as a guest, or sign in to build your feed."
+              title="Sign in to see people you follow"
+              description="Follow classmates, clubs, and verified pages to keep their updates in one place."
               returnRoute="following"
               onRequireAuth={onRequireAuth}
             />
@@ -2300,22 +2279,22 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
           ) : loadState === 'error' ? (
             <ErrorState section={activeSection} onRetry={() => void loadFeed()} />
           ) : activeFeedTab === 'following' && followingStream.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center">
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center dark:border-slate-700 dark:bg-slate-800/50">
               <Users
                 className="mx-auto mb-2.5 h-6 w-6 text-[#1E88E5]"
                 aria-hidden="true"
               />
-              <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+              <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-white">
                 {followingCount === 0
                   ? 'You are not following anyone yet'
-                  : 'No updates from accounts you follow yet'}
+                  : 'No updates from people you follow yet'}
               </h2>
-              <p className="mx-auto mt-1 max-w-md text-sm text-slate-600">
+              <p className="mx-auto mt-1 max-w-md text-sm text-slate-600 dark:text-slate-400">
                 {followingCount === 0
-                  ? 'Search for classmates, lecturers, and verified campus contributors to follow their public updates.'
+                  ? 'Find classmates and campus pages to follow their posts.'
                   : `You follow ${followingCount} ${
                       followingCount === 1 ? 'account' : 'accounts'
-                    }. Public campus updates they publish appear here (anonymous posts never appear here).`}
+                    }. New public posts from them show up here.`}
               </p>
               <button
                 type="button"
@@ -2323,7 +2302,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                 className="mt-4 inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-[#1E88E5] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1565C0]"
               >
                 <Search className="h-3.5 w-3.5" aria-hidden="true" />
-                Find Members to Follow
+                Find Members
               </button>
             </div>
           ) : !hasFeedContent ? (
@@ -2359,7 +2338,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                       key={entry.id}
                       data-feed-entry-id={entry.id}
                       aria-label="Recommended campus members"
-                      className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                      className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-800/50"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
                         <div className="flex items-center gap-2">
@@ -2367,8 +2346,8 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                             className="h-4 w-4 text-[#1E88E5]"
                             aria-hidden="true"
                           />
-                          <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-                            Discover Classmates &amp; Campus Voices
+                          <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
+                            People to Follow
                           </h2>
                         </div>
                         <button
@@ -2376,7 +2355,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                           onClick={() =>
                             onNavigate('search', { searchScope: 'people' })
                           }
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                         >
                           Browse directory
                         </button>
@@ -2386,7 +2365,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                         {entry.people.map(({ member, reason }) => (
                           <div key={member.username} className="space-y-1">
                             <div className="flex items-center justify-between gap-2 px-1">
-                              <span className="text-[11px] font-medium text-slate-500">
+                              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                                 {reason}
                               </span>
                               <button
@@ -2397,7 +2376,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                                   )
                                 }
                                 aria-label={`Dismiss suggestion for ${member.fullName}`}
-                                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700"
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
                               >
                                 <X className="h-3 w-3" aria-hidden="true" />
                                 Hide
@@ -2426,16 +2405,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     <div
                       key={entry.id}
                       data-feed-entry-id={entry.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4 dark:border-slate-800 dark:bg-slate-800/50"
                     >
                       <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E] dark:text-white">
                           <Sparkles
                             className="h-3.5 w-3.5 text-[#1E88E5]"
                             aria-hidden="true"
                           />
-                          Relevant Event ·{' '}
-                          <span className="font-normal text-slate-600">
+                          Event ·{' '}
+                          <span className="font-normal text-slate-600 dark:text-slate-400">
                             {reason}
                           </span>
                         </span>
@@ -2447,7 +2426,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                             )
                           }
                           aria-label={`Hide recommended event ${event.title}`}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
                         >
                           <X className="h-3.5 w-3.5" aria-hidden="true" />
                           Hide
@@ -2478,16 +2457,16 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     <div
                       key={entry.id}
                       data-feed-entry-id={entry.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4"
+                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3.5 sm:p-4 dark:border-slate-800 dark:bg-slate-800/50"
                     >
                       <div className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E] dark:text-white">
                           <Sparkles
                             className="h-3.5 w-3.5 text-[#1E88E5]"
                             aria-hidden="true"
                           />
-                          Recommended Opportunity ·{' '}
-                          <span className="font-normal text-slate-600">
+                          Opportunity ·{' '}
+                          <span className="font-normal text-slate-600 dark:text-slate-400">
                             {reason}
                           </span>
                         </span>
@@ -2499,7 +2478,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                             )
                           }
                           aria-label={`Hide recommended opportunity ${opportunity.title}`}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
                         >
                           <X className="h-3.5 w-3.5" aria-hidden="true" />
                           Hide
@@ -2535,7 +2514,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                     type="button"
                     disabled={loadingMore}
                     onClick={() => void handleLoadMore()}
-                    className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                    className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
                   >
                     {loadingMore && (
                       <Loader2
@@ -2549,7 +2528,7 @@ export const HomeFeedWorkspace: React.FC<HomeFeedWorkspaceProps> = ({
                   </button>
                 </div>
               ) : (
-                <p className="pt-2 text-center text-xs text-slate-500">
+                <p className="pt-2 text-center text-xs text-slate-500 dark:text-slate-400">
                   {activeFeedTab === 'latest'
                     ? 'You have reached all published campus updates.'
                     : "You've caught up on current campus updates."}

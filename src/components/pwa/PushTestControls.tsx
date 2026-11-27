@@ -64,20 +64,20 @@ export const PushTestControls: React.FC<PushTestControlsProps> = ({
   return (
     <div
       data-testid="push-test-controls"
-      className={`rounded-xl border border-slate-200 bg-slate-50/70 ${
+      className={`rounded-xl border border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-800/50 ${
         compact ? 'p-3' : 'p-3.5'
       }`}
     >
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-xs font-bold text-[#0B1A2E]">
-            <BellRing className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
-            <span>Test Device Notification Bar</span>
+          <p className="flex items-center gap-1.5 text-xs font-bold text-[#0B1A2E] dark:text-slate-100">
+            <BellRing className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
+            <span>Test Notifications</span>
           </p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600">
+          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-600 dark:text-slate-400">
             {vapidConfigured
-              ? 'Tap "Test 3-Alert Stack (6s)" then close Chrome or switch off data for a moment—when data reconnects, all 3 alerts will pile up in your notification bar like WhatsApp.'
-              : 'Notification permission is granted. You can test a local alert preview now; closed-browser & offline queuing starts once Vercel push keys finish deploying.'}
+              ? 'Send a quick test alert or a 3-alert delayed stack to check your device notification bar.'
+              : 'Notification permission is on. Local alert preview works now; background push requires server keys.'}
           </p>
         </div>
 
@@ -87,12 +87,12 @@ export const PushTestControls: React.FC<PushTestControlsProps> = ({
             disabled={sendingMode !== null}
             onClick={() => void handleRunTest('single')}
             data-testid="test-single-notification-button"
-            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] whitespace-nowrap transition-colors hover:bg-slate-100 disabled:opacity-60"
+            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] whitespace-nowrap transition-colors hover:bg-slate-100 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
           >
             {sendingMode === 'single' ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]" aria-hidden="true" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
             ) : (
-              <BellRing className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+              <BellRing className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
             )}
             <span>Send 1 Test Alert</span>
           </button>
@@ -102,12 +102,12 @@ export const PushTestControls: React.FC<PushTestControlsProps> = ({
             disabled={sendingMode !== null}
             onClick={() => void handleRunTest('stack')}
             data-testid="test-stack-notifications-button"
-            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844] disabled:opacity-60"
+            className="inline-flex min-h-[38px] items-center justify-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap transition-colors hover:bg-[#132844] disabled:opacity-60 dark:bg-sky-600 dark:hover:bg-sky-500"
           >
             {sendingMode === 'stack' ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]" aria-hidden="true" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5] dark:text-white" aria-hidden="true" />
             ) : (
-              <Layers className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+              <Layers className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white" aria-hidden="true" />
             )}
             <span>
               {sendingMode === 'stack' && countdownSeconds > 0
@@ -122,9 +122,9 @@ export const PushTestControls: React.FC<PushTestControlsProps> = ({
         <p
           role="status"
           data-testid="test-stack-countdown-notice"
-          className="mt-2.5 rounded-lg border border-[#1E88E5]/25 bg-[#1E88E5]/[0.06] px-3 py-2 text-[11px] font-medium text-[#0B1A2E]"
+          className="mt-2.5 rounded-lg border border-[#1E88E5]/25 bg-[#1E88E5]/[0.06] px-3 py-2 text-[11px] font-medium text-[#0B1A2E] dark:border-sky-500/30 dark:bg-sky-950/40 dark:text-sky-100"
         >
-          Server timer started ({countdownSeconds > 0 ? `${countdownSeconds}s` : 'finishing'}) — minimize or close Chrome now, or turn off mobile data and switch it back on in ~15 seconds to watch 3 alerts stack up.
+          Timer started ({countdownSeconds > 0 ? `${countdownSeconds}s` : 'finishing'}) — minimize your browser to see 3 alerts stack up.
         </p>
       )}
 
@@ -134,8 +134,8 @@ export const PushTestControls: React.FC<PushTestControlsProps> = ({
           data-testid="test-notification-result"
           className={`mt-2.5 flex items-start gap-1.5 rounded-lg border px-3 py-2 text-[11px] font-medium ${
             result.ok
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-amber-200 bg-amber-50 text-amber-950'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-200'
+              : 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200'
           }`}
         >
           <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />

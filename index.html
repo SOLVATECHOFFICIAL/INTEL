@@ -4,6 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0B1A2E" />
+    <script>
+      (function () {
+        try {
+          var key = 'lasued-intel-theme';
+          var pref = window.localStorage.getItem(key) || 'light';
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = pref === 'dark' || (pref === 'system' && prefersDark);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.style.colorScheme = 'dark';
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', '#07101F');
+          } else {
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta
@@ -296,9 +318,9 @@
       rel="stylesheet"
     />
   </head>
-  <body class="bg-slate-50 text-[#0B1A2E] antialiased">
+  <body class="bg-slate-50 text-[#0B1A2E] antialiased dark:bg-[#060D1A] dark:text-slate-100">
     <div id="root">
-      <main class="mx-auto max-w-4xl px-4 py-8 text-[#0B1A2E]">
+      <main class="mx-auto max-w-4xl px-4 py-8 text-[#0B1A2E] dark:text-slate-100">
         <header class="flex items-center gap-3 border-b border-slate-200 pb-5">
           <img
             src="/lasued-intel.webp"

@@ -85,6 +85,7 @@ import {
   MemberDirectoryCard,
   TrustedDirectoryCard,
 } from '../sections/shared/DirectoryProfileCards';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { UpdateCard } from '../updates/UpdateCard';
 
 interface SearchPageProps {
@@ -1186,14 +1187,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       className="min-w-0 flex-1 space-y-5"
     >
       {/* Stable Top Search & Category Bar */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             {onBack && (
               <button
                 type="button"
                 onClick={onBack}
-                className="mb-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm"
+                className="mb-2 inline-flex min-h-[36px] items-center gap-1.5 rounded-lg text-xs font-semibold text-slate-600 transition-colors hover:text-[#0B1A2E] sm:text-sm dark:text-slate-300 dark:hover:text-white"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 Back
@@ -1201,11 +1202,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             )}
             <h1
               id="search-heading"
-              className="font-display text-xl font-bold text-[#0B1A2E] sm:text-2xl"
+              className="font-display text-xl font-bold text-[#0B1A2E] sm:text-2xl dark:text-slate-100"
             >
-              Search &amp; Discovery
+              Search
             </h1>
-            <p className="mt-1 text-xs text-slate-600 sm:text-sm">
+            <p className="mt-1 text-xs text-slate-600 sm:text-sm dark:text-slate-400">
               {activeScopeMeta.description}
             </p>
           </div>
@@ -1243,7 +1244,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               onChange={(e) => handleQueryInputChange(e.target.value)}
               aria-label={`Search ${activeScopeMeta.label}`}
               placeholder={activeScopeMeta.placeholder}
-              className="block min-h-[46px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-16 pl-10 text-sm text-[#0B1A2E] outline-none transition-colors focus:border-[#1E88E5] focus:ring-2 focus:ring-[#1E88E5]/20"
+              className="block min-h-[46px] w-full rounded-xl border border-slate-300 bg-white py-2 pr-16 pl-10 text-sm text-[#0B1A2E] outline-none transition-colors focus:border-[#1E88E5] focus:ring-2 focus:ring-[#1E88E5]/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
             />
 
             <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
@@ -1258,7 +1259,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   type="button"
                   onClick={() => handleQueryInputChange('')}
                   aria-label="Clear search query"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E]"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E] dark:hover:bg-slate-700 dark:hover:text-white"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>
@@ -1268,7 +1269,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
           <button
             type="submit"
-            className="inline-flex min-h-[46px] shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:px-5 sm:text-sm"
+            className="inline-flex min-h-[46px] shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#132844] sm:px-5 sm:text-sm dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
           >
             Search
           </button>
@@ -1277,7 +1278,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             <div
               role="listbox"
               aria-label="Search suggestions"
-              className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg"
+              className="absolute top-full right-0 left-0 z-30 mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
             >
               {suggestions.map((sug) => {
                 const compactPersonFollowers =
@@ -1294,7 +1295,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     aria-selected={false}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => handleSelectSuggestion(sug)}
-                    className="flex w-full items-center justify-between gap-2.5 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50"
+                    className="flex w-full items-center justify-between gap-2.5 border-b border-slate-100 px-3.5 py-2.5 text-left text-xs transition-colors last:border-b-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"
                   >
                     <span className="flex min-w-0 flex-1 items-center gap-2.5">
                       {sug.kind === 'recent' ? (
@@ -1323,20 +1324,20 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                         />
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-semibold text-[#0B1A2E]">
+                        <span className="block truncate font-semibold text-[#0B1A2E] dark:text-slate-100">
                           {sug.kind === 'person'
                             ? sug.fullName || sug.label
                             : sug.label}
                         </span>
                         {sug.kind === 'person' && sug.username && (
-                          <span className="block truncate text-[11px] text-slate-500">
+                          <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
                             @{sug.username}
                           </span>
                         )}
                       </span>
                     </span>
                     {sug.subtitle && (
-                      <span className="shrink-0 text-[11px] font-medium text-slate-500 tabular-nums">
+                      <span className="shrink-0 text-[11px] font-medium text-slate-500 tabular-nums dark:text-slate-400">
                         {compactPersonFollowers ? (
                           <>
                             <span className="sm:hidden">{compactPersonFollowers}</span>
@@ -1354,55 +1355,30 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           )}
         </form>
 
-        {/* Organized Search Category Tabs */}
-        <div
-          role="tablist"
-          aria-label="Search categories"
-          className="mt-4 flex flex-nowrap gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:gap-2 sm:overflow-visible sm:pb-0"
-        >
-          {DISCOVERY_TABS.map((tab) => {
-            const isSelected = activeScope === tab.id;
-            const count = tabCounts[tab.id] ?? 0;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isSelected}
-                onClick={() => handleTabChange(tab.id)}
-                className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-                  isSelected
-                    ? 'bg-[#0B1A2E] text-white'
-                    : 'border border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100'
-                }`}
-              >
-                <span>{tab.label}</span>
-                {bundle && submittedQuery && (
-                  <span
-                    className={`rounded-md px-1.5 py-0.5 text-[10px] tabular-nums ${
-                      isSelected
-                        ? 'bg-white/20 text-white'
-                        : 'bg-white text-slate-600'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Organized Search Category Ribbon */}
+        <SectionRibbon
+          variant="primary"
+          ariaLabel="Search categories"
+          activeId={activeScope}
+          onChange={handleTabChange}
+          items={DISCOVERY_TABS.map((tab) => ({
+            id: tab.id,
+            label: tab.label,
+            count: bundle && submittedQuery ? (tabCounts[tab.id] ?? 0) : undefined,
+          }))}
+          className="mt-4"
+        />
 
         {/* Dynamic Category-Appropriate Filter Bar */}
         {(status === 'ready' || bundle) && (
-          <div className="mt-3.5 border-t border-slate-100 pt-3.5">
+          <div className="mt-3.5 border-t border-slate-100 pt-3.5 dark:border-slate-800">
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2.5">
-              <span className="col-span-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 sm:col-span-1">
+              <span className="col-span-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 sm:col-span-1 dark:text-slate-300">
                 <SlidersHorizontal
                   className="h-3.5 w-3.5 text-[#1E88E5]"
                   aria-hidden="true"
                 />
-                Refine:
+                Filter:
               </span>
 
               <select
@@ -1414,7 +1390,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     sortBy: e.target.value as SearchSortOption,
                   }))
                 }
-                className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               >
                 <option value="relevant">Most relevant</option>
                 <option value="newest">Newest first</option>
@@ -1428,7 +1404,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   onChange={(e) =>
                     setFilters((prev) => ({ ...prev, category: e.target.value }))
                   }
-                  className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                  className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="all">All Categories</option>
                   {activeScope === 'updates' &&
@@ -1498,7 +1474,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                       department: e.target.value,
                     }))
                   }
-                  className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                  className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="all">All Departments &amp; Faculties</option>
                   {availableDepartments.map((dep) => (
@@ -1519,7 +1495,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                       availability: e.target.value,
                     }))
                   }
-                  className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                  className="min-h-[36px] min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="all">Any Status</option>
                   {activeScope === 'marketplace' && (
@@ -1549,7 +1525,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 <button
                   type="button"
                   onClick={() => setFilters(DEFAULT_SEARCH_FILTERS)}
-                  className="inline-flex min-h-[34px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-[#1E88E5] hover:bg-slate-50"
+                  className="inline-flex min-h-[34px] items-center gap-1 rounded-lg px-2.5 text-xs font-semibold text-[#1E88E5] hover:bg-slate-50 dark:text-[#64B5F6] dark:hover:bg-slate-800"
                 >
                   <Filter className="h-3 w-3" aria-hidden="true" />
                   Reset filters
@@ -1563,7 +1539,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       {guestPromptTitle && (
         <GuestPromptCard
           title={guestPromptTitle}
-          description="Sign in or create a free LASUED Intel account to save items, react, or follow campus members."
+          description="Sign in to save items, react, or follow members."
           returnRoute="search"
           onRequireAuth={onRequireAuth}
           onDismiss={() => setGuestPromptTitle(null)}
@@ -1572,13 +1548,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
       {/* State Views: Validation, Loading, Error */}
       {status === 'short' && validationMessage && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
           {validationMessage}
         </div>
       )}
 
       {status === 'loading' && !bundle && (
-        <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-slate-200 bg-white p-10 text-sm text-slate-600">
+        <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-slate-200 bg-white p-10 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
           <Loader2
             className="h-5 w-5 animate-spin text-[#1E88E5]"
             aria-hidden="true"
@@ -1588,15 +1564,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       )}
 
       {status === 'error' && (
-        <div className="rounded-2xl border border-red-200 bg-red-50/80 p-6 text-center">
+        <div className="rounded-2xl border border-red-200 bg-red-50/80 p-6 text-center dark:border-red-900/50 dark:bg-red-950/30">
           <AlertCircle
-            className="mx-auto mb-2 h-6 w-6 text-red-700"
+            className="mx-auto mb-2 h-6 w-6 text-red-700 dark:text-red-400"
             aria-hidden="true"
           />
-          <p className="font-display text-sm font-bold text-[#0B1A2E]">
+          <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
             Search unavailable right now
           </p>
-          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-300">
             {errorMessage ||
               'We could not complete your search right now. Please try again.'}
           </p>
@@ -1605,7 +1581,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             onClick={() =>
               void runSearch(queryText, activeScope, { forceRefresh: true })
             }
-            className="mt-4 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+            className="mt-4 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             Retry Search
@@ -1617,24 +1593,24 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       {bundle && submittedQuery && status !== 'short' && (
         <div className="space-y-5">
           {visibleCountForTab === 0 && status !== 'loading' ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-slate-900">
               <Search
                 className="mx-auto mb-2.5 h-6 w-6 text-slate-400"
                 aria-hidden="true"
               />
-              <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+              <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                 No matches for &ldquo;{submittedQuery}&rdquo;
               </h2>
-              <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+              <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-400">
                 {hasNonDefaultFilters
-                  ? 'Try adjusting or resetting your active category, department, or status filters.'
-                  : `Nothing matched in ${activeScopeMeta.label}. Try another keyword or switch search categories.`}
+                  ? 'Try adjusting or resetting your filters.'
+                  : `No matches in ${activeScopeMeta.label}. Try another keyword or switch categories above.`}
               </p>
               {hasNonDefaultFilters && (
                 <button
                   type="button"
                   onClick={() => setFilters(DEFAULT_SEARCH_FILTERS)}
-                  className="mt-4 inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                  className="mt-4 inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
                   Reset filters
                 </button>
@@ -1645,18 +1621,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Official Updates Results */}
               {(activeScope === 'all' || activeScope === 'updates') &&
                 filteredUpdates.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         Official Updates ({filteredUpdates.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('updates')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Updates
+                          See all
                         </button>
                       )}
                     </div>
@@ -1732,7 +1708,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           type="button"
                           disabled={loadingMoreSlice === 'updates'}
                           onClick={() => void handleLoadMoreSlice('updates')}
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'updates' && (
                             <Loader2
@@ -1740,7 +1716,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                               aria-hidden="true"
                             />
                           )}
-                          Load more official updates
+                          Load more updates
                         </button>
                       </div>
                     )}
@@ -1750,18 +1726,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* People Results */}
               {(activeScope === 'all' || activeScope === 'people') &&
                 filteredPeople.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         People ({filteredPeople.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('people')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus People
+                          See all
                         </button>
                       )}
                     </div>
@@ -1792,7 +1768,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           type="button"
                           disabled={loadingMoreSlice === 'people'}
                           onClick={() => void handleLoadMoreSlice('people')}
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'people' && (
                             <Loader2
@@ -1810,18 +1786,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Community Posts Results */}
               {(activeScope === 'all' || activeScope === 'posts') &&
                 filteredPosts.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-                        Community Posts ({filteredPosts.length})
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
+                        Posts ({filteredPosts.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('posts')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Posts
+                          See all
                         </button>
                       )}
                     </div>
@@ -1900,7 +1876,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           type="button"
                           disabled={loadingMoreSlice === 'posts'}
                           onClick={() => void handleLoadMoreSlice('posts')}
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'posts' && (
                             <Loader2
@@ -1918,18 +1894,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Marketplace Results */}
               {(activeScope === 'all' || activeScope === 'marketplace') &&
                 filteredMarketplace.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         Marketplace ({filteredMarketplace.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('marketplace')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Marketplace
+                          See all
                         </button>
                       )}
                     </div>
@@ -1962,7 +1938,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           type="button"
                           disabled={loadingMoreSlice === 'marketplace'}
                           onClick={() => void handleLoadMoreSlice('marketplace')}
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'marketplace' && (
                             <Loader2
@@ -1980,18 +1956,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Events Results */}
               {(activeScope === 'all' || activeScope === 'upcoming-events') &&
                 filteredEvents.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-                        Campus Events ({filteredEvents.length})
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
+                        Events ({filteredEvents.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('upcoming-events')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Events
+                          See all
                         </button>
                       )}
                     </div>
@@ -2024,7 +2000,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           type="button"
                           disabled={loadingMoreSlice === 'events'}
                           onClick={() => void handleLoadMoreSlice('events')}
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'events' && (
                             <Loader2
@@ -2042,18 +2018,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Opportunities Results */}
               {(activeScope === 'all' || activeScope === 'opportunities') &&
                 filteredOpportunities.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         Opportunities ({filteredOpportunities.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('opportunities')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Opportunities
+                          See all
                         </button>
                       )}
                     </div>
@@ -2085,7 +2061,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           onClick={() =>
                             void handleLoadMoreSlice('opportunities')
                           }
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'opportunities' && (
                             <Loader2
@@ -2103,18 +2079,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Anonymous Posts Results (strict zero identity, zero Report button) */}
               {(activeScope === 'all' || activeScope === 'anonymous') &&
                 filteredAnon.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         Anonymous ({filteredAnon.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('anonymous')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Anonymous
+                          See all
                         </button>
                       )}
                     </div>
@@ -2193,7 +2169,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           type="button"
                           disabled={loadingMoreSlice === 'anonymous'}
                           onClick={() => void handleLoadMoreSlice('anonymous')}
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'anonymous' && (
                             <Loader2
@@ -2211,18 +2187,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               {/* Trusted Circle Results */}
               {(activeScope === 'all' || activeScope === 'trusted-circle') &&
                 filteredTrusted.length > 0 && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
                     <div className="mb-3 flex items-center justify-between gap-2">
-                      <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                      <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                         Trusted Circle ({filteredTrusted.length})
                       </h2>
                       {activeScope === 'all' && (
                         <button
                           type="button"
                           onClick={() => handleTabChange('trusted-circle')}
-                          className="text-xs font-semibold text-[#1E88E5] hover:underline"
+                          className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-[#64B5F6]"
                         >
-                          Focus Trusted Circle
+                          See all
                         </button>
                       )}
                     </div>
@@ -2245,7 +2221,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                           onClick={() =>
                             void handleLoadMoreSlice('trustedCircle')
                           }
-                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                          className="inline-flex min-h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                         >
                           {loadingMoreSlice === 'trustedCircle' && (
                             <Loader2
@@ -2260,7 +2236,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   </div>
                 )}
 
-              <p className="px-1 text-[11px] text-slate-500">
+              <p className="px-1 text-[11px] text-slate-500 dark:text-slate-400">
                 {FIRESTORE_SEARCH_SCOPE_NOTE}
               </p>
             </>
@@ -2272,9 +2248,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       {status === 'idle' && (
         <div className="space-y-5">
           {recentSearches.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+                <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                   Recent Searches
                 </h2>
                 <button
@@ -2283,7 +2259,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     clearRecentSearches();
                     setRecentSearches([]);
                   }}
-                  className="text-xs font-semibold text-slate-500 hover:text-[#0B1A2E]"
+                  className="text-xs font-semibold text-slate-500 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                 >
                   Clear history
                 </button>
@@ -2292,12 +2268,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 {recentSearches.map((term) => (
                   <div
                     key={term}
-                    className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-[#0B1A2E]"
+                    className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                   >
                     <button
                       type="button"
                       onClick={() => handleQuickTopicClick(term)}
-                      className="inline-flex min-h-[34px] items-center gap-1.5 px-3 py-1 font-medium hover:text-[#1E88E5]"
+                      className="inline-flex min-h-[34px] items-center gap-1.5 px-3 py-1 font-medium hover:text-[#1E88E5] dark:hover:text-[#64B5F6]"
                     >
                       <Clock
                         className="h-3 w-3 text-slate-400"
@@ -2311,7 +2287,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                       onClick={() =>
                         setRecentSearches(removeRecentSearch(term))
                       }
-                      className="flex h-7 w-7 items-center justify-center rounded-r-lg text-slate-400 hover:bg-slate-200/70 hover:text-[#0B1A2E]"
+                      className="flex h-7 w-7 items-center justify-center rounded-r-lg text-slate-400 hover:bg-slate-200/70 hover:text-[#0B1A2E] dark:hover:bg-slate-700 dark:hover:text-white"
                     >
                       <X className="h-3 w-3" aria-hidden="true" />
                     </button>
@@ -2321,13 +2297,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             </div>
           )}
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-              Popular Campus Topics
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
+              Popular Topics
             </h2>
-            <p className="mt-0.5 text-xs text-slate-600">
-              Jump directly to active posts, textbooks, scholarships, or campus
-              events.
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
+              Tap a topic to search posts, textbooks, scholarships, or events.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {QUICK_DISCOVERY_TERMS.map((term) => (
@@ -2335,7 +2310,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   key={term}
                   type="button"
                   onClick={() => handleQuickTopicClick(term)}
-                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:border-[#1E88E5] hover:bg-[#1E88E5]/5 hover:text-[#1E88E5]"
+                  className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:border-[#1E88E5] hover:bg-[#1E88E5]/5 hover:text-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-[#64B5F6] dark:hover:bg-slate-800 dark:hover:text-[#64B5F6]"
                 >
                   <Sparkles
                     className="h-3.5 w-3.5 text-[#1E88E5]"
@@ -2347,9 +2322,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
-              Browse LASUED Intel Hubs
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
+              Explore Sections
             </h2>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {PLATFORM_SECTIONS.map((section) => (
@@ -2357,7 +2332,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   key={section.id}
                   type="button"
                   onClick={() => onNavigate(section.id)}
-                  className="flex min-h-[68px] items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-[#1E88E5] hover:bg-slate-50"
+                  className="flex min-h-[68px] items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-[#1E88E5] hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-[#64B5F6] dark:hover:bg-slate-800"
                 >
                   <div className="flex items-start gap-3">
                     <SectionIcon
@@ -2365,10 +2340,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                       className="mt-0.5 h-5 w-5 shrink-0 text-[#1E88E5]"
                     />
                     <div>
-                      <p className="font-display text-sm font-bold text-[#0B1A2E]">
+                      <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                         {section.title}
                       </p>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">
+                      <p className="mt-0.5 line-clamp-2 text-xs text-slate-600 dark:text-slate-400">
                         {section.summary}
                       </p>
                     </div>

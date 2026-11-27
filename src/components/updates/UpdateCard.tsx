@@ -879,10 +879,10 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       ref={articleRef}
       id={`update-${update.id}`}
       data-testid={`update-card-${update.id}`}
-      className={`min-w-0 max-w-full overflow-hidden rounded-2xl border bg-white p-4 shadow-xs transition-colors sm:p-5 ${
+      className={`min-w-0 max-w-full overflow-hidden rounded-2xl border bg-white p-4 shadow-xs transition-colors sm:p-5 dark:bg-slate-900 ${
         isHighlighted
           ? 'border-[#1E88E5] ring-2 ring-[#1E88E5]/25'
-          : 'border-slate-200'
+          : 'border-slate-200 dark:border-slate-800'
       }`}
     >
       {/* Header */}
@@ -892,7 +892,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
             <img
               src={displayAuthorPhotoUrl || '/pwa-192x192.png'}
               alt={displayAuthorName}
-              className="h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-[#0B1A2E] object-cover"
+              className="h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-[#0B1A2E] object-cover dark:border-slate-700"
             />
           ) : (
             <button
@@ -919,12 +919,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigateProfile?.(author.username)}
-                  className="truncate text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                  className="truncate text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400"
                 >
                   {displayAuthorName}
                 </button>
               ) : (
-                <span className="truncate text-sm font-bold text-[#0B1A2E]">
+                <span className="truncate text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                   {displayAuthorName}
                 </span>
               )}
@@ -932,21 +932,21 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
               <RoleBadge badge={displayBadge} size="xs" />
 
               {!isOfficialDesk && author?.username && (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 dark:text-slate-400">
                   @{author.username}
                 </span>
               )}
             </div>
 
-            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-              <span className="font-semibold text-[#1E88E5]">
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-semibold text-[#1E88E5] dark:text-sky-400">
                 {CATEGORY_LABELS[update.category] ?? update.category}
               </span>
               {update.isPinned && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1 font-semibold text-[#0B1A2E]">
-                    <Pin className="h-3 w-3 text-[#1E88E5]" aria-hidden="true" />
+                  <span className="inline-flex items-center gap-1 font-semibold text-[#0B1A2E] dark:text-slate-100">
+                    <Pin className="h-3 w-3 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
                     Pinned
                   </span>
                 </>
@@ -975,13 +975,13 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                 onClick={() => setMenuOpen((prev) => !prev)}
                 aria-label="Administrator update options"
                 aria-expanded={menuOpen}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] disabled:opacity-50"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <MoreVertical className="h-4 w-4" aria-hidden="true" />
               </button>
 
               {menuOpen && (
-                <div className="absolute top-full right-0 z-30 mt-1 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
+                <div className="absolute top-full right-0 z-30 mt-1 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   {onEditUpdate && (
                     <button
                       type="button"
@@ -989,9 +989,9 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                         setMenuOpen(false);
                         onEditUpdate(update);
                       }}
-                      className="flex min-h-[36px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100"
+                      className="flex min-h-[36px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-700"
                     >
-                      <Edit3 className="h-3.5 w-3.5 text-[#1E88E5]" />
+                      <Edit3 className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400" />
                       <span>Edit update</span>
                     </button>
                   )}
@@ -999,9 +999,9 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                   <button
                     type="button"
                     onClick={() => void handleTogglePin()}
-                    className="flex min-h-[36px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100"
+                    className="flex min-h-[36px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold text-[#0B1A2E] hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-700"
                   >
-                    <Pin className="h-3.5 w-3.5 text-[#1E88E5]" />
+                    <Pin className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400" />
                     <span>{update.isPinned ? 'Unpin update' : 'Pin to top'}</span>
                   </button>
 
@@ -1011,7 +1011,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                       setMenuOpen(false);
                       setConfirmDelete(true);
                     }}
-                    className="flex min-h-[36px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold text-red-700 hover:bg-red-50"
+                    className="flex min-h-[36px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs font-semibold text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     <span>Delete update</span>
@@ -1025,10 +1025,9 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
 
       {/* Inline Delete Confirmation */}
       {confirmDelete && isSupremeAdmin && (
-        <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center">
+        <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
           <span>
-            Permanently delete this official update and its attached media and
-            comments?
+            Permanently delete this official update?
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -1046,7 +1045,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
               type="button"
               disabled={adminActionBusy}
               onClick={() => setConfirmDelete(false)}
-              className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-[#0B1A2E]"
+              className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             >
               Cancel
             </button>
@@ -1060,14 +1059,14 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
           {(update.title?.trim() || update.body.trim()) && (
             <div className="space-y-1.5">
               {update.title?.trim() && (
-                <h3 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E]">
+                <h3 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                   {update.title}
                 </h3>
               )}
               {update.body.trim() && (
                 <LinkifiedText
                   text={update.body}
-                  className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                  className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
                 />
               )}
             </div>
@@ -1104,13 +1103,13 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       ) : (
         <div className="mt-3 space-y-1.5">
           {update.title?.trim() && (
-            <h3 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E]">
+            <h3 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
               {update.title}
             </h3>
           )}
           <LinkifiedText
             text={update.body}
-            className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+            className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
           />
         </div>
       )}
@@ -1130,19 +1129,19 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       {cardError && (
         <div
           role="alert"
-          className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-800"
+          className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
         >
           {cardError}
         </div>
       )}
 
       {guestPrompt && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-200">
           <span>{guestPrompt}</span>
           <button
             type="button"
             onClick={() => onRequireAuth('login', returnRoute)}
-            className="font-semibold text-[#1E88E5] hover:underline"
+            className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             Sign In
           </button>
@@ -1150,12 +1149,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
       )}
 
       {/* Actions Footer */}
-      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 dark:border-slate-800">
         <div
-          className="inline-flex min-h-[36px] items-center gap-1.5 px-1 text-xs font-medium text-slate-500 tabular-nums"
+          className="inline-flex min-h-[36px] items-center gap-1.5 px-1 text-xs font-medium text-slate-500 tabular-nums dark:text-slate-400"
           title="Unique update views"
         >
-          <Eye className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+          <Eye className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           <span>{formatCompactViewCount(effectiveViewsCount)}</span>
         </div>
 
@@ -1168,7 +1167,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
             className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
               savedState
                 ? 'lasued-accent-gradient text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
             }`}
           >
             <Bookmark
@@ -1183,12 +1182,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
             aria-pressed={likedState}
             className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
               likedState
-                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
+                ? 'bg-[#1E88E5]/10 text-[#1E88E5] dark:bg-sky-500/15 dark:text-sky-400'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
             }`}
           >
             <Heart
-              className={`h-4 w-4 ${likedState ? 'fill-[#1E88E5]' : ''}`}
+              className={`h-4 w-4 ${likedState ? 'fill-[#1E88E5] dark:fill-sky-400' : ''}`}
               aria-hidden="true"
             />
             <span className="tabular-nums">{likesCount}</span>
@@ -1199,7 +1198,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
             type="button"
             onClick={handleToggleComments}
             aria-expanded={commentsOpen}
-            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+            className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
             <span className="tabular-nums">{commentsCount}</span>
@@ -1215,7 +1214,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
 
       {/* Expandable Comments Section */}
       {commentsOpen && (
-        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
           <div className="flex items-start gap-2">
             <input
               type="text"
@@ -1228,8 +1227,8 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                   handleAddComment(newCommentBody);
                 }
               }}
-              placeholder="Write a comment on this update..."
-              className="min-h-[40px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+              placeholder="Write a comment..."
+              className="min-h-[40px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
             />
             <button
               type="button"
@@ -1243,12 +1242,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
           </div>
 
           {commentsLoading ? (
-            <div className="flex items-center gap-2 py-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2 py-2 text-xs text-slate-500 dark:text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]" />
               Loading comments...
             </div>
           ) : topComments.length === 0 ? (
-            <p className="py-1 text-xs text-slate-500">
+            <p className="py-1 text-xs text-slate-500 dark:text-slate-400">
               No comments yet. Start the discussion.
             </p>
           ) : (
@@ -1275,8 +1274,8 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                     id={`comment-${postCmt.id}`}
                     className={`rounded-xl border p-3 ${
                       highlightCommentId === postCmt.id
-                        ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
-                        : 'border-slate-100 bg-slate-50/80'
+                        ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20 dark:bg-sky-950/30'
+                        : 'border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/60'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1288,7 +1287,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                               onClick={() =>
                                 onNavigateProfile?.(commentAuthor.username)
                               }
-                              className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                              className="font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400"
                             >
                               {commentAuthor.fullName}
                             </button>
@@ -1305,12 +1304,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                             />
                           </>
                         ) : (
-                          <span className="font-bold text-[#0B1A2E]">
+                          <span className="font-bold text-[#0B1A2E] dark:text-slate-100">
                             Campus Member
                           </span>
                         )}
-                        <span className="text-slate-400">·</span>
-                        <span className="text-slate-500">
+                        <span className="text-slate-400 dark:text-slate-500">·</span>
+                        <span className="text-slate-500 dark:text-slate-400">
                           {formatUpdateTimestamp(postCmt.createdAt)}
                         </span>
                       </div>
@@ -1322,14 +1321,14 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                           onClick={() => handleToggleCommentLike(postCmt)}
                           className={`inline-flex items-center gap-1 font-semibold ${
                             likedCommentIds.has(postCmt.id)
-                              ? 'text-[#1E88E5]'
-                              : 'text-slate-600 hover:text-[#0B1A2E]'
+                              ? 'text-[#1E88E5] dark:text-sky-400'
+                              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
                           }`}
                         >
                           <Heart
                             className={`h-3 w-3 ${
                               likedCommentIds.has(postCmt.id)
-                                ? 'fill-[#1E88E5]'
+                                ? 'fill-[#1E88E5] dark:fill-sky-400'
                                 : ''
                             }`}
                           />
@@ -1352,7 +1351,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                             setReplyTarget(null);
                             setReplyBody('');
                           }}
-                          className="font-semibold text-[#1E88E5] hover:underline"
+                          className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                         >
                           Reply
                         </button>
@@ -1363,7 +1362,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                               setEditingCommentId(postCmt.id);
                               setEditingCommentBody(postCmt.body);
                             }}
-                            className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
+                            className="font-semibold text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
                           >
                             Edit
                           </button>
@@ -1373,7 +1372,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                             type="button"
                             disabled={commentBusyId === postCmt.id}
                             onClick={() => handleDeleteComment(postCmt)}
-                            className="font-semibold text-red-700 hover:underline disabled:opacity-50"
+                            className="font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-400"
                           >
                             Delete
                           </button>
@@ -1388,7 +1387,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                           value={editingCommentBody}
                           maxLength={BLUEPRINT_LIMITS.commentBodyMax}
                           onChange={(e) => setEditingCommentBody(e.target.value)}
-                          className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs"
+                          className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         />
                         <button
                           type="button"
@@ -1401,7 +1400,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                         <button
                           type="button"
                           onClick={() => setEditingCommentId(null)}
-                          className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700"
+                          className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                         >
                           Cancel
                         </button>
@@ -1409,7 +1408,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                     ) : (
                       <LinkifiedText
                         text={postCmt.body}
-                        className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700"
+                        className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700 dark:text-slate-300"
                       />
                     )}
 
@@ -1417,17 +1416,17 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                       <div className="mt-2 space-y-1.5 pl-4">
                         {replyTarget?.parentCommentId === postCmt.id &&
                           replyTarget.label && (
-                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400">
                               <span>
                                 Replying to{' '}
-                                <span className="font-semibold text-[#0B1A2E]">
+                                <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                                   {replyTarget.label}
                                 </span>
                               </span>
                               <button
                                 type="button"
                                 onClick={() => setReplyTarget(null)}
-                                className="font-semibold text-slate-500 hover:text-[#0B1A2E]"
+                                className="font-semibold text-slate-500 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                               >
                                 Clear
                               </button>
@@ -1457,7 +1456,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                 ? `Reply to ${replyTarget.label}...`
                                 : 'Write a reply...'
                             }
-                            className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs"
+                            className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400"
                           />
                           <button
                             type="button"
@@ -1471,7 +1470,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                   : undefined
                               )
                             }
-                            className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                            className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                           >
                             Reply
                           </button>
@@ -1480,7 +1479,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                     )}
 
                     {replies.length > 0 && (
-                      <div className="mt-2.5 space-y-2 border-l-2 border-slate-200 pl-3">
+                      <div className="mt-2.5 space-y-2 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
                         {replies.map(
                           ({ comment: reply, author: replyAuthor }) => {
                             const replyCmt = reply as PostComment;
@@ -1503,11 +1502,11 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                               <div
                                 key={replyCmt.id}
                                 id={`comment-${replyCmt.id}`}
-                                className="rounded-lg bg-white p-2.5"
+                                className="rounded-lg bg-white p-2.5 dark:bg-slate-900/90"
                               >
                                 <div className="flex items-center justify-between gap-2 text-[11px]">
                                   <div className="flex flex-wrap items-center gap-1.5">
-                                    <CornerDownRight className="h-3 w-3 text-slate-400" />
+                                    <CornerDownRight className="h-3 w-3 text-slate-400 dark:text-slate-500" />
                                     {replyAuthor ? (
                                       <>
                                         <button
@@ -1517,7 +1516,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                               replyAuthor.username
                                             )
                                           }
-                                          className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                                          className="font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400"
                                         >
                                           {replyAuthor.fullName}
                                         </button>
@@ -1527,12 +1526,12 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                         />
                                       </>
                                     ) : (
-                                      <span className="font-bold text-[#0B1A2E]">
+                                      <span className="font-bold text-[#0B1A2E] dark:text-slate-100">
                                         Campus Member
                                       </span>
                                     )}
-                                    <span className="text-slate-400">·</span>
-                                    <span className="text-slate-500">
+                                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                                    <span className="text-slate-500 dark:text-slate-400">
                                       {formatUpdateTimestamp(replyCmt.createdAt)}
                                     </span>
                                   </div>
@@ -1546,14 +1545,14 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                       }
                                       className={`inline-flex items-center gap-1 font-semibold ${
                                         likedCommentIds.has(replyCmt.id)
-                                          ? 'text-[#1E88E5]'
-                                          : 'text-slate-600'
+                                          ? 'text-[#1E88E5] dark:text-sky-400'
+                                          : 'text-slate-600 dark:text-slate-300'
                                       }`}
                                     >
                                       <Heart
                                         className={`h-3 w-3 ${
                                           likedCommentIds.has(replyCmt.id)
-                                            ? 'fill-[#1E88E5]'
+                                            ? 'fill-[#1E88E5] dark:fill-sky-400'
                                             : ''
                                         }`}
                                       />
@@ -1589,7 +1588,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                           );
                                         }
                                       }}
-                                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50 dark:text-sky-400"
                                     >
                                       Reply
                                     </button>
@@ -1601,7 +1600,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                           onClick={() =>
                                             handleDeleteComment(replyCmt)
                                           }
-                                          className="font-semibold text-red-700 hover:underline"
+                                          className="font-semibold text-red-700 hover:underline dark:text-red-400"
                                         >
                                           Delete
                                         </button>
@@ -1610,7 +1609,7 @@ export const UpdateCard: React.FC<UpdateCardProps> = ({
                                 </div>
                                 <LinkifiedText
                                   text={replyCmt.body}
-                                  className="mt-1 whitespace-pre-wrap text-xs text-slate-700"
+                                  className="mt-1 whitespace-pre-wrap text-xs text-slate-700 dark:text-slate-300"
                                 />
                               </div>
                             );

@@ -6,125 +6,98 @@ export const PLATFORM_SECTIONS: readonly SectionDefinition[] = [
     title: 'For You',
     shortTitle: 'For You',
     group: 'Feeds',
-    summary:
-      'Combined campus stream led by Official Updates and verified Campus Updates, woven with Anonymous discussions and discovery.',
-    emptyTitle: 'No community updates yet',
-    emptyDescription:
-      'Verified campus updates and faculty notices will appear here once published.',
-    errorTitle: 'Unable to load For You feed',
-    errorDescription:
-      'A connection or data-loading issue prevented this feed from displaying. Retry when ready.',
+    summary: 'Campus updates, posts, and recommendations picked for you.',
+    emptyTitle: 'No updates yet',
+    emptyDescription: 'Campus updates and posts will show up here.',
+    errorTitle: 'Could not load For You',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'following',
     title: 'Following',
     shortTitle: 'Following',
     group: 'Feeds',
-    summary:
-      'Direct updates from student organizations, campus contributors, and faculties you choose to follow.',
-    emptyTitle: 'No followed updates yet',
-    emptyDescription:
-      'Updates from accounts and departments you follow will appear here.',
-    errorTitle: 'Unable to load Following stream',
-    errorDescription:
-      'Could not retrieve updates for your followed campus channels. Please retry.',
+    summary: 'Updates from people, clubs, and departments you follow.',
+    emptyTitle: 'Nothing from followed accounts yet',
+    emptyDescription: 'Follow campus accounts to see their posts here.',
+    errorTitle: 'Could not load Following',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'latest',
     title: 'Latest',
     shortTitle: 'Latest',
     group: 'Feeds',
-    summary:
-      'Chronological stream combining Official Updates, Campus Updates, and Anonymous discussions newest first.',
-    emptyTitle: 'No campus updates published yet',
-    emptyDescription:
-      'The chronological campus feed is connected and ready. Published updates will appear here newest first.',
-    errorTitle: 'Unable to refresh Latest updates',
-    errorDescription:
-      'The latest campus stream encountered an interruption. Use Retry to attempt loading again.',
+    summary: 'Newest official updates, posts, and anonymous thoughts.',
+    emptyTitle: 'No posts yet',
+    emptyDescription: 'New campus updates will show up here newest first.',
+    errorTitle: 'Could not load Latest',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'updates',
     title: 'Updates',
     shortTitle: 'Updates',
     group: 'Feeds',
-    summary:
-      'Official notices, verified campus advisories, and visual briefings published directly by LASUED Intel administration.',
+    summary: 'Official announcements and verified notices from LASUED Intel.',
     emptyTitle: 'No official updates yet',
-    emptyDescription:
-      'Verified administrative announcements and campus advisories will appear here once published.',
-    errorTitle: 'Unable to load Updates',
-    errorDescription:
-      'Official updates could not be retrieved right now. Please retry.',
+    emptyDescription: 'Official announcements will show up here when posted.',
+    errorTitle: 'Could not load Updates',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'anonymous',
     title: 'Anonymous',
     shortTitle: 'Anonymous',
     group: 'Feeds',
-    summary:
-      'Open anonymous campus perspectives and student discussions without displaying public author identities.',
+    summary: 'Share campus thoughts and photos without showing your name.',
     emptyTitle: 'No anonymous posts yet',
-    emptyDescription:
-      'Public anonymous campus posts will appear here without revealing author profiles or identities.',
-    errorTitle: 'Unable to load Anonymous feed',
-    errorDescription:
-      'Anonymous discussions could not be fetched at the moment. Please try again.',
+    emptyDescription: 'Anonymous posts will show up here.',
+    errorTitle: 'Could not load Anonymous',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'marketplace',
     title: 'Marketplace',
     shortTitle: 'Marketplace',
     group: 'Campus Hub',
-    summary:
-      'Structured student-to-student space for textbooks, study tools, accommodation, and campus services.',
-    emptyTitle: 'No marketplace listings yet',
-    emptyDescription:
-      'Approved student products, services, and accommodation listings will appear here.',
-    errorTitle: 'Unable to load Marketplace',
-    errorDescription:
-      'Marketplace listings failed to load. Check your connection and retry.',
+    summary: 'Buy, sell, or find books, hostels, gadgets, and campus services.',
+    emptyTitle: 'No listings yet',
+    emptyDescription: 'Approved student listings will show up here.',
+    errorTitle: 'Could not load Marketplace',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'trusted-circle',
     title: 'Trusted Circle',
     shortTitle: 'Trusted Circle',
     group: 'Campus Hub',
-    summary:
-      'Verified members, moderators, and administrator-listed lecturer and student representative contacts.',
-    emptyTitle: 'No Trusted Circle entries listed yet',
-    emptyDescription:
-      'Verified campus accounts and administrator-listed lecturer or student representative contacts will appear here.',
-    errorTitle: 'Unable to load Trusted Circle',
-    errorDescription:
-      'We could not retrieve Trusted Circle directory details. Please retry.',
+    summary: 'Verified members, moderators, lecturers, and student leaders.',
+    emptyTitle: 'No Trusted Circle entries yet',
+    emptyDescription: 'Verified campus contacts will show up here.',
+    errorTitle: 'Could not load Trusted Circle',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'opportunities',
     title: 'Opportunities',
     shortTitle: 'Opportunities',
     group: 'Campus Hub',
-    summary:
-      'Scholarships, grants, internships, job openings, competitions, skill programmes, trainings, and conferences for LASUED students.',
-    emptyTitle: 'No opportunities listed yet',
-    emptyDescription:
-      'Scholarships, grants, internships, fellowships, and campus career openings will appear here once published.',
-    errorTitle: 'Unable to load Opportunities',
-    errorDescription:
-      'Opportunity listings could not be retrieved right now. Please try again.',
+    summary: 'Scholarships, internships, jobs, grants, and trainings.',
+    emptyTitle: 'No opportunities yet',
+    emptyDescription: 'Open scholarships and internships will show up here.',
+    errorTitle: 'Could not load Opportunities',
+    errorDescription: 'Check your connection and tap Retry.',
   },
   {
     id: 'upcoming-events',
     title: 'Events',
     shortTitle: 'Events',
     group: 'Campus Hub',
-    summary:
-      'Departmental programmes, faculty seminars, workshops, orientations, competitions, and campus activities.',
-    emptyTitle: 'No campus events scheduled yet',
-    emptyDescription:
-      'Campus calendar items, academic dates, and student events will appear here once published.',
-    errorTitle: 'Unable to load Events',
-    errorDescription:
-      'The campus events schedule could not be loaded. Retry to check again.',
+    summary: 'Campus seminars, orientations, workshops, and activities.',
+    emptyTitle: 'No events scheduled yet',
+    emptyDescription: 'Upcoming campus events will show up here.',
+    errorTitle: 'Could not load Events',
+    errorDescription: 'Check your connection and tap Retry.',
   },
 ] as const;

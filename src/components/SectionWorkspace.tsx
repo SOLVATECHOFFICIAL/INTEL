@@ -54,6 +54,7 @@ import { PostCard } from './posts/PostCard';
 import { PostComposer } from './posts/PostComposer';
 import { SectionIcon } from './SectionIcon';
 import { EmptyState, ErrorState, LoadingState } from './StateViews';
+import { SectionRibbon } from './shared/SectionRibbon';
 import { EventsSection } from './sections/EventsSection';
 import { MarketplaceSection } from './sections/MarketplaceSection';
 import { OpportunitiesSection } from './sections/OpportunitiesSection';
@@ -634,17 +635,17 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
         returnRoute={sectionId}
       />
 
-      <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+      <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div aria-hidden="true" className="lasued-action-gradient h-1 w-full" />
         <div className="p-4 sm:p-6">
-        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start">
+        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-start dark:border-slate-800">
           <div>
-            <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-500">
+            <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-500 dark:text-slate-400">
               {onBack && (
                 <button
                   type="button"
                   onClick={onBack}
-                  className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E]"
+                  className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
                   Back
@@ -654,7 +655,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => onNavigate('for-you')}
-                  className="text-[#1E88E5] hover:underline"
+                  className="text-[#1E88E5] hover:underline dark:text-sky-400"
                 >
                   Home
                 </button>
@@ -665,7 +666,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
             <h1
               id="active-section-heading"
-              className="mt-2 flex items-center gap-2.5 font-display text-2xl font-bold tracking-tight text-[#0B1A2E] sm:text-3xl"
+              className="mt-2 flex items-center gap-2.5 font-display text-2xl font-bold tracking-tight text-[#0B1A2E] sm:text-3xl dark:text-white"
             >
               <SectionIcon
                 sectionId={activeSection.id}
@@ -674,7 +675,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
               <span>{activeSection.title}</span>
             </h1>
 
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-[15px]">
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 sm:text-[15px] dark:text-slate-400">
               {activeSection.summary}
             </p>
           </div>
@@ -693,15 +694,13 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
 
         {sectionId === 'anonymous' && (
           <div className="mt-4 space-y-4">
-            <div className="flex items-start gap-3 rounded-xl border border-sky-200/80 bg-gradient-to-r from-sky-50/75 via-blue-50/45 to-slate-50 p-3.5 text-xs leading-relaxed text-slate-700">
+            <div className="flex items-start gap-3 rounded-xl border border-sky-200/80 bg-gradient-to-r from-sky-50/75 via-blue-50/45 to-slate-50 p-3.5 text-xs leading-relaxed text-slate-700 dark:border-sky-900/50 dark:from-slate-800/80 dark:via-slate-800/70 dark:to-slate-900 dark:text-slate-300">
               <ShieldCheck
                 className="mt-0.5 h-4 w-4 shrink-0 text-[#1E88E5]"
                 aria-hidden="true"
               />
               <span>
-                Your identity, photo EXIF metadata, and filenames are stripped
-                automatically before publishing. Every active registered LASUED
-                Intel account can share text-only cards or 1–4 anonymous photos.
+                Your name and photo details are removed automatically. Share text or 1–4 photos privately.
               </span>
             </div>
 
@@ -709,22 +708,22 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
             <button
               type="button"
               onClick={handleAnonymousPostClick}
-              className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-[#1E88E5]/50 hover:bg-slate-50/60"
+              className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-[#1E88E5]/50 hover:bg-slate-50/60 dark:border-slate-700 dark:bg-slate-950/60 dark:hover:border-sky-500/50 dark:hover:bg-slate-800/60"
             >
               <span className="flex min-w-0 items-center gap-2.5">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0B1A2E] text-white">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0B1A2E] text-white dark:bg-slate-800">
                   <EyeOff className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
                 </span>
-                <span className="truncate text-sm text-slate-500">
+                <span className="truncate text-sm text-slate-500 dark:text-slate-400">
                   Share an anonymous campus thought or photo...
                 </span>
               </span>
-              <span className="hidden shrink-0 items-center gap-2 text-xs font-semibold text-slate-500 sm:inline-flex">
-                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1">
-                  <Type className="h-3.5 w-3.5 text-[#0B1A2E]" aria-hidden="true" />
+              <span className="hidden shrink-0 items-center gap-2 text-xs font-semibold text-slate-500 sm:inline-flex dark:text-slate-300">
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
+                  <Type className="h-3.5 w-3.5 text-[#0B1A2E] dark:text-slate-200" aria-hidden="true" />
                   Text
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1">
+                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 dark:bg-slate-800">
                   <ImageIcon className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
                   Photos
                 </span>
@@ -732,38 +731,17 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
             </button>
 
             {user && (
-              <div
-                role="tablist"
-                aria-label="Anonymous feed views"
-                className="inline-flex rounded-xl bg-slate-100 p-1"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeAnonTab === 'feed'}
-                  onClick={() => setAnonViewTab('feed')}
-                  className={`min-h-[38px] rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
-                    activeAnonTab === 'feed'
-                      ? 'bg-white text-[#0B1A2E] shadow-xs'
-                      : 'text-slate-600 hover:text-[#0B1A2E]'
-                  }`}
-                >
-                  Community Feed
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeAnonTab === 'mine'}
-                  onClick={() => setAnonViewTab('mine')}
-                  className={`min-h-[38px] rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors ${
-                    activeAnonTab === 'mine'
-                      ? 'bg-white text-[#0B1A2E] shadow-xs'
-                      : 'text-slate-600 hover:text-[#0B1A2E]'
-                  }`}
-                >
-                  My Anonymous Posts
-                </button>
-              </div>
+              <SectionRibbon
+                variant="sublist"
+                ariaLabel="Anonymous feed views"
+                items={[
+                  { id: 'feed', label: 'Community Feed' },
+                  { id: 'mine', label: 'My Anonymous Posts' },
+                ]}
+                activeId={activeAnonTab}
+                onChange={setAnonViewTab}
+                className="sm:w-fit"
+              />
             )}
           </div>
         )}
@@ -772,7 +750,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
           <div className="mt-5">
             <GuestPromptCard
               title="Sign in to post anonymously"
-              description="Guests can browse public anonymous posts freely. Sign in or create a free LASUED Intel account to publish anonymous posts or replies."
+              description="Guests can read anonymous posts. Sign in or create a free account to post or reply."
               returnRoute="anonymous"
               onRequireAuth={onRequireAuth}
               onDismiss={() => setActionPrompt('none')}
@@ -783,7 +761,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
         {actionPrompt === 'suspended' && (
           <div
             role="alert"
-            className="mt-5 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+            className="mt-5 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
           >
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>
@@ -806,13 +784,12 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                   }}
                 />
               ) : displayedAnonPosts.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
-                  <p className="text-sm font-semibold text-[#0B1A2E]">
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center dark:border-slate-700 dark:bg-slate-800/50">
+                  <p className="text-sm font-semibold text-[#0B1A2E] dark:text-white">
                     You haven&apos;t published any anonymous posts yet
                   </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Your anonymous submissions appear privately here so only you
-                    can review, edit, or delete them later.
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                    Your anonymous posts appear privately here so you can edit or delete them anytime.
                   </p>
                 </div>
               ) : (
@@ -911,7 +888,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                   !anonymousPosts.some((item) => item.id === selectedPostId) && (
                     <div
                       role="status"
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:text-sm"
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-950 sm:text-sm dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200"
                     >
                       <span>
                         This anonymous post is unavailable or may have been
@@ -920,7 +897,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                       <button
                         type="button"
                         onClick={() => onNavigate('anonymous')}
-                        className="font-semibold text-[#1E88E5] hover:underline"
+                        className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                       >
                         Dismiss
                       </button>
@@ -1011,7 +988,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                       type="button"
                       disabled={loadingMoreAnon}
                       onClick={() => void handleLoadMoreAnonymous()}
-                      className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                      className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700"
                     >
                       {loadingMoreAnon && (
                         <Loader2
@@ -1025,7 +1002,7 @@ export const SectionWorkspace: React.FC<SectionWorkspaceProps> = ({
                     </button>
                   </div>
                 ) : (
-                  <p className="pt-2 text-center text-xs text-slate-500">
+                  <p className="pt-2 text-center text-xs text-slate-500 dark:text-slate-400">
                     You have reached all published anonymous posts.
                   </p>
                 )}

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { User } from 'firebase/auth';
 import {
   ACCOUNT_CATEGORY_OPTIONS,
+  buildSanitizedOwnedUsernamesUpdate,
   buildWhatsAppChatUrl,
   CAMPUS_STATUS_OPTIONS,
   canAccessAdminDashboard,
@@ -881,4 +882,40 @@ test('validateUsernameCandidate and validateProfileSettingsForm allow keeping un
     {}
   );
 });
+
+test('buildSanitizedOwnedUsernamesUpdate strips invalid legacy entries and prioritizes primary username within 20-item limit', () => {
+  const sanitized = buildSanitizedOwnedUsernamesUpdate({
+    primaryUsername: ' Admin ',
+    previousUsername: 'OLD_HANDLE',
+    existingOwnedUsernames: [
+      '',
+      null,
+      123,
+      'x'.repeat(40),
+      'invalid handle!',
+      'legacy_one',
+      'OLD_HANDLE',
+      'legacy_two',
+    ],
+  });
+  assert.deepEqual(sanitized, ['admin', 'old_handle', 'legacy_one', 'legacy_two']);
+
+  const nonArraySanitized = buildSanitizedOwnedUsernamesUpdate({
+    primaryUsername: 'solomon',
+    existingOwnedUsernames: 'corrupted_string_value',
+  });
+  assert.deepEqual(nonArraySanitized, ['solomon']);
+
+  const manyExisting = Array.from({ length: 25 }, (_, i) => `handle_${i}`);
+  const capped = buildSanitizedOwnedUsernamesUpdate({
+    primaryUsername: 'primary_next',
+    previousUsername: 'prev_handle',
+    existingOwnedUsernames: manyExisting,
+  });
+  assert.equal(capped.length, 20);
+  assert.equal(capped[0], 'primary_next');
+  assert.equal(capped[1], 'prev_handle');
+  assert.ok(capped.every((entry) => entry.length >= 3 && entry.length <= 32));
+});
+
 

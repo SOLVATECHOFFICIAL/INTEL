@@ -230,12 +230,12 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+      <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
         <Loader2
           className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
           aria-hidden="true"
         />
-        Loading Trusted Circle records...
+        Loading Trusted Circle...
       </div>
     );
   }
@@ -246,17 +246,15 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Admin-Listed Directory-Only Profiles (Non-Account Entries) */}
+      {/* 1. Admin-Listed Directory-Only Profiles */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-              Admin-Curated Directory Profiles ({officialContacts.length})
+            <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+              Directory Profiles ({officialContacts.length})
             </h2>
-            <p className="text-xs text-slate-600">
-              Non-account directory entries for Officially Verified figures,
-              Community Recommended contacts, lecturers, and student leaders
-              (never user accounts).
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Official campus contacts, lecturers, and verified leads.
             </p>
           </div>
           <button
@@ -265,31 +263,29 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
               if (showForm) resetForm();
               else setShowForm(true);
             }}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
           >
-            <Plus className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-            {showForm ? 'Close Form' : 'Add Trusted Entry'}
+            <Plus className="h-4 w-4 text-[#1E88E5] dark:text-white" aria-hidden="true" />
+            {showForm ? 'Close Form' : 'Add Contact'}
           </button>
         </div>
 
         {showForm && (
           <form
             onSubmit={handleSubmit}
-            className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5"
+            className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-800/50"
           >
-            <h3 className="font-display text-sm font-bold text-[#0B1A2E]">
-              {editing
-                ? `Edit Directory Profile: ${editing.fullName}`
-                : 'Add Directory-Only Profile'}
+            <h3 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+              {editing ? `Edit: ${editing.fullName}` : 'Add Directory Contact'}
             </h3>
 
             {/* Profile Photo Upload + Preview */}
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
               {compressedPhoto ? (
                 <img
                   src={compressedPhoto.dataUrl}
                   alt="Contact preview"
-                  className="h-14 w-14 rounded-xl object-cover ring-1 ring-slate-200"
+                  className="h-14 w-14 rounded-xl object-cover ring-1 ring-slate-200 dark:ring-slate-700"
                 />
               ) : hasExistingStoredPhoto && editing ? (
                 <AvatarMedia
@@ -301,7 +297,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                   textClass="text-sm"
                 />
               ) : (
-                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
                   <Camera className="h-5 w-5" aria-hidden="true" />
                 </div>
               )}
@@ -312,7 +308,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                     type="button"
                     disabled={compressingPhoto}
                     onClick={() => photoInputRef.current?.click()}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60"
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60 dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
                   >
                     {compressingPhoto ? (
                       <Loader2
@@ -321,7 +317,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                       />
                     ) : (
                       <Camera
-                        className="h-3.5 w-3.5 text-[#1E88E5]"
+                        className="h-3.5 w-3.5 text-[#1E88E5] dark:text-white"
                         aria-hidden="true"
                       />
                     )}
@@ -346,7 +342,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                         setPhotoUrl('');
                         setRemoveExistingPhoto(true);
                       }}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     >
                       <X className="h-3.5 w-3.5" aria-hidden="true" />
                       Remove Photo
@@ -362,7 +358,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                     setRemoveExistingPhoto(false);
                   }}
                   placeholder="Or paste external https:// image URL (optional)"
-                  className="min-h-[34px] w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-[#0B1A2E] disabled:opacity-50"
+                  className="min-h-[34px] w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-[#0B1A2E] disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
             </div>
@@ -374,14 +370,14 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Full name or Office title"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
               <select
                 value={category}
                 onChange={(e) =>
                   setCategory(e.target.value as TrustedContactCategory)
                 }
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               >
                 {Object.entries(TRUSTED_CONTACT_CATEGORY_LABELS).map(
                   ([val, label]) => (
@@ -397,7 +393,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                 value={badgeLabel}
                 onChange={(e) => setBadgeLabel(e.target.value)}
                 placeholder="Badge label (e.g. Officially Verified)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
 
@@ -408,21 +404,21 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                 value={roleTitle}
                 onChange={(e) => setRoleTitle(e.target.value)}
                 placeholder="Role / Position (e.g. 200L Course Adviser)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
               <input
                 type="text"
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
                 placeholder="Department (optional)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
               <input
                 type="text"
                 value={faculty}
                 onChange={(e) => setFaculty(e.target.value)}
                 placeholder="Faculty / College (optional)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
 
@@ -432,15 +428,15 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                 required
                 value={contactNumber}
                 onChange={(e) => setContactNumber(e.target.value)}
-                placeholder="WhatsApp number (required, e.g. +2348012345678)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                placeholder="WhatsApp number (e.g. +2348012345678)"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
               <input
                 type="url"
                 value={whatsappLink}
                 onChange={(e) => setWhatsappLink(e.target.value)}
                 placeholder="Direct WhatsApp URL (optional https://wa.me/...)"
-                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                className="min-h-[40px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
               />
             </div>
 
@@ -448,8 +444,8 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Role summary, office hours, or recommendation notes..."
-              className="block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E]"
+              placeholder="Role summary or office hours..."
+              className="block w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
 
             <div className="flex flex-wrap gap-2">
@@ -461,13 +457,13 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                 {submitting && (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                 )}
-                {editing ? 'Update Entry' : 'Save Directory Entry'}
+                {editing ? 'Update Entry' : 'Save Contact'}
               </button>
               <button
                 type="button"
                 disabled={submitting}
                 onClick={resetForm}
-                className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50"
+                className="inline-flex min-h-[38px] items-center rounded-lg border border-slate-300 bg-white px-4 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>
@@ -476,8 +472,8 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
         )}
 
         {officialContacts.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-600">
-            No admin-listed campus contacts created yet.
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+            No directory contacts added yet.
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -487,7 +483,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
               return (
                 <article
                   key={contact.id}
-                  className="rounded-xl border border-slate-200 bg-white p-4"
+                  className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-start gap-3">
@@ -502,15 +498,15 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <RoleBadge badge="trust" size="xs" />
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                             {contact.badgeLabel ||
                               TRUSTED_CONTACT_CATEGORY_LABELS[contact.category]}
                           </span>
                         </div>
-                        <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E]">
+                        <h3 className="mt-1.5 font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                           {contact.fullName}
                         </h3>
-                        <p className="text-xs font-semibold text-[#1E88E5]">
+                        <p className="text-xs font-semibold text-[#1E88E5] dark:text-sky-400">
                           {contact.roleTitle}
                         </p>
                       </div>
@@ -521,7 +517,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                         type="button"
                         onClick={() => startEdit(contact)}
                         aria-label={`Edit ${contact.fullName}`}
-                        className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]"
+                        className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                       >
                         <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
@@ -529,7 +525,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                         type="button"
                         onClick={() => setDeleteTarget(contact)}
                         aria-label={`Delete ${contact.fullName}`}
-                        className="rounded-lg p-1.5 text-red-700 hover:bg-red-50"
+                        className="rounded-lg p-1.5 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/60"
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       </button>
@@ -537,7 +533,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                   </div>
 
                   {(contact.department || contact.faculty) && (
-                    <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
+                    <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                       <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
                       {[contact.department, contact.faculty]
                         .filter(Boolean)
@@ -546,7 +542,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                   )}
 
                   {contact.description && (
-                    <p className="mt-1.5 text-xs text-slate-600">
+                    <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">
                       {contact.description}
                     </p>
                   )}
@@ -556,7 +552,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                       href={waUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-2.5 inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
+                      className="mt-2.5 inline-flex items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                     >
                       <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
                       {contact.contactNumber || 'WhatsApp Link'}
@@ -570,28 +566,27 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
       </div>
 
       {/* 2. Registered Supreme Admin & Verified Badge Holders */}
-      <div className="space-y-4 border-t border-slate-100 pt-5">
+      <div className="space-y-4 border-t border-slate-100 pt-5 dark:border-slate-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-              Registered Badge Holders ({supremeAdmins.length + verifiedMembers.length})
+            <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+              Verified Members ({supremeAdmins.length + verifiedMembers.length})
             </h2>
-            <p className="text-xs text-slate-600">
-              Registered members carrying official public Supreme Admin or Verified
-              badges. Underground admin accounts remain hidden from public listings.
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Accounts holding public Supreme Admin or Verified badges.
             </p>
           </div>
           <button
             type="button"
             onClick={onJumpToBadges}
-            className="text-xs font-semibold text-[#1E88E5] hover:underline"
+            className="text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
-            Manage Badges &amp; Roles
+            Manage Badges
           </button>
         </div>
 
         {supremeAdmins.length === 0 && verifiedMembers.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-center text-xs text-slate-600">
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-center text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
             <Users
               className="mx-auto mb-1.5 h-5 w-5 text-slate-400"
               aria-hidden="true"
@@ -603,7 +598,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
             {[...supremeAdmins, ...verifiedMembers].map((member) => (
               <div
                 key={member.username}
-                className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-3"
+                className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"
               >
                 <AvatarMedia
                   fullName={member.fullName}
@@ -615,12 +610,12 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1">
-                    <span className="truncate text-xs font-bold text-[#0B1A2E]">
+                    <span className="truncate text-xs font-bold text-[#0B1A2E] dark:text-slate-100">
                       {member.fullName}
                     </span>
                     <ProfileBadgesRow profile={member} size="xs" />
                   </div>
-                  <p className="truncate text-[11px] text-slate-500">
+                  <p className="truncate text-[11px] text-slate-500 dark:text-slate-400">
                     @{member.username}
                     {member.department ? ` · ${member.department}` : ''}
                   </p>
@@ -634,7 +629,7 @@ export const AdminTrustedCircleTab: React.FC<AdminTrustedCircleTabProps> = ({
       <AdminConfirmDialog
         open={Boolean(deleteTarget)}
         title={`Remove "${deleteTarget?.fullName}"?`}
-        description="This permanently removes the non-account contact entry from the Trusted Circle directory and records the deletion in the audit log."
+        description="This permanently removes this contact from the Trusted Circle directory."
         confirmLabel="Remove Entry"
         tone="danger"
         busy={Boolean(busyId)}

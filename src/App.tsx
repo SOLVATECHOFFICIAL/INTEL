@@ -1122,7 +1122,7 @@ export function App() {
     activeRoute !== 'register';
 
   return (
-    <div className="lasued-canvas-backdrop flex min-h-screen min-w-0 max-w-full flex-col overflow-x-clip text-[#0B1A2E]">
+    <div className="lasued-canvas-backdrop flex min-h-screen min-w-0 max-w-full flex-col overflow-x-clip text-[#0B1A2E] dark:text-slate-100">
       <Header
         activeRoute={activeRoute}
         isMobileDrawerOpen={isMobileDrawerOpen}
@@ -1151,9 +1151,9 @@ export function App() {
             <div
               role="status"
               data-testid="network-offline-banner"
-              className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-950 sm:text-sm"
+              className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200 sm:text-sm"
             >
-              <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+              <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
               <span>
                 You&apos;re offline — browsing cached campus content. New posts and
                 edits require an internet connection.
@@ -1163,26 +1163,26 @@ export function App() {
             <div
               role="status"
               data-testid="network-reconnected-banner"
-              className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-900 sm:text-sm"
+              className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-900 dark:border-emerald-800/60 dark:bg-emerald-950/40 dark:text-emerald-200 sm:text-sm"
             >
-              <Wifi className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+              <Wifi className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
               <span>Back online — syncing latest updates...</span>
             </div>
           ) : syncErrorMessage ? (
             <div
               role="alert"
               data-testid="network-sync-error-banner"
-              className="flex items-center justify-between gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-900 sm:text-sm"
+              className="flex items-center justify-between gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-900 dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-200 sm:text-sm"
             >
               <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-red-700" aria-hidden="true" />
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-700 dark:text-red-400" aria-hidden="true" />
                 <span>{syncErrorMessage}</span>
               </div>
               <button
                 type="button"
                 onClick={clearSyncError}
                 aria-label="Dismiss sync notice"
-                className="rounded p-1 text-red-700 hover:bg-red-100"
+                className="rounded p-1 text-red-700 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-900/50"
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -1190,11 +1190,11 @@ export function App() {
           ) : null}
 
           {showBackToSearchBanner && recentSearchEntry && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 dark:border-slate-800 dark:bg-slate-900">
               <button
                 type="button"
                 onClick={handleBackToSearch}
-                className="inline-flex min-h-[36px] items-center gap-2 rounded-lg text-xs font-semibold text-[#1E88E5] hover:underline sm:text-sm"
+                className="inline-flex min-h-[36px] items-center gap-2 rounded-lg text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400 sm:text-sm"
               >
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                 <span>
@@ -1209,7 +1209,7 @@ export function App() {
                 onClick={() =>
                   setDismissedSearchBannerKey(recentSearchEntry.key)
                 }
-                className="text-xs font-medium text-slate-500 hover:text-[#0B1A2E]"
+                className="text-xs font-medium text-slate-500 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
               >
                 Dismiss
               </button>
@@ -1238,11 +1238,11 @@ export function App() {
               <div
                 role="status"
                 aria-label="Loading view"
-                className="flex min-h-[260px] items-center justify-center rounded-2xl border border-slate-200 bg-white p-8"
+                className="flex min-h-[260px] items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 dark:border-slate-800 dark:bg-slate-900"
               >
-                <div className="flex items-center gap-3 text-sm font-medium text-slate-500">
+                <div className="flex items-center gap-3 text-sm font-medium text-slate-500 dark:text-slate-400">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#1E88E5] border-t-transparent" />
-                  <span>Loading campus view...</span>
+                  <span>Loading...</span>
                 </div>
               </div>
             }
@@ -1259,7 +1259,7 @@ export function App() {
           role="status"
           aria-live="polite"
           data-testid="foreground-notification-toast"
-          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-50 w-[min(calc(100vw-2rem),24rem)] rounded-2xl border border-[#1E88E5]/30 bg-white p-3.5 shadow-2xl sm:right-6 sm:bottom-6"
+          className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-50 w-[min(calc(100vw-2rem),24rem)] rounded-2xl border border-[#1E88E5]/30 bg-white p-3.5 shadow-2xl dark:border-sky-500/30 dark:bg-slate-900 sm:right-6 sm:bottom-6"
         >
           <div className="flex items-start gap-3">
             <button
@@ -1279,19 +1279,19 @@ export function App() {
               }}
               className="flex min-w-0 flex-1 items-start gap-3 text-left"
             >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white">
-                <Bell className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0B1A2E] text-white dark:bg-slate-800">
+                <Bell className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-bold text-[#0B1A2E] sm:text-sm">
+                <span className="block truncate text-xs font-bold text-[#0B1A2E] dark:text-white sm:text-sm">
                   {foregroundNotificationToast.title}
                 </span>
                 {foregroundNotificationToast.body && (
-                  <span className="mt-0.5 line-clamp-2 block text-xs text-slate-600">
+                  <span className="mt-0.5 line-clamp-2 block text-xs text-slate-600 dark:text-slate-300">
                     {foregroundNotificationToast.body}
                   </span>
                 )}
-                <span className="mt-1 block text-[11px] font-semibold text-[#1E88E5]">
+                <span className="mt-1 block text-[11px] font-semibold text-[#1E88E5] dark:text-sky-400">
                   Open alert
                 </span>
               </span>
@@ -1300,7 +1300,7 @@ export function App() {
               type="button"
               aria-label="Dismiss notification toast"
               onClick={dismissForegroundNotificationToast}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E]"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E] dark:hover:bg-slate-800 dark:hover:text-white"
             >
               <X className="h-4 w-4" aria-hidden="true" />
             </button>

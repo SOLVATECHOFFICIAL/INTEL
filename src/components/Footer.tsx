@@ -28,7 +28,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   };
 
   return (
-    <footer className="mt-12 max-w-full border-t border-slate-200 bg-gradient-to-b from-white/90 via-sky-50/50 to-blue-50/70 pb-24 lg:pb-0">
+    <footer className="mt-12 max-w-full border-t border-slate-200 bg-gradient-to-b from-white/90 via-sky-50/50 to-blue-50/70 pb-24 dark:border-slate-800 dark:bg-gradient-to-b dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 lg:pb-0">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
         <div className="flex flex-col justify-between gap-8 md:flex-row md:items-start">
           <div className="max-w-sm">
@@ -39,12 +39,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             >
               <BrandLogo size="sm" showWordmark />
             </a>
-            <p className="mt-3 text-sm font-medium text-[#0B1A2E]">
+            <p className="mt-3 text-sm font-medium text-[#0B1A2E] dark:text-slate-100">
               {BRAND.tagline}
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              Student information, community updates, marketplace discovery, and
-              campus networking.
+            <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              Campus updates, student marketplace, opportunities, and events.
             </p>
           </div>
 
@@ -57,7 +56,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                 key={section.id}
                 href={buildSearchForRoute(section.id)}
                 onClick={(e) => handleAnchorClick(e, section.id)}
-                className="inline-flex min-h-[36px] items-center text-left text-xs font-medium text-slate-600 transition-colors hover:text-[#1E88E5]"
+                className="inline-flex min-h-[36px] items-center text-left text-xs font-medium text-slate-600 transition-colors hover:text-[#1E88E5] dark:text-slate-400 dark:hover:text-sky-400"
               >
                 {section.title}
               </a>
@@ -65,7 +64,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           </nav>
         </div>
 
-        <div className="mt-8 border-t border-slate-200 pt-5 text-xs text-slate-500">
+        <div className="mt-8 border-t border-slate-200 pt-5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
           <p>{BRAND.name}</p>
         </div>
       </div>

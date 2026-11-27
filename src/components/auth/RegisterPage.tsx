@@ -186,32 +186,28 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
         <button
           type="button"
           onClick={() => (onBack ? onBack() : onNavigate(returnRoute))}
-          className="inline-flex min-h-[44px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E]"
+          className="inline-flex min-h-[44px] items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back
         </button>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-8 dark:border-slate-800 dark:bg-slate-900">
         <h1
           id="register-heading"
-          className="font-display text-2xl font-bold tracking-tight text-[#0B1A2E]"
+          className="font-display text-2xl font-bold tracking-tight text-[#0B1A2E] dark:text-white"
         >
           Create your LASUED Intel account
         </h1>
-        <p className="mt-1.5 text-sm text-slate-600">
-          All fields below are compulsory for students, finalists, graduates,
-          lecturers, and staff. Your email stays private for login and password
-          recovery, while your WhatsApp number becomes your public profile
-          message contact. You can update your bio and details later in Account
-          Settings.
+        <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-300">
+          For students, finalists, graduates, lecturers, and staff. Email stays private; your WhatsApp number lets members message you from your profile.
         </p>
 
         {formError && (
           <div
             role="alert"
-            className="mt-5 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-800"
+            className="mt-5 flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{formError}</span>
@@ -222,12 +218,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           <div
             role="status"
             aria-live="polite"
-            className="mt-5 flex items-center gap-2.5 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/10 p-3.5 text-sm font-medium text-[#0B1A2E]"
+            className="mt-5 flex items-center gap-2.5 rounded-xl border border-[#1E88E5]/30 bg-[#1E88E5]/10 p-3.5 text-sm font-medium text-[#0B1A2E] dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
           >
             {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin text-[#1E88E5]" aria-hidden="true" />
+              <Loader2 className="h-4 w-4 animate-spin text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
             ) : (
-              <CheckCircle2 className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <CheckCircle2 className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
             )}
             <span>{progressMessage}</span>
           </div>
@@ -242,9 +238,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <div>
               <label
                 htmlFor="reg-fullname"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Full name <span className="text-red-600">*</span>
+                Full name <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="reg-fullname"
@@ -254,19 +250,19 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="e.g. Adebayo Oluwaseun"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
               />
               {fieldErrors.fullName && (
-                <p className="mt-1 text-xs text-red-700">{fieldErrors.fullName}</p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">{fieldErrors.fullName}</p>
               )}
             </div>
 
             <div>
               <label
                 htmlFor="reg-username"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Username <span className="text-red-600">*</span>
+                Username <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="reg-username"
@@ -276,26 +272,26 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 value={username}
                 onChange={(e) => handleUsernameChange(e.target.value)}
                 placeholder="e.g. adebayo_01"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
               />
-              <p className="mt-1 text-xs text-slate-500">
-                Case-insensitive, lowercase letters, numbers, and underscores only.
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Lowercase letters, numbers, and underscores only.
               </p>
               {usernameCheck.state !== 'idle' && !fieldErrors.username && (
                 <p
                   className={`mt-1 text-xs font-medium ${
                     usernameCheck.state === 'available'
-                      ? 'text-emerald-700'
+                      ? 'text-emerald-700 dark:text-emerald-400'
                       : usernameCheck.state === 'unavailable'
-                      ? 'text-red-700'
-                      : 'text-slate-600'
+                      ? 'text-red-700 dark:text-red-400'
+                      : 'text-slate-600 dark:text-slate-400'
                   }`}
                 >
                   {usernameCheck.message}
                 </p>
               )}
               {fieldErrors.username && (
-                <p className="mt-1 text-xs text-red-700">{fieldErrors.username}</p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">{fieldErrors.username}</p>
               )}
             </div>
           </div>
@@ -304,9 +300,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <div>
               <label
                 htmlFor="reg-email"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Email address (compulsory) <span className="text-red-600">*</span>
+                Email address <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="reg-email"
@@ -316,24 +312,23 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
               />
-              <p className="mt-1 text-xs text-slate-500">
-                Private by default. Required for login, verification, and password
-                reset.
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Private. Used for login and password reset.
               </p>
               {fieldErrors.email && (
-                <p className="mt-1 text-xs text-red-700">{fieldErrors.email}</p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">{fieldErrors.email}</p>
               )}
             </div>
 
             <div>
               <label
                 htmlFor="reg-whatsapp"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                WhatsApp number (compulsory · public){' '}
-                <span className="text-red-600">*</span>
+                WhatsApp number (public){' '}
+                <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="reg-whatsapp"
@@ -343,20 +338,19 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 value={whatsappNumber}
                 onChange={(e) => setWhatsappNumber(e.target.value)}
                 placeholder="+234 800 000 0000"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
               />
-              <p className="mt-1 flex items-start gap-1 text-xs text-slate-600">
+              <p className="mt-1 flex items-start gap-1 text-xs text-slate-600 dark:text-slate-400">
                 <MessageCircle
-                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#1E88E5]"
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#1E88E5] dark:text-sky-400"
                   aria-hidden="true"
                 />
                 <span>
-                  Shown publicly on your profile so campus members can message
-                  you on WhatsApp (including when verified).
+                  Shown on your profile so members can message you.
                 </span>
               </p>
               {fieldErrors.whatsappNumber && (
-                <p className="mt-1 text-xs text-red-700">
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                   {fieldErrors.whatsappNumber}
                 </p>
               )}
@@ -367,9 +361,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <div>
               <label
                 htmlFor="reg-department"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Department / Unit <span className="text-red-600">*</span>
+                Department / Unit <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="reg-department"
@@ -378,10 +372,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
                 placeholder="e.g. Computer Science"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
               />
               {fieldErrors.department && (
-                <p className="mt-1 text-xs text-red-700">
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                   {fieldErrors.department}
                 </p>
               )}
@@ -390,17 +384,17 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <div>
               <label
                 htmlFor="reg-level"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Campus Status / Academic Level{' '}
-                <span className="text-red-600">*</span>
+                Campus Status / Level{' '}
+                <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <select
                 id="reg-level"
                 required
                 value={level}
                 onChange={(e) => setLevel(e.target.value)}
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-sky-400"
               >
                 <option value="">Select your status or level</option>
                 {CAMPUS_STATUS_OPTIONS.map((item) => (
@@ -409,12 +403,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-slate-500">
-                Includes undergraduates, finalists, graduates/alumni, lecturers,
-                and staff.
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Students, finalists, alumni, lecturers, and staff.
               </p>
               {fieldErrors.level && (
-                <p className="mt-1 text-xs text-red-700">{fieldErrors.level}</p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">{fieldErrors.level}</p>
               )}
             </div>
           </div>
@@ -423,9 +416,9 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
             <div>
               <label
                 htmlFor="reg-password"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Password <span className="text-red-600">*</span>
+                Password <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <div className="relative mt-1.5">
                 <input
@@ -436,13 +429,13 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
-                  className="block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 pr-10 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                  className="block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 pr-10 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute inset-y-0 right-0 flex min-w-[44px] items-center justify-center text-slate-500 hover:text-[#0B1A2E]"
+                  className="absolute inset-y-0 right-0 flex min-w-[44px] items-center justify-center text-slate-500 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" aria-hidden="true" />
@@ -452,16 +445,16 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 </button>
               </div>
               {fieldErrors.password && (
-                <p className="mt-1 text-xs text-red-700">{fieldErrors.password}</p>
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">{fieldErrors.password}</p>
               )}
             </div>
 
             <div>
               <label
                 htmlFor="reg-confirm-password"
-                className="block text-sm font-medium text-[#0B1A2E]"
+                className="block text-sm font-medium text-[#0B1A2E] dark:text-slate-200"
               >
-                Confirm password <span className="text-red-600">*</span>
+                Confirm password <span className="text-red-600 dark:text-red-400">*</span>
               </label>
               <input
                 id="reg-confirm-password"
@@ -471,10 +464,10 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Re-enter password"
-                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                className="mt-1.5 block min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
               />
               {fieldErrors.confirmPassword && (
-                <p className="mt-1 text-xs text-red-700">
+                <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                   {fieldErrors.confirmPassword}
                 </p>
               )}
@@ -487,15 +480,15 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 type="checkbox"
                 checked={acceptedTerms}
                 onChange={(e) => setAcceptedTerms(e.target.checked)}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-[#1E88E5]"
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-[#1E88E5] dark:border-slate-600"
               />
-              <span className="text-sm text-slate-700">
+              <span className="text-sm text-slate-700 dark:text-slate-300">
                 I accept the LASUED Intel Terms of Use and Privacy Policy.{' '}
-                <span className="text-red-600">*</span>
+                <span className="text-red-600 dark:text-red-400">*</span>
               </span>
             </label>
             {fieldErrors.acceptedTerms && (
-              <p className="mt-1 text-xs text-red-700">
+              <p className="mt-1 text-xs text-red-700 dark:text-red-400">
                 {fieldErrors.acceptedTerms}
               </p>
             )}
@@ -513,12 +506,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-600">
+        <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
           Already have an account?{' '}
           <button
             type="button"
             onClick={() => onNavigate('login')}
-            className="font-semibold text-[#1E88E5] hover:underline"
+            className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             Sign in
           </button>

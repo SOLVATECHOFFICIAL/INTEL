@@ -78,19 +78,19 @@ export const LinkifiedText: React.FC<LinkifiedTextProps> = ({
       ? 'inline-flex max-w-full items-center gap-1 break-all font-semibold text-sky-200 underline decoration-sky-200/70 underline-offset-2 transition-colors hover:text-white'
       : tone === 'on-light-card'
       ? 'inline-flex max-w-full items-center gap-1 break-all font-semibold text-[#0D47A1] underline decoration-[#0D47A1]/60 underline-offset-2 transition-colors hover:text-[#0B1A2E]'
-      : 'inline-flex max-w-full items-center gap-1 break-all font-semibold text-[#1565C0] underline decoration-[#1E88E5]/55 underline-offset-2 transition-colors hover:text-[#0B1A2E]';
+      : 'inline-flex max-w-full items-center gap-1 break-all font-semibold text-[#1565C0] underline decoration-[#1E88E5]/55 underline-offset-2 transition-colors hover:text-[#0B1A2E] dark:text-sky-400 dark:decoration-sky-400/55 dark:hover:text-sky-300';
 
   const copyBtnBase =
     tone === 'on-dark'
       ? 'border-white/25 bg-white/15 text-white hover:bg-white/25'
       : tone === 'on-light-card'
       ? 'border-slate-900/20 bg-white/85 text-[#0B1A2E] hover:bg-white'
-      : 'border-slate-200 bg-slate-100 text-[#0B1A2E] hover:border-[#1E88E5]/45 hover:bg-sky-50 hover:text-[#1565C0]';
+      : 'border-slate-200 bg-slate-100 text-[#0B1A2E] hover:border-[#1E88E5]/45 hover:bg-sky-50 hover:text-[#1565C0] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-sky-500/50 dark:hover:bg-sky-950/60 dark:hover:text-sky-300';
 
   const copiedBtnStyle =
     tone === 'on-dark'
       ? 'border-emerald-300/60 bg-emerald-500/30 text-emerald-50'
-      : 'border-emerald-300 bg-emerald-50 text-emerald-800';
+      : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700/60 dark:bg-emerald-950/50 dark:text-emerald-300';
 
   const handleCopy = async (
     event: React.MouseEvent<HTMLButtonElement>,

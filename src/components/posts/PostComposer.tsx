@@ -673,17 +673,17 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="post-composer-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/70 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/70 p-0 backdrop-blur-xs sm:items-center sm:p-4 dark:bg-slate-950/80"
       data-testid="post-composer-modal"
     >
-      <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl">
+      <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl dark:border dark:border-slate-800 dark:bg-slate-900">
         <div aria-hidden="true" className="lasued-action-gradient h-1 w-full shrink-0" />
         {/* Modal Header */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-white via-sky-50/40 to-blue-50/50 px-5 py-3.5 sm:py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-white via-sky-50/40 to-blue-50/50 px-5 py-3.5 sm:py-4 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
           <div className="min-w-0">
             <h2
               id="post-composer-title"
-              className="font-display text-lg font-bold text-[#0B1A2E]"
+              className="font-display text-lg font-bold text-[#0B1A2E] dark:text-slate-100"
             >
               {isEditing
                 ? mode === 'anonymous'
@@ -693,12 +693,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   : 'Edit Photo Post'
                 : mode === 'anonymous'
                 ? 'Post Anonymously'
-                : 'Create Campus Update'}
+                : 'New Campus Post'}
             </h2>
-            <p className="mt-0.5 text-xs text-slate-600">
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
               {mode === 'anonymous'
-                ? 'Identity, original filenames, and camera EXIF metadata are stripped automatically.'
-                : `Publishing as ${
+                ? 'Your name and photo metadata stay completely hidden.'
+                : `Posting as ${
                     actorName ||
                     (actorRole === 'supreme_admin' ? 'Supreme Admin' : 'Member')
                   }${actorUsername ? ` (@${actorUsername})` : ''}`}
@@ -710,22 +710,22 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             onClick={onClose}
             disabled={isSubmitting}
             aria-label="Close post composer"
-            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] disabled:opacity-50"
+            className="flex min-h-[42px] min-w-[42px] items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Compose / Preview Switcher */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2">
-          <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2 dark:border-slate-800 dark:bg-slate-800/50">
+          <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5 dark:bg-slate-800">
             <button
               type="button"
               onClick={() => setActiveView('compose')}
               className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors ${
                 activeView === 'compose'
-                  ? 'bg-white text-[#0B1A2E] shadow-xs'
-                  : 'text-slate-600 hover:text-[#0B1A2E]'
+                  ? 'bg-white text-[#0B1A2E] shadow-xs dark:bg-slate-700 dark:text-white'
+                  : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
               }`}
             >
               <PenLine className="h-3.5 w-3.5" aria-hidden="true" />
@@ -736,8 +736,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
               onClick={() => setActiveView('preview')}
               className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-3 text-xs font-semibold transition-colors ${
                 activeView === 'preview'
-                  ? 'bg-white text-[#0B1A2E] shadow-xs'
-                  : 'text-slate-600 hover:text-[#0B1A2E]'
+                  ? 'bg-white text-[#0B1A2E] shadow-xs dark:bg-slate-700 dark:text-white'
+                  : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
               }`}
             >
               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
@@ -746,16 +746,16 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           </div>
 
           {mode === 'ordinary' ? (
-            <span className="text-xs font-semibold text-slate-600 tabular-nums">
+            <span className="text-xs font-semibold text-slate-600 tabular-nums dark:text-slate-300">
               {ordinaryPostType === 'text'
-                ? 'Format: Text-Only Post'
-                : `Photo Post · ${attachments.length} / ${BLUEPRINT_LIMITS.mediaPostMaxCount} photos`}
+                ? 'Text Post'
+                : `Photo Post · ${attachments.length} / ${BLUEPRINT_LIMITS.mediaPostMaxCount}`}
             </span>
           ) : (
-            <span className="text-xs font-semibold text-slate-600 tabular-nums">
+            <span className="text-xs font-semibold text-slate-600 tabular-nums dark:text-slate-300">
               {anonPostType === 'text'
-                ? 'Format: Anonymous Text Post'
-                : `Anonymous Photo Post · ${attachments.length} / ${BLUEPRINT_LIMITS.mediaPostMaxCount} photos`}
+                ? 'Anonymous Text'
+                : `Anonymous Photo · ${attachments.length} / ${BLUEPRINT_LIMITS.mediaPostMaxCount}`}
             </span>
           )}
         </div>
@@ -777,12 +777,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             {draftRestored && !isEditing && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1E88E5]/25 bg-[#1E88E5]/5 px-3.5 py-2 text-xs text-[#0B1A2E]">
-                <span>Saved draft restored from this device.</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#1E88E5]/25 bg-[#1E88E5]/5 px-3.5 py-2 text-xs text-[#0B1A2E] dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-slate-100">
+                <span>Saved draft restored.</span>
                 <button
                   type="button"
                   onClick={handleDiscardDraft}
-                  className="font-semibold text-[#1E88E5] hover:underline"
+                  className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                 >
                   Discard draft
                 </button>
@@ -793,16 +793,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             {activeView === 'compose' && (
               <div className="space-y-1.5">
                 {isEditing ? (
-                  <p className="text-xs font-semibold text-slate-500">
-                    Post format is locked to{' '}
-                    <span className="text-[#0B1A2E]">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Post format:{' '}
+                    <span className="text-[#0B1A2E] dark:text-slate-100">
                       {(mode === 'ordinary'
                         ? ordinaryPostType
                         : anonPostType) === 'text'
                         ? 'Text-Only Post'
                         : 'Photo Post'}
-                    </span>{' '}
-                    while editing.
+                    </span>
                   </p>
                 ) : (
                   <div
@@ -813,7 +812,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         : 'Choose anonymous post format'
                     }
                     data-testid="composer-format-switcher"
-                    className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1"
+                    className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-800/70"
                   >
                     <button
                       type="button"
@@ -832,8 +831,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         (mode === 'ordinary'
                           ? ordinaryPostType
                           : anonPostType) === 'text'
-                          ? 'bg-[#0B1A2E] text-white shadow-xs'
-                          : 'text-slate-600 hover:bg-white hover:text-[#0B1A2E]'
+                          ? 'bg-[#0B1A2E] text-white shadow-xs dark:bg-sky-600'
+                          : 'text-slate-600 hover:bg-white hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white'
                       }`}
                     >
                       <Type className="h-3.5 w-3.5" aria-hidden="true" />
@@ -856,8 +855,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         (mode === 'ordinary'
                           ? ordinaryPostType
                           : anonPostType) === 'photo'
-                          ? 'bg-[#0B1A2E] text-white shadow-xs'
-                          : 'text-slate-600 hover:bg-white hover:text-[#0B1A2E]'
+                          ? 'bg-[#0B1A2E] text-white shadow-xs dark:bg-sky-600'
+                          : 'text-slate-600 hover:bg-white hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white'
                       }`}
                     >
                       <ImagePlus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -874,7 +873,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   <div>
                     <label
                       htmlFor="composer-category"
-                      className="block text-xs font-semibold text-[#0B1A2E]"
+                      className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                     >
                       Category
                     </label>
@@ -883,7 +882,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                       value={category}
                       disabled={isSubmitting}
                       onChange={(e) => setCategory(e.target.value)}
-                      className="mt-1 block min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                      className="mt-1 block min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                     >
                       {defaultCategories.map((item) => (
                         <option key={item} value={item}>
@@ -897,7 +896,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     <div>
                       <label
                         htmlFor="composer-title"
-                        className="block text-xs font-semibold text-[#0B1A2E]"
+                        className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                       >
                         Headline (optional)
                       </label>
@@ -909,21 +908,21 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         placeholder="Short update title"
-                        className="mt-1 block min-h-[42px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5]"
+                        className="mt-1 block min-h-[42px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
                       />
                     </div>
                   )}
                 </div>
 
                 {canMarkOfficial && !isEditing && (
-                  <label className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-[#0B1A2E]">
+                  <label className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-[#0B1A2E] dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-200">
                     <input
                       type="checkbox"
                       checked={isOfficial}
                       onChange={(e) => setIsOfficial(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-[#1E88E5]"
+                      className="h-4 w-4 rounded border-slate-300 text-[#1E88E5] dark:border-slate-600"
                     />
-                    Publish as Official Platform Update
+                    Publish as Official Update
                   </label>
                 )}
 
@@ -934,15 +933,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                       <div className="flex items-center justify-between gap-2">
                         <label
                           htmlFor="composer-body"
-                          className="block text-xs font-semibold text-[#0B1A2E]"
+                          className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                         >
                           Message
                         </label>
                         <span
                           className={`text-[11px] tabular-nums ${
                             body.trim().length > BLUEPRINT_LIMITS.textPostBodyMax
-                              ? 'font-semibold text-red-600'
-                              : 'text-slate-500'
+                              ? 'font-semibold text-red-600 dark:text-red-400'
+                              : 'text-slate-500 dark:text-slate-400'
                           }`}
                         >
                           {body.length} / {BLUEPRINT_LIMITS.textPostBodyMax}
@@ -954,11 +953,11 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         disabled={isSubmitting}
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
-                        placeholder="Share a campus update on a coloured background (supports line breaks, emojis, and links)..."
-                        className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
+                        placeholder="Write your campus update..."
+                        className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
                       />
                       {body.trim().length > BLUEPRINT_LIMITS.textPostBodyMax && (
-                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-red-700">
+                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-red-700 dark:text-red-400">
                           <span>
                             Text-only posts support up to{' '}
                             {BLUEPRINT_LIMITS.textPostBodyMax} characters.
@@ -967,7 +966,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                             <button
                               type="button"
                               onClick={() => handleSwitchOrdinaryType('photo')}
-                              className="font-semibold text-[#1E88E5] hover:underline"
+                              className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
                             >
                               Switch to Photo Post (up to{' '}
                               {BLUEPRINT_LIMITS.photoPostCaptionMax})
@@ -977,16 +976,16 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                       )}
                     </div>
 
-                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-slate-800/50">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                           <Palette
-                            className="h-3.5 w-3.5 text-[#1E88E5]"
+                            className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400"
                             aria-hidden="true"
                           />
-                          Background Colour or Gradient
+                          Card Background
                         </span>
-                        <span className="text-[11px] font-medium text-slate-600">
+                        <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
                           {activeTextTheme.label}
                         </span>
                       </div>
@@ -1011,7 +1010,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                               className={`flex h-9 w-9 items-center justify-center rounded-full border-2 transition-transform ${
                                 selected
                                   ? 'scale-110 border-[#1E88E5] ring-2 ring-[#1E88E5]/30'
-                                  : 'border-slate-300 hover:scale-105'
+                                  : 'border-slate-300 hover:scale-105 dark:border-slate-600'
                               }`}
                               style={{ background: theme.swatchCss }}
                             >
@@ -1044,7 +1043,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           className={`max-w-lg whitespace-pre-wrap text-sm font-semibold leading-relaxed sm:text-base ${activeTextTheme.textColorClass}`}
                         >
                           {body.trim() ||
-                            'Your text-only campus post preview appears here...'}
+                            'Your post preview appears here...'}
                         </p>
                       </div>
                     </div>
@@ -1056,15 +1055,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                       <div className="flex items-center justify-between">
                         <label
                           htmlFor="composer-body"
-                          className="block text-xs font-semibold text-[#0B1A2E]"
+                          className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                         >
-                          Shared Caption (displayed above your photos)
+                          Caption (optional)
                         </label>
                         <span
                           className={`text-[11px] tabular-nums ${
                             body.trim().length > BLUEPRINT_LIMITS.photoPostCaptionMax
-                              ? 'font-semibold text-red-600'
-                              : 'text-slate-500'
+                              ? 'font-semibold text-red-600 dark:text-red-400'
+                              : 'text-slate-500 dark:text-slate-400'
                           }`}
                         >
                           {body.length} / {BLUEPRINT_LIMITS.photoPostCaptionMax}
@@ -1076,15 +1075,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         disabled={isSubmitting}
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
-                        placeholder="Add one shared caption for all photos in this post (optional, any text format)..."
-                        className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
+                        placeholder="Add a caption for your photos..."
+                        className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
                       />
                     </div>
 
-                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3.5">
+                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-slate-800/50">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-[#0B1A2E]">
-                          Photographs (1 to 4 required · Compressed automatically)
+                        <span className="text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                          Photos (1 to 4)
                         </span>
                         <button
                           type="button"
@@ -1132,32 +1131,32 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           type="button"
                           disabled={isSubmitting || compressingCount > 0}
                           onClick={() => fileInputRef.current?.click()}
-                          className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-slate-50 disabled:opacity-50"
+                          className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-sky-400 dark:hover:bg-slate-800"
                         >
                           <ImagePlus
-                            className="h-6 w-6 text-[#1E88E5]"
+                            className="h-6 w-6 text-[#1E88E5] dark:text-sky-400"
                             aria-hidden="true"
                           />
-                          <span className="text-xs font-semibold text-[#0B1A2E]">
-                            Tap to select 1 to 4 photos from your device gallery
+                          <span className="text-xs font-semibold text-[#0B1A2E] dark:text-slate-100">
+                            Tap to select 1 to 4 photos
                           </span>
-                          <span className="text-[11px] text-slate-500">
-                            Photos display in balanced square grids with your shared caption above.
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Photos display cleanly in a grid.
                           </span>
                         </button>
                       ) : (
                         <div className="space-y-3">
                           <div
-                            className="rounded-xl border border-slate-200 bg-white p-3"
+                            className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"
                             data-testid="composer-inline-grid-preview"
                           >
-                            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                               <span>
                                 Grid Preview ({attachments.length}{' '}
                                 {attachments.length === 1 ? 'photo' : 'photos'})
                               </span>
-                              <span className="text-[#1E88E5]">
-                                Tap any photo to inspect
+                              <span className="text-[#1E88E5] dark:text-sky-400">
+                                Tap to zoom
                               </span>
                             </div>
                             <div className="mx-auto w-full max-w-lg">
@@ -1174,7 +1173,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                             {attachments.map((att, idx) => (
                               <div
                                 key={att.clientId}
-                                className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2"
+                                className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900"
                               >
                                 <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-[#0B1A2E]">
                                   {att.previewUrl ? (
@@ -1219,10 +1218,10 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                       handleTriggerReplaceAttachment(att.clientId)
                                     }
                                     aria-label={`Replace photograph ${idx + 1}`}
-                                    className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
+                                    className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                   >
                                     <RefreshCw
-                                      className="h-3 w-3 text-[#1E88E5]"
+                                      className="h-3 w-3 text-[#1E88E5] dark:text-sky-400"
                                       aria-hidden="true"
                                     />
                                     Replace
@@ -1236,7 +1235,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                           handleMoveAttachment(idx, idx - 1)
                                         }
                                         aria-label={`Move photograph ${idx + 1} earlier`}
-                                        className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                        className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                       >
                                         <ArrowLeft className="h-3 w-3" aria-hidden="true" />
                                       </button>
@@ -1250,13 +1249,13 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                           handleMoveAttachment(idx, idx + 1)
                                         }
                                         aria-label={`Move photograph ${idx + 1} later`}
-                                        className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                        className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                       >
                                         <ArrowRight className="h-3 w-3" aria-hidden="true" />
                                       </button>
                                     </div>
                                   ) : (
-                                    <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums">
+                                    <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums dark:text-slate-400">
                                       {att.compressed
                                         ? formatByteSize(att.compressed.byteSize)
                                         : `#${idx + 1}`}
@@ -1277,15 +1276,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         <div className="flex items-center justify-between">
                           <label
                             htmlFor="composer-body"
-                            className="block text-xs font-semibold text-[#0B1A2E]"
+                            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                           >
                             Anonymous Message
                           </label>
                           <span
                             className={`text-[11px] tabular-nums ${
                               body.trim().length > maxBodyLength
-                                ? 'font-semibold text-red-600'
-                                : 'text-slate-500'
+                                ? 'font-semibold text-red-600 dark:text-red-400'
+                                : 'text-slate-500 dark:text-slate-400'
                             }`}
                           >
                             {body.length} / {maxBodyLength}
@@ -1297,21 +1296,21 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           disabled={isSubmitting}
                           value={body}
                           onChange={(e) => setBody(e.target.value)}
-                          placeholder="Share an anonymous thought, question, or campus story (supports line breaks, emojis, and links)..."
-                          className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
+                          placeholder="Share an anonymous thought or question..."
+                          className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
                         />
                       </div>
 
-                      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-slate-800/50">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                             <Palette
-                              className="h-3.5 w-3.5 text-[#1E88E5]"
+                              className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400"
                               aria-hidden="true"
                             />
-                            Background Colour or Gradient
+                            Card Background
                           </span>
-                          <span className="text-[11px] font-medium text-slate-600">
+                          <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
                             {activeAnonTheme.label}
                           </span>
                         </div>
@@ -1336,7 +1335,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                 className={`flex h-9 w-9 items-center justify-center rounded-full border-2 transition-transform ${
                                   selected
                                     ? 'scale-110 border-[#1E88E5] ring-2 ring-[#1E88E5]/30'
-                                    : 'border-slate-300 hover:scale-105'
+                                    : 'border-slate-300 hover:scale-105 dark:border-slate-600'
                                 }`}
                                 style={{ background: theme.swatchCss }}
                               >
@@ -1363,17 +1362,17 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                               className={`max-w-lg whitespace-pre-wrap text-sm font-semibold leading-relaxed sm:text-base ${activeAnonTheme.textColorClass}`}
                             >
                               {body.trim() ||
-                                'Your styled anonymous text preview appears here...'}
+                                'Your post preview appears here...'}
                             </p>
                           </div>
                         ) : (
                           <div
-                            className="rounded-xl border border-slate-200 bg-white p-4"
+                            className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
                             data-testid="anon-text-inline-preview"
                           >
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                               {body.trim() ||
-                                'Your clean white-card anonymous post preview appears here...'}
+                                'Your post preview appears here...'}
                             </p>
                           </div>
                         )}
@@ -1386,15 +1385,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         <div className="flex items-center justify-between">
                           <label
                             htmlFor="composer-body"
-                            className="block text-xs font-semibold text-[#0B1A2E]"
+                            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                           >
-                            Shared Caption (displayed above your photos)
+                            Caption (optional)
                           </label>
                           <span
                             className={`text-[11px] tabular-nums ${
                               body.trim().length > maxBodyLength
-                                ? 'font-semibold text-red-600'
-                                : 'text-slate-500'
+                                ? 'font-semibold text-red-600 dark:text-red-400'
+                                : 'text-slate-500 dark:text-slate-400'
                             }`}
                           >
                             {body.length} / {maxBodyLength}
@@ -1406,15 +1405,15 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           disabled={isSubmitting}
                           value={body}
                           onChange={(e) => setBody(e.target.value)}
-                          placeholder="Add one shared caption above all photos in this anonymous post (optional, any text format)..."
-                          className="mt-1 block w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5]"
+                          placeholder="Add a caption for your photos..."
+                          className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm leading-relaxed text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
                         />
                       </div>
 
-                      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3.5">
+                      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-slate-800/50">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-[#0B1A2E]">
-                            Photographs (1 to 4 required · EXIF &amp; filenames stripped)
+                          <span className="text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                            Photos (1 to 4 · Metadata stripped)
                           </span>
                           <button
                             type="button"
@@ -1462,31 +1461,31 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                             type="button"
                             disabled={isSubmitting || compressingCount > 0}
                             onClick={() => fileInputRef.current?.click()}
-                            className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-slate-50 disabled:opacity-50"
+                            className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-sky-400 dark:hover:bg-slate-800"
                           >
                             <ImagePlus
-                              className="h-6 w-6 text-[#1E88E5]"
+                              className="h-6 w-6 text-[#1E88E5] dark:text-sky-400"
                               aria-hidden="true"
                             />
-                            <span className="text-xs font-semibold text-[#0B1A2E]">
-                              Tap to choose 1 to 4 photographs from gallery or camera
+                            <span className="text-xs font-semibold text-[#0B1A2E] dark:text-slate-100">
+                              Tap to choose 1 to 4 photos
                             </span>
-                            <span className="text-[11px] text-slate-500">
-                              Photos render in balanced square grids with your shared caption above.
+                            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Photos render cleanly in a grid.
                             </span>
                           </button>
                         ) : (
                           <div className="space-y-3">
                             <div
-                              className="rounded-xl border border-slate-200 bg-white p-3"
+                              className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"
                               data-testid="composer-inline-grid-preview"
                             >
-                              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                                 <span>
                                   Grid Preview ({attachments.length}{' '}
                                   {attachments.length === 1 ? 'photo' : 'photos'})
                                 </span>
-                                <span className="text-[#1E88E5]">
+                                <span className="text-[#1E88E5] dark:text-sky-400">
                                   Tap any photo to zoom
                                 </span>
                               </div>
@@ -1504,7 +1503,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                               {attachments.map((att, idx) => (
                                 <div
                                   key={att.clientId}
-                                  className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2"
+                                  className="flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900"
                                 >
                                   <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-[#0B1A2E]">
                                     {att.previewUrl ? (
@@ -1549,10 +1548,10 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                         handleTriggerReplaceAttachment(att.clientId)
                                       }
                                       aria-label={`Replace photograph ${idx + 1}`}
-                                      className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50"
+                                      className="inline-flex min-h-[28px] items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                     >
                                       <RefreshCw
-                                        className="h-3 w-3 text-[#1E88E5]"
+                                        className="h-3 w-3 text-[#1E88E5] dark:text-sky-400"
                                         aria-hidden="true"
                                       />
                                       Replace
@@ -1566,7 +1565,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                             handleMoveAttachment(idx, idx - 1)
                                           }
                                           aria-label={`Move photograph ${idx + 1} earlier`}
-                                          className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                          className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                         >
                                           <ArrowLeft className="h-3 w-3" aria-hidden="true" />
                                         </button>
@@ -1580,13 +1579,13 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                                             handleMoveAttachment(idx, idx + 1)
                                           }
                                           aria-label={`Move photograph ${idx + 1} later`}
-                                          className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35"
+                                          className="flex h-7 w-6 items-center justify-center rounded border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-35 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                                         >
                                           <ArrowRight className="h-3 w-3" aria-hidden="true" />
                                         </button>
                                       </div>
                                     ) : (
-                                      <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums">
+                                      <p className="truncate text-[11px] font-semibold text-slate-600 tabular-nums dark:text-slate-400">
                                         {att.compressed
                                           ? formatByteSize(att.compressed.byteSize)
                                           : `#${idx + 1}`}
@@ -1605,11 +1604,11 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             ) : (
               /* FULL POST PREVIEW */
               <div
-                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4"
+                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/70"
                 data-testid="post-live-preview"
               >
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span className="font-semibold text-[#0B1A2E]">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                     {mode === 'anonymous'
                       ? 'Anonymous'
                       : actorName || 'Verified Contributor'}
@@ -1639,12 +1638,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   ) : (
                     <div className="space-y-3">
                       {title.trim() && (
-                        <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                        <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                           {title.trim()}
                         </h3>
                       )}
                       {body.trim() && (
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                           {body.trim()}
                         </p>
                       )}
@@ -1656,7 +1655,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                           onImageClick={(idx) => setLightboxIndex(idx)}
                         />
                       ) : (
-                        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
+                        <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                           Select 1 to 4 photos in Compose to preview the photo grid.
                         </p>
                       )}
@@ -1665,7 +1664,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 ) : anonPostType === 'photo' ? (
                   <div className="space-y-3">
                     {body.trim() && (
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                         {body.trim()}
                       </p>
                     )}
@@ -1677,7 +1676,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                         onImageClick={(idx) => setLightboxIndex(idx)}
                       />
                     ) : (
-                      <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
+                      <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                         Select 1 to 4 photos in Compose to preview the photo grid.
                       </p>
                     )}
@@ -1694,7 +1693,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     </p>
                   </div>
                 ) : (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                     {body.trim() || 'No text entered yet.'}
                   </p>
                 )}
@@ -1702,12 +1701,12 @@ export const PostComposer: React.FC<PostComposerProps> = ({
             )}
 
             {uploadProgress && (
-              <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E]">
+              <div className="space-y-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/70">
+                <div className="flex items-center justify-between text-xs font-medium text-[#0B1A2E] dark:text-slate-100">
                   <span>{uploadProgress.label}</span>
                   <span className="tabular-nums">{uploadProgress.percent}%</span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                   <div
                     className="h-full bg-[#1E88E5] transition-all duration-200"
                     style={{ width: `${uploadProgress.percent}%` }}
@@ -1720,18 +1719,18 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           {errorMessage && (
             <div
               role="alert"
-              className="mx-5 mt-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800 sm:text-sm"
+              className="mx-5 mt-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-800 sm:text-sm dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
             >
               {errorMessage}
             </div>
           )}
 
           {/* Always-Pinned Footer Actions OUTSIDE Scroll Container */}
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
               {mode === 'anonymous' && (
                 <>
-                  <Lock className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
+                  <Lock className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
                   <span>Identity protected</span>
                 </>
               )}
@@ -1742,7 +1741,7 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                 type="button"
                 disabled={isSubmitting}
                 onClick={onClose}
-                className="inline-flex min-h-[42px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex min-h-[42px] items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>

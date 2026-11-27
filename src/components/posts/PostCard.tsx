@@ -1357,10 +1357,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
     <article
       ref={articleRef}
       id={`post-${post.id}`}
-      className={`min-w-0 max-w-full overflow-hidden rounded-2xl border bg-white p-4 shadow-xs transition-colors sm:p-5 ${
+      className={`min-w-0 max-w-full overflow-hidden rounded-2xl border bg-white p-4 shadow-xs transition-colors sm:p-5 dark:bg-slate-900 ${
         isHighlighted && !highlightCommentId
           ? 'border-[#1E88E5] ring-2 ring-[#1E88E5]/25'
-          : 'border-slate-200'
+          : 'border-slate-200 dark:border-slate-800'
       }`}
       data-testid={`post-card-${post.id}`}
     >
@@ -1394,20 +1394,20 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                     <button
                       type="button"
                       onClick={() => onNavigateProfile?.(author.username)}
-                      className="inline-flex min-w-0 items-center text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                      className="inline-flex min-w-0 items-center text-sm font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400"
                     >
                       <span className="truncate">{author.fullName}</span>
                     </button>
                     <ProfileBadgesRow profile={author} size="xs" />
                   </span>
                 ) : (
-                  <span className="text-sm font-bold text-[#0B1A2E]">
+                  <span className="text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                     Campus Contributor
                   </span>
                 )}
 
                 {author && (
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
                     @{author.username}
                   </span>
                 )}
@@ -1421,12 +1421,12 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                 )}
               </div>
 
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 <span>{post.category}</span>
                 {'isOfficial' in post && post.isOfficial && (
                   <>
                     <span aria-hidden="true"> · </span>
-                    <span className="font-semibold text-[#1E88E5]">
+                    <span className="font-semibold text-[#1E88E5] dark:text-sky-400">
                       Official Update
                     </span>
                   </>
@@ -1434,7 +1434,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                 {'isPinned' in post && post.isPinned && (
                   <>
                     <span aria-hidden="true"> · </span>
-                    <span className="font-semibold text-[#0B1A2E]">Pinned</span>
+                    <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">Pinned</span>
                   </>
                 )}
                 <span aria-hidden="true"> · </span>
@@ -1444,15 +1444,15 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0B1A2E] text-white">
-              <Shield className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0B1A2E] text-white dark:bg-slate-800">
+              <Shield className="h-4 w-4 text-[#1E88E5] dark:text-sky-400" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-bold text-[#0B1A2E]">
+              <p className="text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
                 Anonymous
                 {isOwnedAnonymous ? ' (You)' : ''}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 <span>{post.category}</span>
                 <span aria-hidden="true"> · </span>
                 <span>Identity hidden</span>
@@ -1490,7 +1490,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
               onClick={() => setRevealOpen((prev) => !prev)}
               aria-label="Reveal anonymous identity (Supreme Admin)"
               title="Reveal identity (logged to audit)"
-              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-[#1565C0] hover:bg-sky-50"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-[#1565C0] hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/50"
             >
               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">Audit</span>
@@ -1501,7 +1501,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
               type="button"
               onClick={() => onEditPost(post)}
               aria-label="Edit post"
-              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             >
               <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">Edit</span>
@@ -1512,7 +1512,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
               type="button"
               onClick={() => setConfirmDeletePost((prev) => !prev)}
               aria-label="Delete post"
-              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
               <span className="hidden sm:inline">Delete</span>
@@ -1523,10 +1523,9 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
       {/* Inline Delete Post Confirmation */}
       {confirmDeletePost && (
-        <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center">
+        <div className="mt-3 flex flex-col justify-between gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 sm:flex-row sm:items-center dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200">
           <span>
-            Delete this post along with its comments, reactions, and image
-            documents?
+            Delete this post along with its comments and photos?
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -1544,7 +1543,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
               type="button"
               disabled={deleteBusy}
               onClick={() => setConfirmDeletePost(false)}
-              className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-[#0B1A2E]"
+              className="inline-flex min-h-[36px] items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-[#0B1A2E] hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
@@ -1554,10 +1553,10 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
       {/* Supreme Admin Identity Audit Form */}
       {kind === 'anonymous' && canRevealAnonymous && revealOpen && (
-        <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/70 p-3 text-xs">
+        <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/70 p-3 text-xs dark:border-sky-900/60 dark:bg-sky-950/40">
           <form onSubmit={handleRevealAuthor} className="space-y-2">
-            <label className="block font-semibold text-[#0B1A2E]">
-              Supreme Admin Audit Reveal (logged permanently)
+            <label className="block font-semibold text-[#0B1A2E] dark:text-slate-100">
+              Admin Audit Reveal (logged)
             </label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
@@ -1566,8 +1565,8 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                 maxLength={BLUEPRINT_LIMITS.auditReasonMax}
                 value={revealReason}
                 onChange={(e) => setRevealReason(e.target.value)}
-                placeholder="Reason for safety/policy review (min 5 chars)..."
-                className="min-h-[38px] min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs text-[#0B1A2E]"
+                placeholder="Reason for safety review (min 5 chars)..."
+                className="min-h-[38px] min-w-0 flex-1 rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] dark:border-sky-800 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400"
               />
               <button
                 type="submit"
@@ -1582,7 +1581,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             </div>
           </form>
           {revealedAuthor && (
-            <p className="mt-2 font-medium text-[#0B1A2E]">
+            <p className="mt-2 font-medium text-[#0B1A2E] dark:text-slate-100">
               Author:{' '}
               {revealedAuthor.profile
                 ? `${revealedAuthor.profile.fullName} (@${revealedAuthor.profile.username})`
@@ -1620,14 +1619,14 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           ) : (
             <div className="mt-3 space-y-1.5">
               {'title' in post && post.title && (
-                <h2 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E]">
+                <h2 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                   {post.title}
                 </h2>
               )}
               {post.body.trim().length > 0 && (
                 <LinkifiedText
                   text={post.body}
-                  className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                  className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
                 />
               )}
             </div>
@@ -1638,14 +1637,14 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             {('title' in post && post.title) || post.body.trim().length > 0 ? (
               <div className="space-y-1.5">
                 {'title' in post && post.title && (
-                  <h2 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E]">
+                  <h2 className="overflow-wrap-anywhere font-display text-base font-bold text-[#0B1A2E] dark:text-slate-100">
                     {post.title}
                   </h2>
                 )}
                 {post.body.trim().length > 0 && (
                   <LinkifiedText
                     text={post.body}
-                    className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+                    className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
                   />
                 )}
               </div>
@@ -1672,7 +1671,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           {post.body.trim().length > 0 && (
             <LinkifiedText
               text={post.body}
-              className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+              className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
             />
           )}
           {gridItems.length > 0 && (
@@ -1709,7 +1708,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           {post.body.trim().length > 0 && (
             <LinkifiedText
               text={post.body}
-              className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+              className="overflow-wrap-anywhere whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300"
             />
           )}
         </div>
@@ -1718,19 +1717,19 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       {cardError && (
         <div
           role="alert"
-          className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-800"
+          className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
         >
           {cardError}
         </div>
       )}
 
       {guestActionPrompt && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-200">
           <span>{guestActionPrompt}</span>
           <button
             type="button"
             onClick={() => onRequireAuth('login', returnRoute)}
-            className="font-semibold text-[#1E88E5] hover:underline"
+            className="font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             Sign In
           </button>
@@ -1738,12 +1737,12 @@ const PostCardComponent: React.FC<PostCardProps> = ({
       )}
 
       {/* Post Actions Footer: Left = View Counter | Right = Save -> Like -> Comment */}
-      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-1.5 border-t border-slate-100 pt-2.5">
+      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-1.5 border-t border-slate-100 pt-2.5 dark:border-slate-800">
         <div
-          className="inline-flex min-h-[36px] items-center gap-1.5 px-1 text-xs font-medium text-slate-500 tabular-nums"
+          className="inline-flex min-h-[36px] items-center gap-1.5 px-1 text-xs font-medium text-slate-500 tabular-nums dark:text-slate-400"
           title="Unique post views"
         >
-          <Eye className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+          <Eye className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" aria-hidden="true" />
           <span>{formatCompactViewCount(effectiveViewsCount)}</span>
         </div>
 
@@ -1756,7 +1755,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-all sm:px-3 ${
               savedState
                 ? 'lasued-accent-gradient text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
             }`}
           >
             <Bookmark
@@ -1774,12 +1773,12 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             aria-pressed={likedState}
             className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors sm:px-3 ${
               likedState
-                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E]'
+                ? 'bg-[#1E88E5]/10 text-[#1E88E5] dark:bg-sky-500/15 dark:text-sky-400'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
             }`}
           >
             <Heart
-              className={`h-4 w-4 ${likedState ? 'fill-[#1E88E5]' : ''}`}
+              className={`h-4 w-4 ${likedState ? 'fill-[#1E88E5] dark:fill-sky-400' : ''}`}
               aria-hidden="true"
             />
             <span className="tabular-nums">{likesCount}</span>
@@ -1790,7 +1789,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             type="button"
             onClick={handleToggleComments}
             aria-expanded={commentsOpen}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] sm:px-3"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#0B1A2E] sm:px-3 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
             <span className="tabular-nums">{commentsCount}</span>
@@ -1806,7 +1805,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
             <button
               type="button"
               onClick={() => onOpenPost(post.id)}
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:border-[#1E88E5] hover:text-[#1E88E5]"
+              className="inline-flex min-h-[40px] items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0B1A2E] transition-colors hover:border-[#1E88E5] hover:text-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:border-sky-400 dark:hover:text-sky-400"
             >
               Open Post
             </button>
@@ -1816,7 +1815,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
       {/* Expandable Comments & Nested Replies Drawer */}
       {commentsOpen && (
-        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
           {/* Add Top-Level Comment */}
           <div className="flex items-start gap-2">
             <input
@@ -1835,7 +1834,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                   ? 'Add an anonymous comment...'
                   : 'Write a comment...'
               }
-              className="min-h-[40px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+              className="min-h-[40px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400"
             />
             <button
               type="button"
@@ -1849,7 +1848,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
           </div>
 
           {commentsLoading ? (
-            <div className="flex items-center gap-2 py-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2 py-2 text-xs text-slate-500 dark:text-slate-400">
               <Loader2
                 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]"
                 aria-hidden="true"
@@ -1857,7 +1856,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
               Loading comments...
             </div>
           ) : topLevelComments.length === 0 ? (
-            <p className="py-1 text-xs text-slate-500">
+            <p className="py-1 text-xs text-slate-500 dark:text-slate-400">
               No comments yet. Start the conversation.
             </p>
           ) : (
@@ -1890,8 +1889,8 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                     id={`comment-${comment.id}`}
                     className={`rounded-xl border p-3 transition-colors ${
                       isCommentHighlighted
-                        ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
-                        : 'border-slate-100 bg-slate-50/80'
+                        ? 'border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20 dark:bg-sky-950/30'
+                        : 'border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/60'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1904,7 +1903,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                 onClick={() =>
                                   onNavigateProfile?.(commentAuthor.username)
                                 }
-                                className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                                className="font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400"
                               >
                                 {commentAuthor.fullName}
                               </button>
@@ -1915,7 +1914,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                               onClick={() =>
                                 onNavigateProfile?.(commentAuthor.username)
                               }
-                              className="font-normal text-slate-500 hover:text-[#1E88E5]"
+                              className="font-normal text-slate-500 hover:text-[#1E88E5] dark:text-slate-400 dark:hover:text-sky-400"
                             >
                               @{commentAuthor.username}
                             </button>
@@ -1928,7 +1927,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                             />
                           </>
                         ) : (
-                          <span className="font-bold text-[#0B1A2E]">
+                          <span className="font-bold text-[#0B1A2E] dark:text-slate-100">
                             {kind === 'anonymous'
                               ? ownedAnonymousCommentIds?.has(comment.id)
                                 ? 'Anonymous (You)'
@@ -1936,8 +1935,8 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                               : 'Campus Member'}
                           </span>
                         )}
-                        <span className="text-slate-400">·</span>
-                        <span className="text-slate-500">
+                        <span className="text-slate-400 dark:text-slate-500">·</span>
+                        <span className="text-slate-500 dark:text-slate-400">
                           {formatPostTimestamp(comment.createdAt)}
                         </span>
                       </div>
@@ -1950,14 +1949,14 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                           aria-pressed={likedCommentIds.has(comment.id)}
                           className={`inline-flex items-center gap-1 font-semibold ${
                             likedCommentIds.has(comment.id)
-                              ? 'text-[#1E88E5]'
-                              : 'text-slate-600 hover:text-[#0B1A2E]'
+                              ? 'text-[#1E88E5] dark:text-sky-400'
+                              : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
                           }`}
                         >
                           <Heart
                             className={`h-3 w-3 ${
                               likedCommentIds.has(comment.id)
-                                ? 'fill-[#1E88E5]'
+                                ? 'fill-[#1E88E5] dark:fill-sky-400'
                                 : ''
                             }`}
                             aria-hidden="true"
@@ -1983,7 +1982,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                             setReplyTarget(null);
                             setReplyBody('');
                           }}
-                          className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                          className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50 dark:text-sky-400"
                         >
                           Reply
                         </button>
@@ -1994,7 +1993,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                               setEditingCommentId(comment.id);
                               setEditingCommentBody(comment.body);
                             }}
-                            className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
+                            className="font-semibold text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
                           >
                             Edit
                           </button>
@@ -2004,7 +2003,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                             type="button"
                             disabled={commentActionBusyId === comment.id}
                             onClick={() => handleDeleteComment(comment)}
-                            className="font-semibold text-red-700 hover:underline disabled:opacity-50"
+                            className="font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-400"
                           >
                             Delete
                           </button>
@@ -2019,7 +2018,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                           value={editingCommentBody}
                           maxLength={BLUEPRINT_LIMITS.commentBodyMax}
                           onChange={(e) => setEditingCommentBody(e.target.value)}
-                          className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
+                          className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         />
                         <button
                           type="button"
@@ -2033,7 +2032,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                         <button
                           type="button"
                           onClick={() => setEditingCommentId(null)}
-                          className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700"
+                          className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                         >
                           Cancel
                         </button>
@@ -2041,7 +2040,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                     ) : (
                       <LinkifiedText
                         text={comment.body}
-                        className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700"
+                        className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700 dark:text-slate-300"
                       />
                     )}
 
@@ -2050,17 +2049,17 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                       <div className="mt-2 space-y-1.5 pl-4">
                         {replyTarget?.parentCommentId === comment.id &&
                           replyTarget.label && (
-                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-400">
                               <span>
                                 Replying to{' '}
-                                <span className="font-semibold text-[#0B1A2E]">
+                                <span className="font-semibold text-[#0B1A2E] dark:text-slate-100">
                                   {replyTarget.label}
                                 </span>
                               </span>
                               <button
                                 type="button"
                                 onClick={() => setReplyTarget(null)}
-                                className="font-semibold text-slate-500 hover:text-[#0B1A2E]"
+                                className="font-semibold text-slate-500 hover:text-[#0B1A2E] dark:text-slate-400 dark:hover:text-white"
                               >
                                 Clear
                               </button>
@@ -2090,7 +2089,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                 ? `Reply to ${replyTarget.label}...`
                                 : 'Write a reply...'
                             }
-                            className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E]"
+                            className="min-h-[36px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400"
                           />
                           <button
                             type="button"
@@ -2104,7 +2103,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                   : undefined
                               )
                             }
-                            className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50"
+                            className="min-h-[36px] rounded-lg bg-[#0B1A2E] px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                           >
                             Reply
                           </button>
@@ -2114,7 +2113,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
 
                     {/* Nested Replies */}
                     {replies.length > 0 && (
-                      <div className="mt-2.5 space-y-2 border-l-2 border-slate-200 pl-3">
+                      <div className="mt-2.5 space-y-2 border-l-2 border-slate-200 pl-3 dark:border-slate-700">
                         {replies.map(
                           ({ comment: reply, author: replyAuthor }) => {
                             const canModifyReply =
@@ -2146,14 +2145,14 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                 id={`comment-${reply.id}`}
                                 className={`rounded-lg p-2.5 transition-colors ${
                                   isReplyHighlighted
-                                    ? 'border border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20'
-                                    : 'bg-white'
+                                    ? 'border border-[#1E88E5] bg-[#1E88E5]/5 ring-2 ring-[#1E88E5]/20 dark:bg-sky-950/30'
+                                    : 'bg-white dark:bg-slate-900/90'
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-2 text-[11px]">
                                   <div className="flex flex-wrap items-center gap-1.5">
                                     <CornerDownRight
-                                      className="h-3 w-3 text-slate-400"
+                                      className="h-3 w-3 text-slate-400 dark:text-slate-500"
                                       aria-hidden="true"
                                     />
                                     {kind === 'ordinary' && replyAuthor ? (
@@ -2165,7 +2164,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                               replyAuthor.username
                                             )
                                           }
-                                          className="font-bold text-[#0B1A2E] hover:text-[#1E88E5]"
+                                          className="font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-slate-100 dark:hover:text-sky-400"
                                         >
                                           {replyAuthor.fullName}
                                         </button>
@@ -2182,7 +2181,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                         />
                                       </>
                                     ) : (
-                                      <span className="font-bold text-[#0B1A2E]">
+                                      <span className="font-bold text-[#0B1A2E] dark:text-slate-100">
                                         {kind === 'anonymous'
                                           ? ownedAnonymousCommentIds?.has(
                                               reply.id
@@ -2192,8 +2191,8 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                           : 'Campus Member'}
                                       </span>
                                     )}
-                                    <span className="text-slate-400">·</span>
-                                    <span className="text-slate-500">
+                                    <span className="text-slate-400 dark:text-slate-500">·</span>
+                                    <span className="text-slate-500 dark:text-slate-400">
                                       {formatPostTimestamp(reply.createdAt)}
                                     </span>
                                   </div>
@@ -2206,14 +2205,14 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                       aria-pressed={likedCommentIds.has(reply.id)}
                                       className={`inline-flex items-center gap-1 font-semibold ${
                                         likedCommentIds.has(reply.id)
-                                          ? 'text-[#1E88E5]'
-                                          : 'text-slate-600 hover:text-[#0B1A2E]'
+                                          ? 'text-[#1E88E5] dark:text-sky-400'
+                                          : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
                                       }`}
                                     >
                                       <Heart
                                         className={`h-3 w-3 ${
                                           likedCommentIds.has(reply.id)
-                                            ? 'fill-[#1E88E5]'
+                                            ? 'fill-[#1E88E5] dark:fill-sky-400'
                                             : ''
                                         }`}
                                         aria-hidden="true"
@@ -2252,7 +2251,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                           );
                                         }
                                       }}
-                                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50"
+                                      className="font-semibold text-[#1E88E5] hover:underline disabled:opacity-50 dark:text-sky-400"
                                     >
                                       Reply
                                     </button>
@@ -2264,7 +2263,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                             setEditingCommentId(reply.id);
                                             setEditingCommentBody(reply.body);
                                           }}
-                                          className="font-semibold text-slate-600 hover:text-[#0B1A2E]"
+                                          className="font-semibold text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white"
                                         >
                                           Edit
                                         </button>
@@ -2279,7 +2278,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                           onClick={() =>
                                             handleDeleteComment(reply)
                                           }
-                                          className="font-semibold text-red-700 hover:underline disabled:opacity-50"
+                                          className="font-semibold text-red-700 hover:underline disabled:opacity-50 dark:text-red-400"
                                         >
                                           Delete
                                         </button>
@@ -2296,7 +2295,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                       onChange={(e) =>
                                         setEditingCommentBody(e.target.value)
                                       }
-                                      className="min-h-[34px] flex-1 rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                                      className="min-h-[34px] flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                                     />
                                     <button
                                       type="button"
@@ -2311,7 +2310,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                                 ) : (
                                   <LinkifiedText
                                     text={reply.body}
-                                    className="mt-1 whitespace-pre-wrap text-xs text-slate-700"
+                                    className="mt-1 whitespace-pre-wrap text-xs text-slate-700 dark:text-slate-300"
                                   />
                                 )}
                               </div>
@@ -2330,7 +2329,7 @@ const PostCardComponent: React.FC<PostCardProps> = ({
                     type="button"
                     disabled={loadingMoreComments}
                     onClick={() => void handleLoadMoreComments()}
-                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60"
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                   >
                     {loadingMoreComments && (
                       <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />

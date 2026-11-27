@@ -44,6 +44,7 @@ import {
 } from '../../utils/cacheSync';
 import { isDataSaverConnection } from '../../utils/mediaCache';
 import { GuestPromptCard } from '../auth/GuestPromptCard';
+import { SectionRibbon } from '../shared/SectionRibbon';
 import { EventCard } from './events/EventCard';
 import { EventDetailsView } from './events/EventDetailsView';
 
@@ -614,27 +615,27 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+      <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
         <Loader2
           className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
           aria-hidden="true"
         />
-        Loading campus events calendar...
+        Loading campus events...
       </div>
     );
   }
 
   if (errorMessage && events.length === 0) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50/70 p-6 text-center">
+      <div className="rounded-xl border border-red-200 bg-red-50/70 p-6 text-center dark:border-red-900/60 dark:bg-red-950/40">
         <AlertCircle
-          className="mx-auto mb-2 h-6 w-6 text-red-700"
+          className="mx-auto mb-2 h-6 w-6 text-red-700 dark:text-red-400"
           aria-hidden="true"
         />
-        <p className="font-display text-sm font-bold text-[#0B1A2E]">
+        <p className="font-display text-sm font-bold text-[#0B1A2E] dark:text-white">
           Unable to load campus events
         </p>
-        <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+        <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-300">
           {errorMessage}
         </p>
         <button
@@ -644,7 +645,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
             setErrorMessage(null);
             setReloadNonce((n) => n + 1);
           }}
-          className="mt-4 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+          className="mt-4 inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
         >
           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
           Retry
@@ -657,7 +658,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
   if (effectiveSelectedId) {
     if (directLookupLoading) {
       return (
-        <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+        <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
           <Loader2
             className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
             aria-hidden="true"
@@ -673,28 +674,27 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
           <button
             type="button"
             onClick={() => openDetails(null)}
-            className="inline-flex min-h-[36px] items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline"
+            className="inline-flex min-h-[36px] items-center gap-1.5 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Back to Events
           </button>
 
-          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-8 text-center">
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-8 text-center dark:border-slate-700 dark:bg-slate-800/50">
             <Calendar
               className="mx-auto mb-2 h-6 w-6 text-slate-400"
               aria-hidden="true"
             />
-            <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+            <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-white">
               Event not available
             </h2>
-            <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
-              This campus event may have been removed or unpublished. Explore all
-              currently published LASUED events below.
+            <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-400">
+              This event may have been removed or unpublished.
             </p>
             <button
               type="button"
               onClick={() => openDetails(null)}
-              className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+              className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
             >
               Browse All Events
             </button>
@@ -738,58 +738,34 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
     <div className="space-y-5">
       {/* Section Tabs: All Events & Saved Events */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div
-          role="tablist"
-          aria-label="Campus events views"
-          className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'all'}
-            onClick={() => setActiveTab('all')}
-            className={`min-h-[36px] rounded-lg px-3.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-              activeTab === 'all'
-                ? 'bg-white text-[#0B1A2E] shadow-xs'
-                : 'text-slate-600 hover:text-[#0B1A2E]'
-            }`}
-          >
-            All Events ({events.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'saved'}
-            onClick={() => {
-              if (!viewerUid) {
-                setGuestPromptMessage(
-                  'Sign in to view and manage your saved campus events.'
-                );
-                return;
-              }
-              setActiveTab('saved');
-            }}
-            className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3.5 text-xs font-semibold whitespace-nowrap transition-colors ${
-              activeTab === 'saved'
-                ? 'bg-white text-[#0B1A2E] shadow-xs'
-                : 'text-slate-600 hover:text-[#0B1A2E]'
-            }`}
-          >
-            <Bookmark className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />
-            Saved Events
-            {viewerUid && savedEventsCount > 0 && (
-              <span className="tabular-nums text-[#1E88E5]">
-                ({savedEventsCount})
-              </span>
-            )}
-          </button>
-        </div>
+        <SectionRibbon
+          variant="sublist"
+          ariaLabel="Campus events views"
+          items={[
+            { id: 'all', label: 'All Events', count: events.length },
+            {
+              id: 'saved',
+              label: 'Saved Events',
+              count: viewerUid ? savedEventsCount : undefined,
+              icon: <Bookmark className="h-3.5 w-3.5 text-[#1E88E5]" aria-hidden="true" />,
+            },
+          ]}
+          activeId={activeTab}
+          onChange={(tabId) => {
+            if (tabId === 'saved' && !viewerUid) {
+              setGuestPromptMessage('Sign in to view your saved campus events.');
+              return;
+            }
+            setActiveTab(tabId);
+          }}
+          className="sm:w-fit"
+        />
 
         {hasActiveFilters && (
           <button
             type="button"
             onClick={clearFilters}
-            className="inline-flex min-h-[34px] items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline"
+            className="inline-flex min-h-[34px] items-center gap-1 text-xs font-semibold text-[#1E88E5] hover:underline dark:text-sky-400"
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
             Clear filters
@@ -797,47 +773,38 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
         )}
       </div>
 
+      {/* Quick Category Ribbon */}
+      <SectionRibbon
+        variant="primary"
+        ariaLabel="Filter events by category"
+        items={[
+          { id: 'all', label: 'All Categories' },
+          ...EVENT_CATEGORIES.map((cat) => ({ id: cat.id, label: cat.label })),
+        ]}
+        activeId={categoryFilter}
+        onChange={(catId) => setCategoryFilter(catId as 'all' | EventCategory)}
+      />
+
       {/* Search & Filter Controls */}
-      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4">
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4 dark:border-slate-800 dark:bg-slate-800/50">
         <div className="relative">
           <Search
-            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400"
+            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500"
             aria-hidden="true"
           />
           <input
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search events by title, organiser, category, venue, or keyword..."
+            placeholder="Search events by title, venue, or organiser..."
             aria-label="Filter campus events"
-            className="min-h-[40px] w-full rounded-lg border border-slate-300 bg-white pr-3 pl-9 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+            className="min-h-[40px] w-full rounded-lg border border-slate-300 bg-white pr-3 pl-9 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-slate-600">
-              Category
-            </span>
-            <select
-              value={categoryFilter}
-              onChange={(e) =>
-                setCategoryFilter(e.target.value as 'all' | EventCategory)
-              }
-              aria-label="Filter by event category"
-              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
-            >
-              <option value="all">All Categories</option>
-              {EVENT_CATEGORIES.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-slate-600">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               Status
             </span>
             <select
@@ -846,7 +813,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
                 setStatusFilter(e.target.value as EventStatusFilter)
               }
               aria-label="Filter by event status"
-              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="all">All Statuses</option>
               <option value="upcoming">Upcoming</option>
@@ -857,7 +824,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-slate-600">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               Date
             </span>
             <select
@@ -866,7 +833,7 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
                 setDateWindowFilter(e.target.value as EventDateWindowFilter)
               }
               aria-label="Filter by event date"
-              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="all">All Dates</option>
               <option value="today">Today</option>
@@ -876,14 +843,14 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-[11px] font-semibold text-slate-600">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               Venue
             </span>
             <select
               value={venueFilter}
               onChange={(e) => setVenueFilter(e.target.value)}
               aria-label="Filter by event venue"
-              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             >
               <option value="all">All Venues</option>
               {availableVenues.map((venue) => (
@@ -909,37 +876,37 @@ export const EventsSection: React.FC<EventsSectionProps> = ({
       {errorMessage && (
         <div
           role="alert"
-          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800"
+          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200"
         >
           {errorMessage}
         </div>
       )}
 
       {filteredEvents.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center">
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center dark:border-slate-700 dark:bg-slate-800/50">
           <Calendar
             className="mx-auto mb-2.5 h-6 w-6 text-slate-400"
             aria-hidden="true"
           />
-          <h2 className="font-display text-base font-bold text-[#0B1A2E]">
+          <h2 className="font-display text-base font-bold text-[#0B1A2E] dark:text-white">
             {activeTab === 'saved'
               ? 'No saved events match your filters'
               : hasActiveFilters
                 ? 'No campus events match your filters'
                 : 'No campus events published yet'}
           </h2>
-          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600">
+          <p className="mx-auto mt-1 max-w-md text-xs text-slate-600 dark:text-slate-400">
             {activeTab === 'saved'
-              ? 'Save upcoming lectures, workshops, orientations, or social events to keep track of them here.'
+              ? 'Save events to find them quickly here.'
               : hasActiveFilters
-                ? 'Try adjusting your category, status, date, venue, or search keywords.'
-                : 'Campus lectures, seminars, orientations, competitions, and student union activities will appear here once published.'}
+                ? 'Try changing your search or filters.'
+                : 'Upcoming campus events will show up here.'}
           </p>
           {hasActiveFilters && (
             <button
               type="button"
               onClick={clearFilters}
-              className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844]"
+              className="mt-4 inline-flex min-h-[38px] items-center rounded-lg bg-[#0B1A2E] px-4 py-2 text-xs font-semibold text-white hover:bg-[#132844] dark:bg-[#1E88E5] dark:hover:bg-[#1976D2]"
             >
               Reset All Filters
             </button>

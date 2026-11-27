@@ -28,37 +28,37 @@ export const OpportunityCard = React.memo(function OpportunityCard({
   const lifecycle = resolveOpportunityLifecycle(opportunity, nowMs);
 
   return (
-    <article className="flex min-w-0 flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-[#1E88E5]">
+    <article className="flex min-w-0 flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-[#1E88E5] dark:border-slate-800 dark:bg-slate-900 dark:hover:border-sky-500">
       <div className="min-w-0">
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="font-semibold text-[#1E88E5]">
+            <span className="font-semibold text-[#1E88E5] dark:text-sky-400">
               {getOpportunityCategoryLabel(opportunity.category)}
             </span>
-            <span aria-hidden="true" className="text-slate-300">
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
               ·
             </span>
             <span
               className={`font-semibold ${
                 lifecycle.state === 'closing_soon'
-                  ? 'text-amber-700'
+                  ? 'text-amber-700 dark:text-amber-400'
                   : lifecycle.state === 'closed'
-                    ? 'text-slate-500'
+                    ? 'text-slate-500 dark:text-slate-400'
                     : lifecycle.state === 'upcoming'
-                      ? 'text-[#1E88E5]'
-                      : 'text-emerald-700'
+                      ? 'text-[#1E88E5] dark:text-sky-400'
+                      : 'text-emerald-700 dark:text-emerald-400'
               }`}
             >
               {lifecycle.label}
             </span>
             {opportunity.isVerified === true && (
               <>
-                <span aria-hidden="true" className="text-slate-300">
+                <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">
                   ·
                 </span>
-                <span className="inline-flex items-center gap-1 font-medium text-[#0B1A2E]">
+                <span className="inline-flex items-center gap-1 font-medium text-[#0B1A2E] dark:text-slate-200">
                   <ShieldCheck
-                    className="h-3.5 w-3.5 text-[#1E88E5]"
+                    className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400"
                     aria-hidden="true"
                   />
                   Verified
@@ -78,8 +78,8 @@ export const OpportunityCard = React.memo(function OpportunityCard({
             }
             className={`-mt-1 -mr-1 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-lg transition-colors ${
               isSaved
-                ? 'bg-[#1E88E5]/10 text-[#1E88E5]'
-                : 'text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E]'
+                ? 'bg-[#1E88E5]/10 text-[#1E88E5] dark:bg-sky-500/15 dark:text-sky-400'
+                : 'text-slate-400 hover:bg-slate-100 hover:text-[#0B1A2E] dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-white'
             }`}
           >
             <Bookmark
@@ -94,26 +94,26 @@ export const OpportunityCard = React.memo(function OpportunityCard({
           onClick={() => onOpenDetails(opportunity.id)}
           className="mt-2 text-left"
         >
-          <h3 className="font-display text-base font-bold text-[#0B1A2E] hover:text-[#1E88E5]">
+          <h3 className="font-display text-base font-bold text-[#0B1A2E] hover:text-[#1E88E5] dark:text-white dark:hover:text-sky-400">
             {opportunity.title}
           </h3>
         </button>
-        <p className="mt-0.5 text-xs font-semibold text-[#1E88E5]">
+        <p className="mt-0.5 text-xs font-semibold text-[#1E88E5] dark:text-sky-400">
           {opportunity.organisation}
         </p>
-        <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-600">
+        <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
           {opportunity.description}
         </p>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-        <div className="space-y-0.5 text-[11px] text-slate-500">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <div className="space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
           <p>Posted {formatOpportunityDate(opportunity.createdAt)}</p>
           <p
             className={`inline-flex items-center gap-1 font-medium ${
               lifecycle.state === 'closing_soon'
-                ? 'text-amber-700'
-                : 'text-slate-600'
+                ? 'text-amber-700 dark:text-amber-400'
+                : 'text-slate-600 dark:text-slate-300'
             }`}
           >
             <Clock className="h-3 w-3" aria-hidden="true" />
@@ -124,7 +124,7 @@ export const OpportunityCard = React.memo(function OpportunityCard({
         <button
           type="button"
           onClick={() => onOpenDetails(opportunity.id)}
-          className="inline-flex min-h-[36px] items-center rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#132844]"
+          className="inline-flex min-h-[36px] items-center rounded-lg bg-[#0B1A2E] px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#132844] dark:bg-sky-600 dark:hover:bg-sky-500"
         >
           View Details
         </button>

@@ -109,49 +109,46 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12 text-sm text-slate-600">
+      <div className="flex items-center justify-center py-12 text-sm text-slate-600 dark:text-slate-300">
         <Loader2
           className="mr-2 h-4 w-4 animate-spin text-[#1E88E5]"
           aria-hidden="true"
         />
-        Loading platform settings...
+        Loading settings...
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-700">
-        <div className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E]">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-relaxed text-slate-700 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
+        <div className="flex items-center gap-2 font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
           <Crown className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-          Protected Two-Admin Authority Architecture
+          Protected Supreme Admin Access
         </div>
-        <p className="mt-2">
-          Platform governance is permanently locked by Firebase Security Rules to
-          only the two designated Supreme Admin accounts (Public Supreme Admin
-          and Underground Supreme Admin). Peer Supreme Admins cannot be demoted,
-          suspended, or deleted, and additional Supreme Admin roles cannot be
-          assigned.
+        <p className="mt-1.5">
+          Only the two designated Supreme Admins can edit platform settings or
+          broadcast announcements.
         </p>
       </div>
 
       <form
         onSubmit={handleSave}
-        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900"
       >
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
           <ShieldCheck className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
-          <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-            Global Platform Configuration (<code>platformSettings/global</code>)
+          <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+            Platform Settings
           </h2>
         </div>
 
         <div>
           <label
             htmlFor="settings-notice"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Platform Notice / Campus Banner Message (optional)
+            Site-Wide Banner Message (optional)
           </label>
           <textarea
             id="settings-notice"
@@ -159,17 +156,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             maxLength={400}
             value={maintenanceNotice}
             onChange={(e) => setMaintenanceNotice(e.target.value)}
-            placeholder="Leave empty for no notice banner, or enter a campus-wide advisory..."
-            className="mt-1 block w-full rounded-xl border border-slate-300 p-3 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+            placeholder="Leave blank for none, or write an urgent campus notice..."
+            className="mt-1 block w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
 
         <div>
           <label
             htmlFor="settings-pinned-post"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Featured Announcement Post ID (optional)
+            Featured Post ID (optional)
           </label>
           <input
             id="settings-pinned-post"
@@ -178,40 +175,40 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             value={pinnedAnnouncementPostId}
             onChange={(e) => setPinnedAnnouncementPostId(e.target.value)}
             placeholder="Optional published post ID..."
-            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
 
         <div className="space-y-2.5 pt-1">
           {[
             {
-              label: 'Accept New Marketplace Submissions',
-              desc: 'Allows eligible members to submit new products, services, and accommodation listings.',
+              label: 'Accept Marketplace Listings',
+              desc: 'Let members submit products, services, and accommodation listings.',
               checked: marketplaceSubmissionsOpen,
               onChange: setMarketplaceSubmissionsOpen,
             },
             {
-              label: 'Allow Anonymous Community Posting',
-              desc: 'Keeps The Unfiltered anonymous composer open for signed-in members.',
+              label: 'Allow Anonymous Posting',
+              desc: 'Keep The Unfiltered anonymous composer open for members.',
               checked: anonymousPostingOpen,
               onChange: setAnonymousPostingOpen,
             },
             {
-              label: 'Allow New Member Registrations',
-              desc: 'Controls whether public sign-up onboarding is currently open.',
+              label: 'Allow New Sign-ups',
+              desc: 'Control whether new students can create accounts.',
               checked: newRegistrationsOpen,
               onChange: setNewRegistrationsOpen,
             },
           ].map((toggle) => (
             <label
               key={toggle.label}
-              className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-slate-200 p-3.5 hover:bg-slate-50/70"
+              className="flex cursor-pointer items-start justify-between gap-3 rounded-xl border border-slate-200 p-3.5 hover:bg-slate-50/70 dark:border-slate-800 dark:hover:bg-slate-800/50"
             >
               <div>
-                <p className="text-xs font-bold text-[#0B1A2E]">
+                <p className="text-xs font-bold text-[#0B1A2E] dark:text-slate-100">
                   {toggle.label}
                 </p>
-                <p className="mt-0.5 text-[11px] text-slate-600">
+                <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
                   {toggle.desc}
                 </p>
               </div>
@@ -229,31 +226,30 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
           <button
             type="submit"
             disabled={saving}
-            className="inline-flex min-h-[42px] items-center gap-2 rounded-xl bg-[#0B1A2E] px-5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60"
+            className="inline-flex min-h-[42px] items-center gap-2 rounded-xl bg-[#0B1A2E] px-5 py-2 text-xs font-semibold text-white hover:bg-[#132844] disabled:opacity-60 dark:bg-[#1E88E5] dark:hover:bg-[#1565C0]"
           >
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
-              <Save className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
+              <Save className="h-4 w-4 text-[#1E88E5] dark:text-white" aria-hidden="true" />
             )}
-            Save Platform Settings
+            Save Settings
           </button>
         </div>
       </form>
 
       <form
         onSubmit={handleBroadcastAnnouncement}
-        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+        className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900"
       >
-        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
           <Megaphone className="h-4 w-4 text-[#1E88E5]" aria-hidden="true" />
           <div>
-            <h2 className="font-display text-sm font-bold text-[#0B1A2E]">
-              Publish Official Community Announcement
+            <h2 className="font-display text-sm font-bold text-[#0B1A2E] dark:text-slate-100">
+              Broadcast Announcement
             </h2>
-            <p className="text-[11px] text-slate-600">
-              Deliver an official notice directly to members&apos; notification
-              centres. Restricted to Supreme Admin accounts.
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
+              Send an official notice to every member&apos;s notification feed.
             </p>
           </div>
         </div>
@@ -261,9 +257,9 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
         <div>
           <label
             htmlFor="announcement-title"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Announcement Headline
+            Headline
           </label>
           <input
             id="announcement-title"
@@ -274,16 +270,16 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             value={announcementTitle}
             onChange={(e) => setAnnouncementTitle(e.target.value)}
             placeholder="e.g. Updated Second Semester Academic Calendar Released"
-            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
 
         <div>
           <label
             htmlFor="announcement-body"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Announcement Message
+            Message
           </label>
           <textarea
             id="announcement-body"
@@ -293,17 +289,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             maxLength={500}
             value={announcementBody}
             onChange={(e) => setAnnouncementBody(e.target.value)}
-            placeholder="Write the official notice to display in member notifications..."
-            className="mt-1 block w-full rounded-xl border border-slate-300 p-3 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+            placeholder="Write the official notice for members..."
+            className="mt-1 block w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
 
         <div>
           <label
             htmlFor="announcement-route"
-            className="block text-xs font-semibold text-[#0B1A2E]"
+            className="block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
           >
-            Destination Section When Opened
+            Open When Tapped
           </label>
           <select
             id="announcement-route"
@@ -313,7 +309,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                 e.target.value as AnnouncementDestinationRoute
               )
             }
-            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5]"
+            className="mt-1 block min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
           >
             <option value="for-you">Home Feed (Updates)</option>
             <option value="upcoming-events">Campus Events</option>
@@ -336,7 +332,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             ) : (
               <Send className="h-4 w-4" aria-hidden="true" />
             )}
-            Publish Official Announcement
+            Send Announcement
           </button>
         </div>
       </form>

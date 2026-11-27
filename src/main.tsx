@@ -4,6 +4,7 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { getCanonicalProductionOrigin } from './config/site';
 import { FirebaseProvider } from './context/FirebaseProvider.tsx';
+import { ThemeProvider } from './context/ThemeContext.tsx';
 import { registerPwaServiceWorker } from './services/pwaRegistration.ts';
 import { destinationFromParsedLocation } from './utils/navigationHistory';
 import { applyDocumentSeoMetadata, resolvePageSeoMetadata } from './utils/seo';
@@ -24,9 +25,11 @@ registerPwaServiceWorker();
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <FirebaseProvider>
-        <App />
-      </FirebaseProvider>
+      <ThemeProvider>
+        <FirebaseProvider>
+          <App />
+        </FirebaseProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   </StrictMode>
 );

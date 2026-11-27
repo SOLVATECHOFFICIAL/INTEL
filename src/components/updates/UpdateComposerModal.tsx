@@ -565,12 +565,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/65 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[#0B1A2E]/65 p-0 backdrop-blur-xs sm:items-center sm:p-4 dark:bg-black/75"
       role="dialog"
       aria-modal="true"
       aria-labelledby="update-composer-heading"
     >
-      <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl">
+      <div className="flex max-h-[calc(100dvh-env(safe-area-inset-top)-0.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-2xl dark:border-slate-800 dark:bg-slate-900">
         {/* Modal Header */}
         <div className="lasued-brand-gradient flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5 text-white sm:px-5">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -582,14 +582,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                 id="update-composer-heading"
                 className="truncate font-display text-sm font-bold sm:text-base"
               >
-                {isEditing
-                  ? 'Edit Official Update'
-                  : 'Create Official Administrator Update'}
+                {isEditing ? 'Edit Official Update' : 'New Official Update'}
               </h2>
               <p className="truncate text-[11px] text-slate-300">
                 {effectiveAuthorMode === 'official_desk'
-                  ? 'Publishing anonymously as LASUED Intel Official'
-                  : `Publishing as ${previewAuthorName}`}
+                  ? 'Posting as LASUED Intel Official'
+                  : `Posting as ${previewAuthorName}`}
               </p>
             </div>
           </div>
@@ -606,40 +604,40 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
         </div>
 
         {/* Compose / Live Preview Switcher */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5">
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-800">
             <button
               type="button"
               onClick={() => setActiveView('compose')}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                 activeView === 'compose'
-                  ? 'bg-[#0B1A2E] text-white'
-                  : 'text-slate-600 hover:text-[#0B1A2E]'
+                  ? 'bg-[#0B1A2E] text-white dark:bg-sky-500 dark:text-slate-950'
+                  : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
               }`}
             >
-              Compose
+              Write
             </button>
             <button
               type="button"
               onClick={() => setActiveView('preview')}
               className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                 activeView === 'preview'
-                  ? 'bg-[#0B1A2E] text-white'
-                  : 'text-slate-600 hover:text-[#0B1A2E]'
+                  ? 'bg-[#0B1A2E] text-white dark:bg-sky-500 dark:text-slate-950'
+                  : 'text-slate-600 hover:text-[#0B1A2E] dark:text-slate-300 dark:hover:text-white'
               }`}
             >
               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-              Live Preview
+              Preview
             </button>
           </div>
 
           {effectiveAuthorMode === 'official_desk' && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
               <ShieldCheck
-                className="h-3.5 w-3.5 text-[#1E88E5]"
+                className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400"
                 aria-hidden="true"
               />
-              Identity protected
+              Identity hidden
             </span>
           )}
         </div>
@@ -653,8 +651,8 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
               <>
                 {/* Separate Format Selector (locked while editing) */}
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-[#0B1A2E]">
-                    Update Format
+                  <label className="mb-1.5 block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
+                    Update Type
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -667,15 +665,15 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       }}
                       className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                         format === 'photo'
-                          ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#0B1A2E]'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#0B1A2E] dark:border-sky-400 dark:bg-sky-500/15 dark:text-white'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/70'
                       } disabled:cursor-not-allowed disabled:opacity-45`}
                     >
                       <ImagePlus
-                        className="h-4 w-4 text-[#1E88E5]"
+                        className="h-4 w-4 text-[#1E88E5] dark:text-sky-400"
                         aria-hidden="true"
                       />
-                      <span>Photo Update (1–4)</span>
+                      <span>Photos (1–4)</span>
                     </button>
 
                     <button
@@ -688,21 +686,21 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       }}
                       className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
                         format === 'text'
-                          ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#0B1A2E]'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          ? 'border-[#1E88E5] bg-[#1E88E5]/10 text-[#0B1A2E] dark:border-sky-400 dark:bg-sky-500/15 dark:text-white'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/70'
                       } disabled:cursor-not-allowed disabled:opacity-45`}
                     >
                       <Palette
-                        className="h-4 w-4 text-[#1E88E5]"
+                        className="h-4 w-4 text-[#1E88E5] dark:text-sky-400"
                         aria-hidden="true"
                       />
-                      <span>Text-Only Card</span>
+                      <span>Text Card</span>
                     </button>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                     {format === 'photo'
-                      ? 'Photo Updates display 1 shared caption above 1–4 compressed images.'
-                      : 'Text-Only Updates display your message over a selectable high-contrast card (no photo attachments).'}
+                      ? 'Add 1–4 photos with one shared caption.'
+                      : 'Show your message on a coloured card (no photos).'}
                   </p>
                 </div>
 
@@ -711,7 +709,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                   <div>
                     <label
                       htmlFor="update-category"
-                      className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                      className="mb-1 block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                     >
                       Category
                     </label>
@@ -719,7 +717,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       id="update-category"
                       value={category}
                       onChange={(e) => setCategory(e.target.value)}
-                      className="min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                      className="min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-sky-400"
                     >
                       {ALLOWED_ADMIN_UPDATE_CATEGORIES.map((cat) => (
                         <option key={cat} value={cat}>
@@ -730,15 +728,15 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                   </div>
 
                   <div className="flex items-end">
-                    <label className="flex min-h-[42px] w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-[#0B1A2E]">
+                    <label className="flex min-h-[42px] w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                       <span className="inline-flex items-center gap-1.5">
                         <Pin
                           className={`h-3.5 w-3.5 ${
-                            isPinned ? 'text-[#1E88E5]' : 'text-slate-400'
+                            isPinned ? 'text-[#1E88E5] dark:text-sky-400' : 'text-slate-400 dark:text-slate-500'
                           }`}
                           aria-hidden="true"
                         />
-                        Pin to top of Updates
+                        Pin to top
                       </span>
                       <input
                         type="checkbox"
@@ -754,10 +752,10 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                 <div>
                   <label
                     htmlFor="update-title"
-                    className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                    className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                   >
-                    <span>Headline (optional)</span>
-                    <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                    <span>Title (optional)</span>
+                    <span className="text-[11px] font-normal text-slate-400 tabular-nums dark:text-slate-500">
                       {title.length}/{BLUEPRINT_LIMITS.postTitleMax}
                     </span>
                   </label>
@@ -767,8 +765,8 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     maxLength={BLUEPRINT_LIMITS.postTitleMax}
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g., First Semester Examination Timetable Release"
-                    className="min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                    placeholder="e.g., First Semester Exam Timetable"
+                    className="min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] outline-none placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
                   />
                 </div>
 
@@ -778,10 +776,10 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     <div>
                       <label
                         htmlFor="update-photo-caption"
-                        className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                        className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                       >
-                        <span>Shared Caption (shown above photos)</span>
-                        <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                        <span>Caption</span>
+                        <span className="text-[11px] font-normal text-slate-400 tabular-nums dark:text-slate-500">
                           {body.length}/{maxBodyLength}
                         </span>
                       </label>
@@ -791,21 +789,21 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                         maxLength={maxBodyLength}
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
-                        placeholder="Write a single shared caption for these photos..."
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm leading-relaxed text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                        placeholder="Write a caption for these photos..."
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm leading-relaxed text-[#0B1A2E] outline-none placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
                       />
                     </div>
 
                     {/* Photo Picker + Responsive Management List */}
-                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-slate-700 dark:bg-slate-800/50">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-xs font-bold text-[#0B1A2E]">
-                            Photographs ({attachments.length}/
+                          <p className="text-xs font-bold text-[#0B1A2E] dark:text-white">
+                            Photos ({attachments.length}/
                             {BLUEPRINT_LIMITS.mediaPostMaxCount})
                           </p>
-                          <p className="text-[11px] text-slate-500">
-                            Select 1 to 4 photos. Automatically compressed with crisp detail.
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Pick 1 to 4 photos. Optimized automatically.
                           </p>
                         </div>
                         <button
@@ -861,17 +859,17 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                           type="button"
                           disabled={isSubmitting || compressingCount > 0}
                           onClick={() => fileInputRef.current?.click()}
-                          className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-sky-50/40 disabled:opacity-50"
+                          className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-6 text-center transition-colors hover:border-[#1E88E5] hover:bg-sky-50/40 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-sky-400 dark:hover:bg-sky-950/30"
                         >
                           <ImagePlus
-                            className="h-6 w-6 text-[#1E88E5]"
+                            className="h-6 w-6 text-[#1E88E5] dark:text-sky-400"
                             aria-hidden="true"
                           />
-                          <span className="text-xs font-semibold text-[#0B1A2E]">
-                            Tap to select 1 to 4 photos (any image format)
+                          <span className="text-xs font-semibold text-[#0B1A2E] dark:text-white">
+                            Tap to select 1 to 4 photos
                           </span>
-                          <span className="text-[11px] text-slate-500">
-                            JPEG, PNG, WebP, HEIC, GIF, AVIF, BMP &amp; more compressed automatically.
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                            JPEG, PNG, WebP, HEIC, GIF &amp; more supported.
                           </span>
                         </button>
                       ) : (
@@ -880,7 +878,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                             {attachments.map((att, index) => (
                               <div
                                 key={att.clientId}
-                                className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                                className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
                               >
                                 <div className="relative aspect-square bg-[#0B1A2E]">
                                   {att.previewUrl ? (
@@ -906,7 +904,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                       disabled={index === 0}
                                       onClick={() => handleMovePhoto(index, -1)}
                                       aria-label={`Move photo ${index + 1} left`}
-                                      className="flex h-7 w-7 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                                      className="flex h-7 w-7 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30 dark:text-slate-300 dark:hover:bg-slate-800"
                                     >
                                       <ArrowLeft className="h-3.5 w-3.5" />
                                     </button>
@@ -915,7 +913,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                       disabled={index === attachments.length - 1}
                                       onClick={() => handleMovePhoto(index, 1)}
                                       aria-label={`Move photo ${index + 1} right`}
-                                      className="flex h-7 w-7 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                                      className="flex h-7 w-7 items-center justify-center rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30 dark:text-slate-300 dark:hover:bg-slate-800"
                                     >
                                       <ArrowRight className="h-3.5 w-3.5" />
                                     </button>
@@ -931,7 +929,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                       }}
                                       aria-label={`Replace photo ${index + 1}`}
                                       title="Replace photo"
-                                      className="flex h-7 w-7 items-center justify-center rounded text-[#1E88E5] hover:bg-blue-50"
+                                      className="flex h-7 w-7 items-center justify-center rounded text-[#1E88E5] hover:bg-blue-50 dark:text-sky-400 dark:hover:bg-sky-950/50"
                                     >
                                       <RefreshCw className="h-3.5 w-3.5" />
                                     </button>
@@ -942,14 +940,14 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                       }
                                       aria-label={`Remove photo ${index + 1}`}
                                       title="Remove photo"
-                                      className="flex h-7 w-7 items-center justify-center rounded text-red-700 hover:bg-red-50"
+                                      className="flex h-7 w-7 items-center justify-center rounded text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </button>
                                   </div>
                                 </div>
                                 {att.compressed && (
-                                  <p className="border-t border-slate-100 px-2 py-1 text-[10px] text-slate-500">
+                                  <p className="border-t border-slate-100 px-2 py-1 text-[10px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                     {formatByteSize(att.compressed.byteSize)}
                                   </p>
                                 )}
@@ -964,12 +962,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                   <>
                     {/* Format 2: Text-Only Update with Background Selector */}
                     <div>
-                      <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E]">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                         <Type
-                          className="h-3.5 w-3.5 text-[#1E88E5]"
+                          className="h-3.5 w-3.5 text-[#1E88E5] dark:text-sky-400"
                           aria-hidden="true"
                         />
-                        Card Background Colour / Gradient
+                        Card Colour
                       </span>
                       <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
                         {TEXT_POST_BACKGROUND_THEMES.map((theme) => {
@@ -985,8 +983,8 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                               style={{ background: theme.swatchCss }}
                               className={`flex h-10 items-center justify-center rounded-xl border-2 transition-transform ${
                                 selected
-                                  ? 'scale-105 border-[#1E88E5] ring-2 ring-[#1E88E5]/35'
-                                  : 'border-white shadow-xs hover:scale-105'
+                                  ? 'scale-105 border-[#1E88E5] ring-2 ring-[#1E88E5]/35 dark:border-sky-400'
+                                  : 'border-white shadow-xs hover:scale-105 dark:border-slate-800'
                               }`}
                             >
                               {selected && (
@@ -1004,10 +1002,10 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     <div>
                       <label
                         htmlFor="update-text-body"
-                        className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                        className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                       >
-                        <span>Official Message</span>
-                        <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                        <span>Message</span>
+                        <span className="text-[11px] font-normal text-slate-400 tabular-nums dark:text-slate-500">
                           {body.length}/{maxBodyLength}
                         </span>
                       </label>
@@ -1030,21 +1028,21 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                 )}
 
                 {/* Official-Post-Only Poll Builder */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 sm:p-4 dark:border-slate-700 dark:bg-slate-800/50">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0B1A2E] text-white dark:bg-slate-800">
                         <BarChart3
-                          className="h-4 w-4 text-[#1E88E5]"
+                          className="h-4 w-4 text-[#1E88E5] dark:text-sky-400"
                           aria-hidden="true"
                         />
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-[#0B1A2E]">
-                          Attach Official Poll (Optional)
+                        <p className="text-xs font-bold text-[#0B1A2E] dark:text-white">
+                          Add Poll (Optional)
                         </p>
-                        <p className="text-[11px] text-slate-500">
-                          Polls are strictly embedded inside Official Updates.
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Let members vote right inside this update.
                         </p>
                       </div>
                     </div>
@@ -1062,7 +1060,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       className={`inline-flex min-h-[34px] shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
                         attachPoll
                           ? 'border-[#1E88E5] bg-[#1E88E5] text-white'
-                          : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-100'
+                          : 'border-slate-300 bg-white text-[#0B1A2E] hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
                       }`}
                     >
                       {attachPoll ? 'Included' : 'Add Poll'}
@@ -1070,21 +1068,21 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                   </div>
 
                   {loadingExistingPoll && (
-                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
+                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E88E5]" />
-                      Loading attached poll configuration...
+                      Loading poll...
                     </div>
                   )}
 
                   {attachPoll && !loadingExistingPoll && (
-                    <div className="mt-3.5 space-y-3 border-t border-slate-200 pt-3.5">
+                    <div className="mt-3.5 space-y-3 border-t border-slate-200 pt-3.5 dark:border-slate-700">
                       <div>
                         <label
                           htmlFor="official-poll-question"
-                          className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                          className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                         >
                           <span>Poll Question</span>
-                          <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                          <span className="text-[11px] font-normal text-slate-400 tabular-nums dark:text-slate-500">
                             {pollQuestion.length}/{BLUEPRINT_LIMITS.pollQuestionMax}
                           </span>
                         </label>
@@ -1094,18 +1092,18 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                           maxLength={BLUEPRINT_LIMITS.pollQuestionMax}
                           value={pollQuestion}
                           onChange={(e) => setPollQuestion(e.target.value)}
-                          placeholder="Ask students or verified members a clear question..."
-                          className="min-h-[40px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                          placeholder="Ask a clear question..."
+                          className="min-h-[40px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#0B1A2E] outline-none placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
                         />
                       </div>
 
                       <div>
                         <label
                           htmlFor="official-poll-description"
-                          className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E]"
+                          className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                         >
-                          <span>Poll Description (Optional)</span>
-                          <span className="text-[11px] font-normal text-slate-400 tabular-nums">
+                          <span>Note (Optional)</span>
+                          <span className="text-[11px] font-normal text-slate-400 tabular-nums dark:text-slate-500">
                             {pollDescription.length}/{BLUEPRINT_LIMITS.pollDescriptionMax}
                           </span>
                         </label>
@@ -1115,18 +1113,18 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                           maxLength={BLUEPRINT_LIMITS.pollDescriptionMax}
                           value={pollDescription}
                           onChange={(e) => setPollDescription(e.target.value)}
-                          placeholder="Add helpful context, faculty instructions, or voting guidance..."
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                          placeholder="Add short instructions or context..."
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-[#0B1A2E] outline-none placeholder:text-slate-400 focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400"
                         />
                       </div>
 
                       <div>
                         <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-[#0B1A2E]">
+                          <span className="text-xs font-semibold text-[#0B1A2E] dark:text-slate-200">
                             Options ({pollOptions.length}/{BLUEPRINT_LIMITS.pollOptionsMax})
                           </span>
                           {existingPoll && existingPoll.totalVotes > 0 ? (
-                            <span className="text-[11px] font-medium text-amber-700">
+                            <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
                               Options locked after votes cast ({existingPoll.totalVotes})
                             </span>
                           ) : (
@@ -1140,9 +1138,9 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                       : prev
                                   )
                                 }
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100"
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#0B1A2E] hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                               >
-                                <Plus className="h-3 w-3 text-[#1E88E5]" />
+                                <Plus className="h-3 w-3 text-[#1E88E5] dark:text-sky-400" />
                                 Add option
                               </button>
                             )
@@ -1169,7 +1167,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                     )
                                   }
                                   placeholder={`Option ${idx + 1}`}
-                                  className="min-h-[38px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5] disabled:bg-slate-100 disabled:text-slate-500"
+                                  className="min-h-[38px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-[#0B1A2E] outline-none placeholder:text-slate-400 focus:border-[#1E88E5] disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-500 dark:focus:border-sky-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
                                 />
                                 {!optionsLocked &&
                                   pollOptions.length > BLUEPRINT_LIMITS.pollOptionsMin && (
@@ -1188,7 +1186,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                         );
                                       }}
                                       aria-label={`Remove option ${idx + 1}`}
-                                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-red-700 hover:bg-red-50"
+                                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-red-700 hover:bg-red-50 dark:border-slate-700 dark:bg-slate-900 dark:text-red-400 dark:hover:bg-red-950/50"
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </button>
@@ -1203,7 +1201,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                         <div>
                           <label
                             htmlFor="official-poll-expiry"
-                            className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                            className="mb-1 block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                           >
                             Closes At
                           </label>
@@ -1212,7 +1210,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                             type="datetime-local"
                             value={pollExpiresAtLocal}
                             onChange={(e) => setPollExpiresAtLocal(e.target.value)}
-                            className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                            className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-sky-400"
                           />
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {POLL_DURATION_PRESETS.map((preset) => (
@@ -1226,7 +1224,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                     )
                                   )
                                 }
-                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-[#1E88E5] hover:text-[#0B1A2E]"
+                                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-[#1E88E5] hover:text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-sky-400 dark:hover:text-white"
                               >
                                 {preset.label}
                               </button>
@@ -1238,9 +1236,9 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                           <div>
                             <label
                               htmlFor="official-poll-voter-scope"
-                              className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                              className="mb-1 block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                             >
-                              Eligible Voters
+                              Who Can Vote
                             </label>
                             <select
                               id="official-poll-voter-scope"
@@ -1250,7 +1248,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                   e.target.value as PollVoterScope
                                 )
                               }
-                              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-sky-400"
                             >
                               <option value="all_members">
                                 All Signed-In Members
@@ -1264,7 +1262,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                           <div>
                             <label
                               htmlFor="official-poll-visibility"
-                              className="mb-1 block text-xs font-semibold text-[#0B1A2E]"
+                              className="mb-1 block text-xs font-semibold text-[#0B1A2E] dark:text-slate-200"
                             >
                               Results Visibility
                             </label>
@@ -1276,7 +1274,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                   e.target.value as PollResultsVisibility
                                 )
                               }
-                              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5]"
+                              className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-[#0B1A2E] outline-none focus:border-[#1E88E5] dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:focus:border-sky-400"
                             >
                               <option value="always">Always Visible</option>
                               <option value="after_vote">
@@ -1291,7 +1289,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       </div>
 
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E]">
+                        <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                           <span>Allow multiple choices</span>
                           <input
                             type="checkbox"
@@ -1307,7 +1305,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                           />
                         </label>
 
-                        <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E]">
+                        <label className="flex min-h-[38px] cursor-pointer items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                           <span>Allow vote changes</span>
                           <input
                             type="checkbox"
@@ -1321,9 +1319,9 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       </div>
 
                       {pollAllowMultiple && (
-                        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                          <span className="font-semibold text-[#0B1A2E]">
-                            Maximum selections per voter
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+                          <span className="font-semibold text-[#0B1A2E] dark:text-slate-200">
+                            Max choices per person
                           </span>
                           <select
                             aria-label="Maximum selections per voter"
@@ -1334,7 +1332,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                             onChange={(e) =>
                               setPollMaxSelections(Number(e.target.value))
                             }
-                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-[#0B1A2E]"
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                           >
                             {Array.from(
                               {
@@ -1351,8 +1349,8 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                       )}
 
                       {existingPoll && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
-                          <span className="font-semibold text-[#0B1A2E]">
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+                          <span className="font-semibold text-[#0B1A2E] dark:text-slate-200">
                             Poll Status
                           </span>
                           <div className="flex items-center gap-2">
@@ -1364,7 +1362,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                                   e.target.value === 'closed' ? 'closed' : 'open'
                                 )
                               }
-                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-[#0B1A2E]"
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                             >
                               <option value="open">Open</option>
                               <option value="closed">Closed</option>
@@ -1378,13 +1376,13 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
               </>
             ) : (
               /* Live Preview Card */
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs sm:p-5 dark:border-slate-800 dark:bg-slate-950/60">
                 <div className="flex items-center gap-3">
                   {effectiveAuthorMode === 'official_desk' ? (
                     <img
                       src="/pwa-192x192.png"
                       alt="LASUED Intel Official"
-                      className="h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-[#0B1A2E] object-cover"
+                      className="h-10 w-10 shrink-0 rounded-full border border-slate-200 bg-[#0B1A2E] object-cover dark:border-slate-700"
                     />
                   ) : (
                     <AvatarMedia
@@ -1396,12 +1394,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                   )}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm font-bold text-[#0B1A2E]">
+                      <span className="text-sm font-bold text-[#0B1A2E] dark:text-white">
                         {previewAuthorName}
                       </span>
                       <RoleBadge badge={previewAuthorBadge} size="xs" />
                     </div>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {CATEGORY_LABELS[category] ?? category}
                       {isPinned ? ' · Pinned' : ''} · Preview
                     </p>
@@ -1413,12 +1411,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                     {(title.trim() || body.trim()) && (
                       <div className="space-y-1">
                         {title.trim() && (
-                          <h3 className="font-display text-base font-bold text-[#0B1A2E]">
+                          <h3 className="font-display text-base font-bold text-[#0B1A2E] dark:text-white">
                             {title.trim()}
                           </h3>
                         )}
                         {body.trim() && (
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-200">
                             {body.trim()}
                           </p>
                         )}
@@ -1432,8 +1430,8 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                         onImageClick={(idx) => setLightboxIndex(idx)}
                       />
                     ) : (
-                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-500">
-                        Add 1–4 photos in Compose to preview the responsive grid.
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                        Add 1–4 photos in Write mode to preview them here.
                       </div>
                     )}
                   </div>
@@ -1458,19 +1456,19 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                 )}
 
                 {attachPoll && (
-                  <div className="mt-3.5 rounded-xl border border-[#1E88E5]/25 bg-slate-50/80 p-3.5">
-                    <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase">
-                      Official Poll Preview
+                  <div className="mt-3.5 rounded-xl border border-[#1E88E5]/25 bg-slate-50/80 p-3.5 dark:border-sky-800/60 dark:bg-slate-900">
+                    <p className="text-[11px] font-bold tracking-wide text-[#1E88E5] uppercase dark:text-sky-400">
+                      Poll Preview
                     </p>
-                    <p className="mt-0.5 font-display text-sm font-bold text-[#0B1A2E] overflow-wrap-anywhere">
+                    <p className="mt-0.5 font-display text-sm font-bold text-[#0B1A2E] overflow-wrap-anywhere dark:text-white">
                       {pollQuestion.trim() || 'Your poll question will appear here.'}
                     </p>
                     {pollDescription.trim() && (
-                      <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 overflow-wrap-anywhere">
+                      <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 overflow-wrap-anywhere dark:text-slate-300">
                         {pollDescription.trim()}
                       </p>
                     )}
-                    <p className="mt-1.5 text-[11px] font-medium text-slate-500">
+                    <p className="mt-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                       {pollAllowMultiple
                         ? `Select up to ${Math.min(Math.max(2, pollMaxSelections), Math.max(2, pollOptions.filter((o) => o.trim()).length || pollOptions.length))} options`
                         : 'Select one option'}
@@ -1482,11 +1480,11 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
                         .map((opt, idx) => (
                           <div
                             key={`preview-opt-${idx}`}
-                            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#0B1A2E]"
+                            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#0B1A2E] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                           >
                             <span
                               aria-hidden="true"
-                              className={`h-4 w-4 shrink-0 border border-slate-300 ${
+                              className={`h-4 w-4 shrink-0 border border-slate-300 dark:border-slate-600 ${
                                 pollAllowMultiple ? 'rounded' : 'rounded-full'
                               }`}
                             />
@@ -1502,12 +1500,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
             )}
 
             {uploadProgress && (
-              <div className="space-y-1.5 rounded-xl border border-blue-200 bg-blue-50 p-3">
-                <div className="flex items-center justify-between text-xs font-semibold text-[#0B1A2E]">
+              <div className="space-y-1.5 rounded-xl border border-blue-200 bg-blue-50 p-3 dark:border-sky-900/60 dark:bg-sky-950/40">
+                <div className="flex items-center justify-between text-xs font-semibold text-[#0B1A2E] dark:text-sky-200">
                   <span>{uploadProgress.label}</span>
                   <span className="tabular-nums">{uploadProgress.percent}%</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-blue-100">
+                <div className="h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-slate-800">
                   <div
                     className="h-full rounded-full bg-[#1E88E5] transition-all duration-200"
                     style={{ width: `${uploadProgress.percent}%` }}
@@ -1519,7 +1517,7 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
             {errorMessage && (
               <div
                 role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800"
+                className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-800 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
               >
                 {errorMessage}
               </div>
@@ -1527,12 +1525,12 @@ export const UpdateComposerModal: React.FC<UpdateComposerModalProps> = ({
           </div>
 
           {/* Always-Pinned Modal Footer outside scroll container */}
-          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 dark:border-slate-800 dark:bg-slate-900">
             <button
               type="button"
               disabled={isSubmitting}
               onClick={onClose}
-              className="inline-flex min-h-[42px] items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex min-h-[42px] items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-[#0B1A2E] hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
